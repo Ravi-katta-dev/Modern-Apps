@@ -104,11 +104,20 @@
     <string name="block_sender">Block sender</string>
 
     <string name="choose_your_email_provider">Choose your email provider</string>
+    <string name="select_provider_to_continue">Select a provider to continue setup.</string>
     <string name="enter_imap_smtp_server_details_manually">Enter IMAP/SMTP server details manually</string>
+    <string name="manual_setup">Manual setup</string>
     <string name="app_password">App password</string>
     <string name="password">Password</string>
     <string name="hide">Hide</string>
     <string name="show">Show</string>
+    <string name="account">Account</string>
+    <string name="server_settings">Server settings</string>
+    <string name="use_app_password_if_oauth_not_available">Use an app password if OAuth is unavailable.</string>
+    <string name="prefill_microsoft_login_hint">Optional — pre-fills Microsoft login</string>
+    <string name="optional_prefill_help">Optional</string>
+    <string name="oauth_client_redirect">Client: %1$s… Redirect: com.vayunmathur.email://oauth</string>
+    <string name="error">Error</string>
     <string name="e_mail_file">E-mail file</string>
     <string name="unknown_error">Unknown error</string>
     <string name="no_content_1">(No content)</string>
