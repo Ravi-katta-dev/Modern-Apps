@@ -18,6 +18,7 @@ import com.vayunmathur.everysync.provider.impl.CH_PULL_TRANSPORT
 import com.vayunmathur.everysync.provider.impl.CH_RELAY_UNAVAILABLE
 import com.vayunmathur.everysync.provider.impl.CH_UNDECRYPTABLE_LOG
 import com.vayunmathur.everysync.provider.impl.E2eeProvider
+import com.vayunmathur.everysync.provider.impl.E2eeProvider.Companion.relayType
 import com.vayunmathur.everysync.sync.SnapshotStore
 import com.vayunmathur.everysync.sync.SnapshotStore.SnapshotMeta
 import com.vayunmathur.everysync.sync.SyncScheduler
@@ -238,5 +239,9 @@ class EverySyncViewModel(app: Application) : AndroidViewModel(app) {
 
     fun announce(messageRes: Int) {
         AppMessages.show(getApplication<Application>().getString(messageRes))
+    }
+
+    fun announce(message: String) {
+        AppMessages.show(message)
     }
 }
