@@ -116,4 +116,11 @@
     <string name="name_affix_none">Puudub</string>
     <string name="sim_name_or_phone_required">Sisesta nimi või telefoninumber</string>
     <string name="sim_slot_label">SIM-kaart %1$d</string>
+    <string name="move_to_account">Tõsta muu kasutajakonto juurde</string>
+    <string name="move">Tõsta</string>
+    <plurals name="move_to_account_subtitle">
+        <item quantity="one">Vali kuhu tahad <xliff:g id="count" example="1">%1$d</xliff:g> kontakti tõsta</item>
+        <item quantity="other">Vali kuhu tahad <xliff:g id="count" example="3">%1$d</xliff:g> kontakti tõsta</item>
+    </plurals>
+    <string name="move_to_sim_warning_title">Osa teabest ei mahu SIM-kaardile</string>
 </resources>
