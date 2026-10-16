@@ -7,7 +7,7 @@
     <string name="label_stopwatch">Saniyəölçən</string>
     <string name="set_an_alarm">Siqnal qurun</string>
     <string name="button_stop">Dayan</string>
-    <string name="button_snooze">Təxirə sal (5 dəq.)</string>
+    <string name="button_snooze">Təxirə sal (%1$d dəq.)</string>
     <string name="alarm_ringing_notification_title">Siqnal səslənir</string>
     <string name="channel_ongoing_timers_name">Davam edən taymerlər</string>
     <string name="channel_ongoing_timers_description">Davam edən geri sayımlar</string>

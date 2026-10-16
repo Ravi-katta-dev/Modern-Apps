@@ -7,7 +7,7 @@
     <string name="label_timer">Časovač</string>
     <string name="set_an_alarm">Nastavit budík</string>
     <string name="button_stop">STOP</string>
-    <string name="button_snooze">ODLOŽIT (5 MIN)</string>
+    <string name="button_snooze">ODLOŽIT (%1$d MIN)</string>
     <string name="channel_ongoing_timers_name">Probíhající časovače</string>
     <string name="channel_ongoing_timers_description">Probíhající odpočty</string>
     <string name="channel_alarms_name">Budíky</string>

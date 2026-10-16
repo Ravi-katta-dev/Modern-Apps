@@ -15,8 +15,8 @@
     <!-- AlarmActivity: full-screen ringing UI -->
     <!-- Button to dismiss ringing alarm. Verb, keep all caps as per design -->
     <string name="button_stop">STOP</string>
-    <!-- Button to snooze alarm for 5 minutes. Verb + duration, keep all caps -->
-    <string name="button_snooze">SNOOZE (5 MIN)</string>
+    <!-- Button to snooze alarm. Verb + duration, keep all caps. %1$d = snooze length in minutes -->
+    <string name="button_snooze">SNOOZE (<xliff:g id="snooze_minutes" example="5">%1$d</xliff:g> MIN)</string>
 
     <!-- AlarmReceiver / AlarmSoundService: notifications shown when alarm triggers -->
     <!-- Foreground service notification title while alarm is ringing -->

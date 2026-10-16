@@ -7,7 +7,7 @@
     <string name="label_stopwatch">Chronomètre</string>
     <string name="set_an_alarm">Configurer une alarme</string>
     <string name="button_stop">ARRÊTER</string>
-    <string name="button_snooze">REPORTER (5 MIN)</string>
+    <string name="button_snooze">REPORTER (%1$d MIN)</string>
     <string name="alarm_ringing_notification_title">L\'alarme sonne</string>
     <string name="channel_ongoing_timers_name">Minuteurs actifs</string>
     <string name="channel_completed_timers_name">Minuteurs écoulés</string>

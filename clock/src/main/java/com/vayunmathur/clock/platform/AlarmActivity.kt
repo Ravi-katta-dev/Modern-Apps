@@ -46,6 +46,11 @@ class AlarmActivity : ComponentActivity() {
                 AlarmRingingScreen(
                     alarmTime = alarm?.let { formatAlarmTime(this@AlarmActivity, it.time) } ?: "--:--",
                     alarmName = alarm?.name ?: getString(R.string.label_alarm),
+                    // Read off the loaded alarm, not the field: the field is only assigned in
+                    // the LaunchedEffect below (after composition), so passing it would still
+                    // show the default 5 on first draw. The field stays for snoozeAlarm(),
+                    // which reads it from a click handler long after load.
+                    snoozeMinutes = alarm?.snoozeMinutes ?: snoozeMinutes,
                     onDismiss = { dismissAlarm() },
                     onSnooze = { snoozeAlarm() }
                 )

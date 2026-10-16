@@ -33,6 +33,7 @@ import com.vayunmathur.library.ui.Text
 fun AlarmRingingScreen(
     alarmTime: String,
     alarmName: String,
+    snoozeMinutes: Int,
     onDismiss: () -> Unit,
     onSnooze: () -> Unit
 ) {
@@ -67,7 +68,7 @@ fun AlarmRingingScreen(
                     Text(text = stringResource(R.string.button_stop), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
                 }
                 FilledTonalButton(onClick = onSnooze, modifier = Modifier.fillMaxWidth().height(64.dp), shape = MaterialTheme.shapes.extraLarge) {
-                    IconPause(); Spacer(modifier = Modifier.width(8.dp)); Text(text = stringResource(R.string.button_snooze), style = MaterialTheme.typography.titleMedium)
+                    IconPause(); Spacer(modifier = Modifier.width(8.dp)); Text(text = stringResource(R.string.button_snooze, snoozeMinutes), style = MaterialTheme.typography.titleMedium)
                 }
             }
         }
