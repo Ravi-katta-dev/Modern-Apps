@@ -7,8 +7,13 @@
 /// so swapping in a 2048-upem face fails a test instead of shrinking the map's text.
 pub const UP_EM: u16 = 1000;
 
-/// Atlas grid: 16×16 cells.
-pub const ATLAS_COLS: u32 = 16;
+/// Atlas grid: 32×32 cells.
+///
+/// 1024 cells: ASCII (95) + Latin-1 Supplement (96) + Latin Extended-A (128) is
+/// 319 codepoints × 2 weights = 638 cells, with room for Latin Extended-B later.
+/// Was 16×16 (256 cells, 190 used), which fit ASCII only — every accented letter
+/// in a Budapest street name had no atlas entry and shaping skipped it (#821).
+pub const ATLAS_COLS: u32 = 32;
 /// Cell size in px, including padding. 64px at 4x raster of a 16px glyph.
 pub const CELL_PX: u32 = 64;
 /// Atlas edge in px.
@@ -73,8 +78,16 @@ pub fn fonts_staged() -> bool {
         && MEDIUM_TTF.starts_with(&[0x00, 0x01, 0x00, 0x00])
 }
 
-/// The Latin set M1 shapes: printable ASCII. `name:en` coalesced by the tiler is
-/// Latin in the overwhelming NA case; CJK/others are a stated M5.
+/// The Latin set M1 shapes: printable ASCII plus the accented letters of
+/// Latin-1 Supplement and Latin Extended-A, so Hungarian `őű`, French `éè`,
+/// German `äöüß` and friends render instead of being skipped by shaping (#821).
+/// CJK/others remain a stated M5.
 pub fn charset() -> Vec<char> {
-    (0x20u8..=0x7Eu8).map(|b| b as char).collect()
+    let mut out: Vec<char> = (0x20u8..=0x7Eu8).map(|b| b as char).collect();
+    // U+00A0–U+00FF except the soft hyphen (U+00AD): it is invisible and only a
+    // line-break opportunity, which the wrapper handles as a breakable already.
+    out.extend((0xA0u32..=0xFFu32).filter(|&c| c != 0xAD).filter_map(char::from_u32));
+    // U+0100–U+017F: Central/Eastern European (Hungarian őű, Polish łż, Czech ř…).
+    out.extend((0x100u32..=0x17Fu32).filter_map(char::from_u32));
+    out
 }

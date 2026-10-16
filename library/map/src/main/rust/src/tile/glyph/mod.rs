@@ -16,9 +16,9 @@
 //! APK, which shipped these 1.5 MB a second time for bytes no code path reads.
 //!
 //! Rasterising at first use costs milliseconds once:
-//! ~95 Latin codepoints × 2 weights, each a 4x `ab_glyph` rasterise followed by an
+//! ~319 Latin codepoints × 2 weights, each a 4x `ab_glyph` rasterise followed by an
 //! 8SSEDT distance transform over a ≤128px cell. The atlas is a single R8 image
-//! (16×16 cells of 64px = 1024px) uploaded to Vulkan once.
+//! (32×32 cells of 64px = 2048px) uploaded to Vulkan once.
 //!
 //! # Metrics live here, shaping in `tess::text`
 //!

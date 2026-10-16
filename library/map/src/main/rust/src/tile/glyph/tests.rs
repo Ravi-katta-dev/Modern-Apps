@@ -254,3 +254,24 @@ fn uv_rects_stay_inside_the_image() {
         }
     }
 }
+
+/// Issue 821: a Budapest street name must round-trip every character through the
+/// atlas — diacritics included. `Erzsébet híd` carries `é` (Latin-1) and `í`;
+/// `Árpád híd` adds `Á`. A missing entry here is a letter dropped from the map.
+#[test]
+fn budapest_street_names_shape_every_character() {
+    if !real_fonts_staged() {
+        eprintln!("SKIP: staged TTFs are 404 pages, not fonts");
+        return;
+    }
+    let atlas = GlyphAtlas::build();
+    for name in ["Erzsébet híd", "Árpád híd", "Dózsa György út", "Kossuth Lajos utca"] {
+        for ch in name.chars().filter(|&c| c != ' ') {
+            assert!(
+                atlas.metrics(Weight::Regular, ch).is_some(),
+                "{name:?}: {ch:?} (U+{:04X}) has no atlas entry",
+                ch as u32,
+            );
+        }
+    }
+}
