@@ -13,7 +13,7 @@
 ## Overview
 **Purpose:** Shared KMP sync brain for the EverySync E2EE relay protocol — merge, vault policy, DTOs, formats. No Android API in commonMain; platform coupling behind expect/actual (`RelayTransport`, `SecureStore`, `SyncScheduler`, `SyncSink`, `AesGcm`, `SyncDigest`).
 **Invariants (verbatim from the Android impl):** a failed pull returns null = abort, never empty; only explicit tombstones delete; vault keys never user-visible. Relay contract: `https://findfamily.cc/personal` + `wss://…/ws`, `POST /register|/getkey|/append|/pull`.
-**Gotchas:** never depend on `:library:log` / `:library:network` / `:library:room` from commonMain (Android-only, no common variant); pinning DERs ship as common resources under `src/commonMain/resources/ca/` when the Ktor `RelayTransport` actuals land (Phase 1C).
+**Gotchas:** never depend on `:library:log` / `:library:network` / `:library:room` from commonMain (Android-only, no common variant); FIRST_PARTY pinning DERs are copied by `syncCaResources` into `src/commonMain/resources/ca/` (gitignored build output) and loaded at runtime by the OkHttp actuals.
 
 ## Verify (this module only)
 ```

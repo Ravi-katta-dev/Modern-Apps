@@ -7,7 +7,6 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
-import kotlinx.datetime.toInstant
 
 /**
  * Minimal iCalendar (RFC 5545) VEVENT reader/writer covering the fields
@@ -157,16 +156,16 @@ object ICalendar {
     private fun pad4(n: Int): String = n.toString().padStart(4, '0')
 
     private fun utc(millis: Long): String {
-        val dt = kotlinx.time.Instant.fromEpochMilliseconds(millis)
+        val dt = kotlinx.datetime.Instant.fromEpochMilliseconds(millis)
             .toLocalDateTime(TimeZone.UTC)
-        return "${pad4(dt.year)}${pad2(dt.month.number)}${pad2(dt.day)}T" +
+        return "${pad4(dt.year)}${pad2(dt.month.ordinal + 1)}${pad2(dt.dayOfMonth)}T" +
             "${pad2(dt.hour)}${pad2(dt.minute)}${pad2(dt.second)}Z"
     }
 
     private fun dateOnly(millis: Long): String {
-        val d = kotlinx.time.Instant.fromEpochMilliseconds(millis)
+        val d = kotlinx.datetime.Instant.fromEpochMilliseconds(millis)
             .toLocalDateTime(TimeZone.UTC).date
-        return "${pad4(d.year)}${pad2(d.month.number)}${pad2(d.day)}"
+        return "${pad4(d.year)}${pad2(d.month.ordinal + 1)}${pad2(d.dayOfMonth)}"
     }
 
     private fun unfold(text: String): List<String> {

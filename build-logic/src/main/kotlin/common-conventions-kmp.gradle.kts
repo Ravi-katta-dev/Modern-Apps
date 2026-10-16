@@ -28,7 +28,7 @@ val libs = the<org.gradle.accessors.dm.LibrariesForLibs>()
 // `:library:log` / `:library:network` / `:library:room` here: none of them has
 // a common variant, and the shared core must not inherit their Android coupling.
 kotlin {
-    androidLibrary {
+    android {
         namespace = "com.vayunmathur.everysync.core"
         compileSdk = 37
         minSdk = 31

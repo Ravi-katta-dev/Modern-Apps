@@ -1,0 +1,4 @@
+# Pinned FIRST_PARTY CA DERs are build copies of
+# library/network/src/main/assets/ca/ (via the syncCaResources task), not
+# sources — Gradle re-copies them on a fresh checkout.
+src/commonMain/resources/ca/
