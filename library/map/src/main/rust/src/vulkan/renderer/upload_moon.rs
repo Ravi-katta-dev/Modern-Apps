@@ -142,6 +142,7 @@ impl Renderer {
             self.retire_moon_pool(old_pool);
         }
         self.moon_set = Some(set);
+        self.bump_state();
         Ok(())
     }
 

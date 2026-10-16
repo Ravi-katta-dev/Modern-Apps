@@ -10,14 +10,17 @@ use ash::vk;
 use std::collections::HashMap;
 
 mod fog;
+mod bind_state;
 mod frame;
 mod mod_extra;
 mod placement;
 mod placement_markers;
 mod placement_refresh;
 mod placement_reuse;
+mod quad;
 mod rebuild;
 mod record;
+mod record_arrows;
 mod record_extra;
 mod record_extra2;
 mod record_extra3;
@@ -28,9 +31,12 @@ mod record_symbol;
 mod upload;
 mod upload_extra;
 pub(super) mod upload_moon;
+mod upload_pool;
+mod upload_tail;
 
 pub use mod_extra::Renderer;
 pub(crate) use placement::globe_screen_quad;
+pub(crate) use quad::{Quad, QUAD_INDICES, QUAD_VERTICES};
 
 /// How many frames may be in flight. Two is enough to keep the GPU fed behind vsync
 /// without adding latency the user can feel when panning.
@@ -63,15 +69,37 @@ struct LayerBuffers {
 /// it costs at most 3 pairs (flat fills, stroked lines, ribbon carriageways) plus the
 /// already-single buildings and terrain meshes.
 ///
+/// The pooled-upload path ([`upload_pool`]) goes one step further: the pools below name
+/// ranges of long-lived arenas instead of fresh buffers, so a tile costs no allocation at
+/// all. Either way a pool is one buffer pair plus per-mesh slices — the only difference is
+/// who owns the memory — which is why the draw path binds `(buffer, offset)` pairs plus a
+/// per-draw `firstIndex` and never asks which path produced them.
+///
+/// Ownership on retire: fresh pools are destroyed with the tile; arena ranges belong to
+/// the pool and are never freed (see `collect_retired`, which tells them apart by buffer
+/// handle, not by offset — offset 0 is a valid arena start).
+///
 /// `pub(crate)`: the pick-snapshot split (`placement_refresh`) resolves one
 /// label against a tile, so it names this type.
 pub(crate) struct ResidentTile {
     /// Position-only 2-float fills: every `LayerKind::Fill` mesh plus the region-mask shapes.
-    flat: Option<(Buffer, Buffer)>,
+    ///
+    /// `(vertex handle, vertex byte offset, index handle, index byte offset)`: raw handles,
+    /// never owned `Buffer`s — fresh pools bind at offset 0, arena ranges at their committed
+    /// offsets, and the draws read them back without caring which path produced them.
+    /// Owned fresh buffers (fresh path only) live in [`fresh_owned`](Self::fresh_owned);
+    /// the pooled path holds none.
+    flat: Option<(vk::Buffer, vk::DeviceSize, vk::Buffer, vk::DeviceSize)>,
     /// 7-float stroked lines: every `LayerKind::Line` mesh plus the live-traffic segments.
-    lines: Option<(Buffer, Buffer)>,
+    /// Same `(handle, offset, handle, offset)` shape as [`flat`](Self::flat).
+    lines: Option<(vk::Buffer, vk::DeviceSize, vk::Buffer, vk::DeviceSize)>,
     /// 6-float ribbon carriageways, one per distinct road-shape push set.
-    ribbons: Option<(Buffer, Buffer)>,
+    /// Same `(handle, offset, handle, offset)` shape as [`flat`](Self::flat).
+    ribbons: Option<(vk::Buffer, vk::DeviceSize, vk::Buffer, vk::DeviceSize)>,
+    /// Fresh-path owned buffers (up to 6: flat/lines/ribbons × vertices/indices), destroyed
+    /// with the tile. Empty on the pooled path — arena ranges belong to the pool and are
+    /// never freed (see `upload_pool`).
+    fresh_owned: Vec<Buffer>,
     layers: Vec<LayerBuffers>,
     /// The tile's extruded 3D buildings, or `None` below z14 / where the tile has none. Drawn in
     /// its own depth-tested pass ([`Renderer::record_buildings`]), not the flat layer loop.
@@ -208,6 +236,11 @@ type AcceptSet = HashMap<u64, (bool, u32)>;
 /// Floats are compared as bit patterns rather than by value. This is an identity test — "is this
 /// the same camera the last accept-set was computed from" — and not a question about numeric
 /// closeness, so bits are both the correct comparison and the one that needs no epsilon.
+///
+/// `center_lon`/`center_lat`/`zoom`/`bearing`/`pitch` carry the exact camera for the fast exact-hit
+/// path; `bucket_*` carry the quantised camera for the retained-collision slow path (see
+/// [`same_bucket`](PlacementKey::same_bucket)): a small pan inside one bucket reuses the accept-set
+/// without re-running the quadratic placer.
 #[derive(PartialEq, Eq, Clone)]
 struct PlacementKey {
     center_lon: u64,
@@ -215,6 +248,17 @@ struct PlacementKey {
     zoom: u64,
     bearing: u64,
     pitch: u64,
+    /// Quantised camera bucket: zoom in 1/32-level bins, bearing/pitch in 4° bins, centre in
+    /// ~1/1024-tile bins at the floored zoom. Two frames in one bucket share a collision answer
+    /// (only the outcome lags; boxes still re-project per frame in `refresh_placed`).
+    bucket_zoom: i64,
+    bucket_bearing: i64,
+    bucket_pitch: i64,
+    bucket_lon: i64,
+    bucket_lat: i64,
+    /// Whether the globe path was active: globe and flat project through different box
+    /// builders, so a bucket never spans the projection switch.
+    globe: bool,
     width_dp: u32,
     height_dp: u32,
     density: u32,
@@ -309,10 +353,6 @@ struct RouteBuffers {
     segments: Vec<RouteSegmentRange>,
 }
 
-/// How dark the world outside the selected region goes. Alpha, not a colour swap, so the map
-/// stays legible underneath — the point is to say "this is the boundary", not to hide the rest.
-const SCRIM_COLOR: u32 = 0x8C00_0000;
-
 /// Column-major identity, for an overlay whose vertices are already in clip space.
 const IDENTITY: [f32; 16] = [
     1.0, 0.0, 0.0, 0.0, //
@@ -321,6 +361,10 @@ const IDENTITY: [f32; 16] = [
     0.0, 0.0, 0.0, 1.0,
 ];
 
+/// How dark the world outside the selected region goes. Alpha, not a colour swap, so the map
+/// stays legible underneath — the point is to say "this is the boundary", not to hide the rest.
+const SCRIM_COLOR: u32 = 0x8C00_0000;
+
 /// The unit quad every screen-anchored overlay draws with: four vertices in −1..1 and the
 /// two triangles over them.
 ///
@@ -328,18 +372,9 @@ const IDENTITY: [f32; 16] = [
 /// where it is, how big, what colour, which way it points — rides in the matrix and the
 /// push constants. So the per-frame cost is one `cmd_push_constants` and one
 /// `cmd_draw_indexed`, not the pair of `vkAllocateMemory` calls a transient buffer pays.
-struct Quad {
-    vertices: Buffer,
-    indices: Buffer,
-}
-
-/// The four corners of the unit square, in the −1..1 the puck shaders read as a local
-/// coordinate. Three floats per corner to match the shared fill stride (the puck vertex
-/// shader reads only the first two; the z is 0.0 and ignored).
-const QUAD_VERTICES: [f32; 12] = [
-    -1.0, -1.0, 0.0, 1.0, -1.0, 0.0, 1.0, 1.0, 0.0, -1.0, 1.0, 0.0,
-];
-const QUAD_INDICES: [u32; 6] = [0, 1, 2, 0, 2, 3];
+///
+/// Lives in `quad.rs` alongside its vertex/index constants (file-length split) and is
+/// re-exported at the top of this file, so the record passes keep their paths.
 
 /// The puck's blue, from the `drawUserIcon` in `maps` this replaces.
 const PUCK_COLOR: u32 = 0xFF0E_35F1;

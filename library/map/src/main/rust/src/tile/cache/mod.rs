@@ -164,10 +164,37 @@ impl RangeCache {
         }
     }
 
+    /// Durability flush: order recently renamed entries so they survive a crash or a
+    /// kill, without paying an fsync per write.
+    ///
+    /// Best-effort like everything else here: failures are ignored, because a missed
+    /// flush only risks re-fetching, never correctness (every read validates its
+    /// recorded length, and the origin marker gates the build). Called from the upload
+    /// drain once per frame at most — not per tile — which batches the durability cost
+    /// the old per-write `sync_all` paid on every range.
+    ///
+    /// Implemented by syncing the two just-renamed files once more after their renames
+    /// (rather than syncing the directory, which needs platform calls std cannot make):
+    /// the entry contents were already synced at write time, and this second sync after
+    /// the rename orders the directory entries on ext4/f2fs without a per-write penalty.
+    /// Cheap enough to call per frame: it opens, syncs and closes two files per entry
+    /// flushed — so callers batch it (see the drain), rather than calling per tile.
+    pub fn flush_entry(&self, key: &str) {
+        for suffix in [".meta", ".data"] {
+            let path = self.dir.join(format!("{key}{suffix}"));
+            if let Ok(file) = fs::File::open(&path) {
+                let _ = file.sync_all();
+            }
+        }
+    }
+
     fn write_inner(&self, key: &str, body: &[u8]) -> std::io::Result<()> {
         let now = (self.clock)();
         // Meta first, then data, each temp-then-rename, so the presence of the data file
-        // implies a complete meta.
+        // implies a complete meta. Durability is batched, not per write (see
+        // `flush_entry`): the file *contents* are synced here so a crash never leaves a
+        // torn entry, while the rename ordering rides the periodic flush instead of an
+        // fsync per tile.
         let meta_tmp = self.dir.join(format!("{key}.meta.tmp"));
         {
             let mut file = fs::File::create(&meta_tmp)?;

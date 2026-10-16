@@ -69,12 +69,33 @@ pub(crate) enum Step {
     Submit,
     /// The `queue_present`.
     Present,
+    /// A frame that skipped record + submit because nothing changed (see
+    /// `Renderer::render`'s version check): the steady-state proof the retained
+    /// path is working, not a gap in the report.
+    EarlyOut,
+    /// A symbol-placement pass served from the retained collision index rather
+    /// than re-run (exact key hit or same-bucket drift hit).
+    PlacementHit,
+    /// Fill/line draws skipped by the frustum + fog cull.
+    CullSkipped,
+    /// Real `vkCmdBindPipeline` calls the frame issued, after `BindState`
+    /// dedup (see `vulkan::renderer::bind_state`): the proof draw batching is
+    /// working, not a gap in the report.
+    PipelineBinds,
+    /// Wanted-set keys dropped without fetching: drain-and-replace queue
+    /// discards plus gesture-debounce holds (see `bridge::frame`).
+    FetchCancelled,
+    /// Fresh `vkAllocateMemory` calls the upload drain issued this frame: the
+    /// proof the pooled staging path (see `upload_pool`) is working. Reads zero
+    /// once every resident upload comes out of the pool; any nonzero row names
+    /// the leak to fix.
+    UploadAllocs,
 }
 
 impl Step {
     /// Every step, in frame order. The JNI getter returns [`StepTimes::last_nanos`] in this
     /// order; the Kotlin overlay labels rows from its mirror of it.
-    pub(crate) const ALL: [Step; 20] = [
+    pub(crate) const ALL: [Step; 26] = [
         Step::JniEntry,
         Step::UploadDrain,
         Step::Select,
@@ -95,6 +116,12 @@ impl Step {
         Step::RecordOverlays,
         Step::Submit,
         Step::Present,
+        Step::EarlyOut,
+        Step::PlacementHit,
+        Step::CullSkipped,
+        Step::PipelineBinds,
+        Step::FetchCancelled,
+        Step::UploadAllocs,
     ];
 
     /// Steps timed per frame.
@@ -123,7 +150,31 @@ impl Step {
             Step::RecordOverlays => "ovl",
             Step::Submit => "sub",
             Step::Present => "prs",
+            Step::EarlyOut => "eout",
+            Step::PlacementHit => "phit",
+            Step::CullSkipped => "cull",
+            Step::PipelineBinds => "bind",
+            Step::FetchCancelled => "fcan",
+            Step::UploadAllocs => "uall",
         }
+    }
+
+    /// Whether this step records a plain count rather than nanoseconds.
+    ///
+    /// Count steps (`EarlyOut`, `PlacementHit`, `CullSkipped`) ride the same `StepTimes`
+    /// arrays and the same JNI/overlay row order as the timing steps, but [`report`](StepTimes::report)
+    /// prints them raw (`sum/max`) instead of as ms, and the Kotlin overlay formats those
+    /// rows as integers rather than milliseconds.
+    pub(crate) fn is_count(self) -> bool {
+        matches!(
+            self,
+            Step::EarlyOut
+                | Step::PlacementHit
+                | Step::CullSkipped
+                | Step::PipelineBinds
+                | Step::FetchCancelled
+                | Step::UploadAllocs
+        )
     }
 }
 
@@ -169,6 +220,9 @@ impl StepTimes {
     /// The `avg/max` report over the last `frames` frames, in ms with one decimal, then reset the
     /// window. Called every frame, so this is the one place that formats.
     ///
+    /// Count steps (see [`Step::is_count`]) print as raw `sum/max` instead — a skipped-draw
+    /// count is not a duration, and printing one as ms would lie by three orders of magnitude.
+    ///
     /// `frames` is the window length (1 on the per-frame cadence), not read from here, so a frame
     /// that never ran a step still divides correctly.
     pub(crate) fn report(&mut self, frames: u32) -> String {
@@ -176,9 +230,18 @@ impl StepTimes {
         let mut out = String::from("steps");
         for step in Step::ALL {
             let at = step as usize;
-            let avg_ms = self.sum[at] as f64 / frames as f64 / 1_000_000.0;
-            let max_ms = self.max[at] as f64 / 1_000_000.0;
-            out.push_str(&format!(" {} {avg_ms:.1}/{max_ms:.1}", step.short_name()));
+            if step.is_count() {
+                out.push_str(&format!(
+                    " {} {}/{}",
+                    step.short_name(),
+                    self.sum[at],
+                    self.max[at]
+                ));
+            } else {
+                let avg_ms = self.sum[at] as f64 / frames as f64 / 1_000_000.0;
+                let max_ms = self.max[at] as f64 / 1_000_000.0;
+                out.push_str(&format!(" {} {avg_ms:.1}/{max_ms:.1}", step.short_name()));
+            }
             self.sum[at] = 0;
             self.max[at] = 0;
         }
@@ -256,5 +319,30 @@ mod tests {
                 step.short_name()
             );
         }
+    }
+
+    #[test]
+    fn count_steps_report_raw_not_ms() {
+        let mut t = StepTimes::new();
+        t.record(Step::CullSkipped, 12);
+        t.record(Step::EarlyOut, 1);
+        t.record(Step::UploadAllocs, 0);
+        let line = t.report(1);
+        assert!(
+            line.contains("cull 12/12"),
+            "counts must print raw, got {line}"
+        );
+        assert!(
+            line.contains("eout 1/1"),
+            "counts must print raw, got {line}"
+        );
+        assert!(
+            line.contains("uall 0/0"),
+            "counts must print raw, got {line}"
+        );
+        // And timings still print as ms beside them.
+        t.record(Step::Submit, 2_500_000);
+        let line = t.report(1);
+        assert!(line.contains("sub 2.5/2.5"), "got {line}");
     }
 }

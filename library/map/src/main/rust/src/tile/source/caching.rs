@@ -61,6 +61,44 @@ impl<F: RangeFetcher> CachingRangeReader<F> {
     }
 }
 
+/// Read a batch of ranges concurrently, returning each range's bytes in order.
+///
+/// The tile fetch path issues each tile's ranges (leaf directory, then body) one at a
+/// time; on a high-latency radio the round trips serialise and a cold screenful takes
+/// seconds. Batching the independent ranges across scoped threads overlaps the
+/// latency: N ranges cost ~1 round trip instead of N. Failures are per-range —
+/// a failed range is an error for that slot, never a poisoned batch — so one slow
+/// range cannot fail the others, and caching still applies per range (fresh entries
+/// are served without touching the network, exactly as in `read`).
+///
+/// `F: Sync` is required because the scoped threads share one `&self` borrow. The
+/// real fetchers qualify: `JniRangeFetcher` is a stateless unit struct (each JNI call
+/// pins its own env), and the test `Fake` logs through a `Mutex`. The thread count is
+/// bounded by the batch size (a tile's ranges, a handful), never by the viewport —
+/// this batches *within* a tile, not across tiles, so worker parallelism still bounds
+/// the total.
+pub fn read_batch<F: RangeFetcher + Sync>(
+    reader: &CachingRangeReader<F>,
+    requests: &[(u64, u32)],
+) -> Vec<Result<Vec<u8>>> {
+    if requests.len() < 2 {
+        return requests.iter().map(|&(o, l)| reader.read(o, l)).collect();
+    }
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = requests
+            .iter()
+            .map(|&(offset, length)| scope.spawn(move || reader.read(offset, length)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| match h.join() {
+                Ok(slot) => slot,
+                Err(_) => err("range batch thread failed"),
+            })
+            .collect()
+    })
+}
+
 impl<F: RangeFetcher> RangeReader for CachingRangeReader<F> {
     fn read(&self, offset: u64, length: u32) -> Result<Vec<u8>> {
         if length == 0 {

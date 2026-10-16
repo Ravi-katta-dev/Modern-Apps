@@ -1,6 +1,7 @@
-use super::fog::{apply_fog, fog_factor};
+use super::fog::{apply_fog, fog_factor, tile_offscreen};
+use super::bind_state::BindState;
 use super::{
-    anchors_for, argb_to_rgba, scale_alpha, Overlay, Renderer, UserPuck, ARROW_COLOR, ARROW_DP,
+    anchors_for, argb_to_rgba, scale_alpha, Overlay, Renderer, UserPuck,
     BUILDINGS_DRAW_MIN_ZOOM, IDENTITY, PUCK_COLOR, PUCK_CONE_DP, PUCK_CONE_HALF_STROKE_DP,
     PUCK_DOT_DP, PUCK_QUAD_DP, PUCK_RIM_DP, QUAD_INDICES, SCRIM_COLOR, TRAFFIC_WIDTH_DP,
 };
@@ -42,6 +43,8 @@ impl Renderer {
         ordered: &[u64],
         fog: u32,
         submitted: &mut usize,
+        culled: &mut usize,
+        binds: &mut BindState,
         // This frame's globe flag: globe ribbon pipeline + sphere push below, or
         // the flat path bit-identically above.
         globe: bool,
@@ -49,7 +52,6 @@ impl Renderer {
         let device = &self.context.device;
         let floor = camera.zoom.floor().clamp(0.0, 22.0) as u8;
         let edge_aa = f32::from(self.swapchain.samples == vk::SampleCountFlags::TYPE_1);
-        let mut bound = false;
         for key in ordered {
             let Some(tile) = self.tiles.get(key) else {
                 continue;
@@ -57,8 +59,19 @@ impl Renderer {
             if tile.carriageways.is_empty() {
                 continue;
             }
-            // The ribbon pool, bound at offset 0; each road draws its slice by firstIndex.
-            let Some((pool_v, pool_i)) = tile.ribbons.as_ref().map(|(v, i)| (v.buffer, i.buffer))
+            // Same off-screen cull as the flat layer loop (see `tile_offscreen`):
+            // carriageways are per-tile ground cover, not symbols.
+            if tile_offscreen(camera, tile.z, tile.x, tile.y) {
+                *culled += tile.carriageways.len();
+                continue;
+            }
+            // The ribbon pool, bound at its offsets; each road draws its slice by
+            // firstIndex. Fresh pools bind at 0, arena ranges at their committed offsets.
+            // Handles are raw `vk::Buffer`s now (see `ResidentTile`): copy by value.
+            let Some((pool_v, pool_vo, pool_i, pool_io)) = tile
+                .ribbons
+                .as_ref()
+                .map(|(v, vo, i, io)| (*v, *vo, *i, *io))
             else {
                 continue;
             };
@@ -81,18 +94,17 @@ impl Renderer {
                 if half_width_px <= 0.0 {
                     continue;
                 }
-                if !bound {
-                    device.cmd_bind_pipeline(
-                        command_buffer,
-                        vk::PipelineBindPoint::GRAPHICS,
-                        if globe {
-                            self.pipelines.ribbon_globe
-                        } else {
-                            self.pipelines.ribbon
-                        },
-                    );
-                    bound = true;
-                }
+                // One bind for the whole pass no matter how many tiles carry roads:
+                // every road draws through the same ribbon pipeline.
+                binds.bind_pipeline(
+                    device,
+                    command_buffer,
+                    if globe {
+                        self.pipelines.ribbon_globe
+                    } else {
+                        self.pipelines.ribbon
+                    },
+                );
                 // The asphalt only. The markings are the shader's own palette, because they have
                 // to match the white it antialiases them against. Distance-fogged like the
                 // flat layers so carriageways haze with the ground under tilt.
@@ -144,8 +156,8 @@ impl Renderer {
                     0,
                     push.as_bytes(),
                 );
-                device.cmd_bind_vertex_buffers(command_buffer, 0, &[pool_v], &[0]);
-                device.cmd_bind_index_buffer(command_buffer, pool_i, 0, vk::IndexType::UINT32);
+                device.cmd_bind_vertex_buffers(command_buffer, 0, &[pool_v], &[pool_vo]);
+                device.cmd_bind_index_buffer(command_buffer, pool_i, pool_io, vk::IndexType::UINT32);
                 device.cmd_draw_indexed(
                     command_buffer,
                     road.index_count,
@@ -157,147 +169,6 @@ impl Renderer {
                 *submitted += 1;
             }
         }
-    }
-
-    /// Draw the per-lane turn arrows: one glyph per marked lane, bent by the manoeuvre the lane
-    /// leads into and pushed sideways onto the lane the carriageway painted.
-    ///
-    /// Built per frame — rotation, screen size and lane offset all follow the camera, exactly as
-    /// the carriageway's width does — and drawn through the **fill** pipeline as plain coloured
-    /// triangles, so it needs no glyph atlas and no new pipeline. Gated to the carriageway layer's
-    /// zoom floor (z16), so below it nothing is built or drawn.
-    pub(super) unsafe fn record_arrows(
-        &mut self,
-        command_buffer: vk::CommandBuffer,
-        camera: &Camera,
-        layers: &[Layer],
-        submitted: &mut usize,
-    ) {
-        // The carriageway layer, whose zoom window gates the arrows and whose width ramp puts them
-        // over the lanes its own markings drew. Resolved through
-        // [`crate::style::road_carriageway_layer`], which is careful to pick the *road* layer and
-        // not the first layer that happens to carry a spread — see its doc comment.
-        let Some(carriageway) = crate::style::road_carriageway_layer(layers) else {
-            return;
-        };
-        let floor = camera.zoom.floor().clamp(0.0, 22.0) as u8;
-        if !carriageway.draws_at(floor) {
-            return;
-        }
-        let density = camera.density;
-        // One lane of the carriageway, in device px. The lane count is the arrow's own, so a
-        // three-lane approach and a five-lane one are each spread across their whole road.
-        let lane_px = carriageway.width.at(camera.zoom) * density;
-        // Every glyph tessellates to the same vertex count whatever angle it bends through, so a
-        // tile's buffer is sized exactly once up front and never grows.
-        let verts_per_arrow = crate::tile::arrow::ARROW_VERTS * 2;
-        // Build each tile's triangles first — this borrows `self.tiles` — then upload and draw,
-        // which takes `&mut self`. One batch per tile carries its own tile-to-clip matrix.
-        let mut batches: Vec<([f32; 16], Vec<f32>)> = Vec::new();
-        for tile in self.tiles.values() {
-            if tile.arrows.is_empty() {
-                continue;
-            }
-            let span = camera.tile_span_px(tile.z);
-            if span <= 0.0 {
-                continue;
-            }
-            let scale = ARROW_DP * density / span; // tile-local 0..1 units per unit-arrow coord
-                                                   // What turns the arrows' ground setback into this tile's units. A property of the tile
-                                                   // and not of the camera, so the arrows stay the same distance behind the junction at
-                                                   // every zoom — see `arrow::tile_local_per_metre`.
-            let per_metre = crate::tile::arrow::tile_local_per_metre(tile.z, tile.y);
-            let mut verts: Vec<f32> = Vec::with_capacity(tile.arrows.len() * verts_per_arrow);
-            for a in &tile.arrows {
-                // Sideways onto the lane, perpendicular to the road heading (not the glyph's
-                // turn). `lane_centre` measures from the middle of the road out, in lane widths,
-                // and already accounts for the half of the carriageway this direction occupies
-                // under the tile's driving convention — an arrow that does not sit between the
-                // dividers the markings drew is worse than no arrow at all.
-                let lateral = crate::tile::arrow::lane_centre(a) * lane_px;
-                crate::tile::arrow::arrow_verts(a, scale, lateral / span, per_metre, &mut verts);
-            }
-            if !verts.is_empty() {
-                batches.push((camera.tile_to_clip(tile.z, tile.x, tile.y), verts));
-            }
-        }
-        if batches.is_empty() {
-            return;
-        }
-        let color = argb_to_rgba(ARROW_COLOR);
-        for (tile_to_clip, verts) in batches {
-            let indices: Vec<u32> = (0..(verts.len() / 2) as u32).collect();
-            let push = Push {
-                tile_to_clip,
-                color,
-                line: [0.0; 4],
-                misc: [0.0, 0.0, 0.0, camera.time_seconds],
-                morph: MORPH_NONE,
-            };
-            self.draw_fill_batch(command_buffer, &verts, &indices, &push, submitted);
-        }
-    }
-
-    /// Draw one batch through the fill pipeline (colour from the push constant, no descriptor
-    /// set), suballocating its vertices and indices from this frame's [`ScratchRing`].
-    ///
-    /// The arrow twin of [`draw_symbol_batch`], and now allocates the same way. It previously
-    /// created two `Buffer`s per call and pushed them onto [`Renderer::transients`] to retire
-    /// on the frames-in-flight grace count, which was merely wasteful while it was the symbol
-    /// path's twin — but it is called **once per batch per frame** from
-    /// [`record_arrows`](Self::record_arrows), and `transients` is a wake reason for the host's
-    /// on-demand frame loop (see [`needs_frame`](Self::needs_frame)). A vec refilled every
-    /// frame never drains, so the loop would wake itself forever and pin the map at 60fps with
-    /// nothing changing. The ring has no such feedback: it is reset wholesale against the
-    /// frame fence, so a draw leaves nothing behind for the next frame to notice.
-    ///
-    /// Off the drawn path today — `style::LANE_RENDERING` is false, so no arrows are built or
-    /// drawn — which is precisely why this had to be fixed now rather than when someone
-    /// switches lane rendering on and finds the phone hot again.
-    pub(super) unsafe fn draw_fill_batch(
-        &mut self,
-        command_buffer: vk::CommandBuffer,
-        vertices: &[f32],
-        indices: &[u32],
-        push: &Push,
-        submitted: &mut usize,
-    ) {
-        let frame_index = self.frame_index;
-        let device = &self.context.device;
-        // Disjoint field borrows, for the same reason `draw_symbol_batch` takes them: cloning
-        // `ash::Device` copies its whole function-pointer table, and this is a per-draw path.
-        let Some((vbuf, voffset)) = self.scratch[frame_index].push(
-            &self.context.instance,
-            self.context.physical_device,
-            device,
-            vertices,
-        ) else {
-            return;
-        };
-        let Some((ibuf, ioffset)) = self.scratch[frame_index].push(
-            &self.context.instance,
-            self.context.physical_device,
-            device,
-            indices,
-        ) else {
-            return;
-        };
-        device.cmd_bind_pipeline(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.pipelines.fill,
-        );
-        device.cmd_push_constants(
-            command_buffer,
-            self.pipelines.layout,
-            vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-            0,
-            push.as_bytes(),
-        );
-        device.cmd_bind_vertex_buffers(command_buffer, 0, &[vbuf], &[voffset]);
-        device.cmd_bind_index_buffer(command_buffer, ibuf, ioffset, vk::IndexType::UINT32);
-        device.cmd_draw_indexed(command_buffer, indices.len() as u32, 1, 0, 0, 0);
-        *submitted += 1;
     }
 
     /// Draw the DEM-displaced ground grid: each resident tile's terrain mesh, depth-tested so hills
@@ -325,6 +196,8 @@ impl Renderer {
         palette: Palette,
         fog: u32,
         submitted: &mut usize,
+        culled: &mut usize,
+        binds: &mut BindState,
     ) {
         // Skipped on the globe: the flat terrain mesh drapes through the flat
         // matrix, which the globe branch never takes — drawing it would paste
@@ -346,19 +219,17 @@ impl Renderer {
         let unfogged = argb_to_rgba(scale_alpha(earth.color(palette), opacity));
         let fog_rgb = argb_to_rgba(fog);
         let device = &self.context.device;
-        let mut bound = false;
         for tile in self.tiles.values() {
             let Some(terrain) = &tile.terrain else {
                 continue;
             };
-            if !bound {
-                device.cmd_bind_pipeline(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    self.pipelines.terrain,
-                );
-                bound = true;
+            // Same off-screen cull as the flat layer loop (see `tile_offscreen`).
+            if tile_offscreen(camera, tile.z, tile.x, tile.y) {
+                *culled += 1;
+                continue;
             }
+            // One bind for the whole pass: every tile shares the terrain pipeline.
+            binds.bind_pipeline(device, command_buffer, self.pipelines.terrain);
             // Same fog as the flat layers, mixed one step later (linear floats rather than
             // packed ARGB — same ramp, rounding apart). Per tile: far ground hazes out.
             let f = fog_factor(camera, tile.z, tile.x, tile.y);
@@ -438,6 +309,8 @@ impl Renderer {
         layers: &[Layer],
         palette: Palette,
         submitted: &mut usize,
+        culled: &mut usize,
+        binds: &mut BindState,
     ) {
         if camera.zoom.floor() < BUILDINGS_DRAW_MIN_ZOOM {
             return;
@@ -453,19 +326,17 @@ impl Renderer {
             .map(|l| argb_to_rgba(l.color(palette)))
             .unwrap_or([0.8, 0.8, 0.8, 1.0]);
         let device = &self.context.device;
-        let mut bound = false;
         for tile in self.tiles.values() {
             let Some(buildings) = &tile.buildings else {
                 continue;
             };
-            if !bound {
-                device.cmd_bind_pipeline(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    self.pipelines.building,
-                );
-                bound = true;
+            // Same off-screen cull as the flat layer loop (see `tile_offscreen`).
+            if tile_offscreen(camera, tile.z, tile.x, tile.y) {
+                *culled += 1;
+                continue;
             }
+            // One bind for the whole pass: every tile shares the building pipeline.
+            binds.bind_pipeline(device, command_buffer, self.pipelines.building);
             let push = Push {
                 tile_to_clip: camera.tile_to_clip(tile.z, tile.x, tile.y),
                 // The palette fallback for vertices that carry no archive colour (alpha 0).

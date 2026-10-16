@@ -44,53 +44,20 @@ impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
             let _ = self.context.device.device_wait_idle();
-            for tile in self.tiles.values() {
-                // Draw slices are plain indices into the pools — each pool is one pair.
-                if let Some((v, i)) = &tile.flat {
-                    v.destroy(&self.context.device);
-                    i.destroy(&self.context.device);
-                }
-                if let Some((v, i)) = &tile.lines {
-                    v.destroy(&self.context.device);
-                    i.destroy(&self.context.device);
-                }
-                if let Some((v, i)) = &tile.ribbons {
-                    v.destroy(&self.context.device);
-                    i.destroy(&self.context.device);
-                }
-                if let Some(buildings) = &tile.buildings {
-                    buildings.vertices.destroy(&self.context.device);
-                    buildings.indices.destroy(&self.context.device);
-                }
-                if let Some(terrain) = &tile.terrain {
-                    terrain.vertices.destroy(&self.context.device);
-                    terrain.indices.destroy(&self.context.device);
-                }
+            // Tile pools first (fresh pools destroy, arena ranges do not — see
+            // `upload_tail::free_tile_set`), then the retiring queue the same way,
+            // then the arenas themselves. Order matters: the tiles borrow nothing
+            // from the pool, but freeing arenas first would leave the tile loops
+            // comparing against dead handles.
+            let tiles: Vec<super::ResidentTile> =
+                std::mem::take(&mut self.tiles).into_values().collect();
+            super::upload_tail::free_tile_set(self, tiles, &self.context.device);
+            let retiring: Vec<(usize, super::ResidentTile)> =
+                std::mem::take(&mut self.retiring);
+            for (_, tile) in &retiring {
+                super::upload_tail::free_retired_tile(self, tile, &self.context.device);
             }
-            self.tiles.clear();
-            for (_, tile) in &self.retiring {
-                if let Some((v, i)) = &tile.flat {
-                    v.destroy(&self.context.device);
-                    i.destroy(&self.context.device);
-                }
-                if let Some((v, i)) = &tile.lines {
-                    v.destroy(&self.context.device);
-                    i.destroy(&self.context.device);
-                }
-                if let Some((v, i)) = &tile.ribbons {
-                    v.destroy(&self.context.device);
-                    i.destroy(&self.context.device);
-                }
-                if let Some(buildings) = &tile.buildings {
-                    buildings.vertices.destroy(&self.context.device);
-                    buildings.indices.destroy(&self.context.device);
-                }
-                if let Some(terrain) = &tile.terrain {
-                    terrain.vertices.destroy(&self.context.device);
-                    terrain.indices.destroy(&self.context.device);
-                }
-            }
-            self.retiring.clear();
+            super::upload_pool::destroy_pool(&mut self.upload_pool, &self.context.device);
             if let Some(route) = &self.route {
                 route.vertices.destroy(&self.context.device);
                 route.indices.destroy(&self.context.device);
@@ -108,6 +75,7 @@ impl Drop for Renderer {
                 ring.destroy(&self.context.device);
             }
             self.scratch.clear();
+            super::upload_pool::destroy_pool(&mut self.upload_pool, &self.context.device);
             for frame in &self.frames {
                 self.context.device.destroy_fence(frame.in_flight, None);
                 self.context

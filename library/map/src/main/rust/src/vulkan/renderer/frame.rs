@@ -18,6 +18,7 @@ impl Renderer {
         if let Some(puck) = puck {
             self.overlays.push(Overlay::Puck(puck));
         }
+        self.bump_state();
     }
 
     /// Replace the app's pins with `markers`, or clear them with an empty slice.
@@ -39,6 +40,7 @@ impl Renderer {
         // a stale accept-set is a POI drawn over a new pin, while a redundant re-place is a
         // millisecond on a state change, not per frame.
         self.marker_epoch = self.marker_epoch.wrapping_add(1);
+        self.bump_state();
         if !markers.is_empty() {
             // Parallel arrays cross JNI together and are truncated to the shortest there, so
             // these lengths already agree; a defensive trunc here keeps a future direct caller
@@ -72,6 +74,7 @@ impl Renderer {
         if !vehicles.is_empty() {
             self.overlays.push(Overlay::Vehicles(vehicles));
         }
+        self.bump_state();
     }
 
     /// Dim everything outside one region, or take the mask away with `None`.
@@ -82,6 +85,7 @@ impl Renderer {
     /// from a tap, not from the frame loop.
     pub fn set_region_mask(&mut self, region: Option<u64>) {
         self.selected_region = region;
+        self.bump_state();
     }
 
     /// Replace the live-traffic colour table with a host-pushed `component_id → ARGB` set.
@@ -101,6 +105,7 @@ impl Renderer {
         for (&id, &color) in ids.iter().zip(colors).take(n) {
             self.traffic_colors.insert(id, color);
         }
+        self.bump_state();
     }
 
     /// Drop every pushed traffic colour, so the overlay draws nothing until the next push.
@@ -110,6 +115,7 @@ impl Renderer {
     /// toggle-driven re-tessellation to evict the geometry.
     pub fn clear_traffic(&mut self) {
         self.traffic_colors.clear();
+        self.bump_state();
     }
 
     /// Turn drawing of the traffic overlay on or off for subsequent frames.
@@ -119,6 +125,7 @@ impl Renderer {
     /// toggle-off and the re-tessellation that removes them.
     pub fn set_traffic_enabled(&mut self, enabled: bool) {
         self.traffic_enabled = enabled;
+        self.bump_state();
     }
 
     /// Resident tiles, the geometry they carry, and what the last frame actually submitted.
@@ -242,6 +249,9 @@ impl Renderer {
         if self.needs_rebuild {
             self.rebuild()?;
             self.needs_rebuild = false;
+            // A new swapchain must present at least once: the stored version describes
+            // an image on the old one, and reusing it would skip that present.
+            self.forget_submitted();
         }
         // Moon fast path: the textured disc INSTEAD of the vector frame (no tile
         // draws, no symbols, no overlays). Textures missing (host never pushed)
@@ -249,6 +259,56 @@ impl Renderer {
         // globe reads as empty space rather than freezing the loop.
         if crate::camera::moon_active(camera) {
             return self.render_moon(camera);
+        }
+
+        // MapLibre-style submit early-out: when nothing changed since the last submitted
+        // frame, re-recording + `queue_submit` would present a bit-identical image, so the
+        // whole fence/acquire/record/submit/present sequence is skipped. The previously
+        // presented image persists — `Ok(true)` tells the host a frame was "drawn", which
+        // keeps the on-demand loop's accounting (grace windows, retry delays) exact.
+        //
+        // The version covers the camera pose (exact bits), the animation clock (50 ms bins,
+        // so dash-phase animation still steps during grace windows), tile residency,
+        // placement and all push-constant state. The `needs_frame` gate is what makes this
+        // exact rather than optimistic: a fade in progress, pending retirements or a
+        // rebuild all force a real submit, as does any epoch bump. Placement runs here —
+        // before any fence or acquire — because its version is part of the key, and it is
+        // free on a hit (a key compare) on exactly the frames this skips.
+        self.scratch_ordered.clear();
+        self.scratch_ordered.extend(self.tiles.keys().copied());
+        self.scratch_ordered
+            .sort_by_key(|k| self.tiles.get(k).map(|t| t.z).unwrap_or(0));
+        let extent = self.swapchain.extent;
+        let accepted = self.place_symbols(camera, layers, &self.scratch_ordered, extent, filter);
+        // The pick snapshot tracks the accept-set, not the submit: a reused placement keeps
+        // its ids, so this is a no-op on exactly the frames the early-out below skips — and
+        // on a placement hit with an identical camera the boxes would re-project identically
+        // anyway. Kept outside the skip so taps never read a stale frame's boxes.
+        let mut accept_ids: Vec<u64> = accepted.keys().copied().collect();
+        accept_ids.sort_unstable();
+        if self.last_accept_ids.borrow().as_ref() != Some(&accept_ids) {
+            self.refresh_placed(camera, layers, &accepted, extent);
+            *self.last_accept_ids.borrow_mut() = Some(accept_ids);
+        }
+        let version = super::mod_extra::FrameVersion::current(
+            camera,
+            palette,
+            self.residency_epoch.get(),
+            self.placement_version.get(),
+            self.state_epoch.get(),
+        );
+        if !self.needs_frame() && self.last_frame_version == Some(version) {
+            // A skip implies a placement reuse (a recompute would have bumped the version
+            // above), so all three P0 counters are settled here: the skip itself, the hit
+            // behind it, and a zero cull (no draw pass ran to cull anything).
+            self.step_times.borrow_mut().record(Step::EarlyOut, 1);
+            self.step_times
+                .borrow_mut()
+                .record(Step::PlacementHit, 1);
+            self.step_times
+                .borrow_mut()
+                .record(Step::CullSkipped, 0);
+            return Ok(true);
         }
 
         let frame = &self.frames[self.frame_index];
@@ -383,6 +443,12 @@ impl Renderer {
         }
 
         self.frame_index = (self.frame_index + 1) % FRAMES_IN_FLIGHT;
+        // The submit landed: this version is what is on screen, so an identical next
+        // frame may skip. Set only here — skipped frames, rebuilds and failures leave
+        // the previous (or no) version in place. `EarlyOut` reads 0 for a real frame so
+        // the overlay row tracks skips rather than going stale.
+        self.last_frame_version = Some(version);
+        self.step_times.borrow_mut().record(Step::EarlyOut, 0);
         Ok(true)
     }
 }

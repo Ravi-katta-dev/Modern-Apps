@@ -25,12 +25,17 @@ import kotlinx.coroutines.isActive
  * A mirror of the `Step::ALL` short names in `timing.rs` — adding a step there means
  * appending here. Counted rather than zipped: on drift ([times] shorter or longer) the
  * table shows `n/a` rows rather than mislabelling them.
+ *
+ * The last three rows are counts, not timings (see `Step::is_count`): skips, placement
+ * hits and culled draws print as integers.
  */
 private val STEP_NAMES = listOf(
     "jni", "upl", "sel", "fen", "ret", "acq", "rec", "plc",
     "ter", "flt", "car", "bld", "sym", "trf", "arw", "msk",
-    "ral", "ovl", "sub", "prs",
+    "ral", "ovl", "sub", "prs", "eout", "phit", "cull", "bind",
+    "fcan", "uall",
 )
+private val COUNT_STEPS = setOf("eout", "phit", "cull", "bind", "fcan", "uall")
 
 /**
  * The per-step frame-time table for the debug overlay: one monospace row per native step,
@@ -75,9 +80,14 @@ fun FrameStatsOverlay(
             // Strings first, composables second: the rows are plain data, emitted below.
             for (i in STEP_NAMES.indices) {
                 val name = STEP_NAMES[i]
-            val ms = times.getOrNull(i)?.let { it / NANOS_PER_MILLI }
-                // One decimal, fixed width-ish: the table must not jitter while panning.
-                val text = if (ms == null) "$name  n/a" else "$name %5.1f".format(ms)
+                val raw = times.getOrNull(i)
+                // Count rows print as integers; timing rows as ms with one decimal, fixed
+                // width-ish so the table does not jitter while panning.
+                val text = when {
+                    raw == null -> "$name  n/a"
+                    name in COUNT_STEPS -> "$name %5d".format(raw)
+                    else -> "$name %5.1f".format(raw / NANOS_PER_MILLI)
+                }
                 BasicText(text, style = TextStyle(color = Color.White, fontSize = 10.sp))
             }
         }

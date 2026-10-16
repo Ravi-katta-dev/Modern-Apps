@@ -20,6 +20,20 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.vayunmathur.library.util.ConnectivityMonitor
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * How long the position flow may go quiet before the gesture counts as released.
+ *
+ * Matches the native settle window ([GestureDebounce] settles after 15 still frames ≈
+ * 250ms) with margin: the Kotlin side releases first, so the native side never has to
+ * rely on its own timeout while the host is driving. Short enough that the settled zoom
+ * fetches promptly after the finger lifts; long enough that a slow gesture with pauses
+ * does not flap the freeze on and off mid-pinch.
+ */
+private const val GESTURE_QUIET_MILLIS = 200L
 
 /**
  * Hosts the Vulkan renderer in Compose.
@@ -179,6 +193,54 @@ internal fun VulkanMapSurface(
     // The body rides the same channel: switching Earth/Moon while idle still redraws.
     LaunchedEffect(host, cameraState) {
         snapshotFlow { cameraState.body }.collect { renderer.invalidate() }
+    }
+    // The gesture signal rides alongside the camera push channel: while any gesture or
+    // camera animation is driving the position, the native fetch zoom freezes so a pinch
+    // does not churn the wanted tile set — and releases on quiet, so the settled zoom
+    // fetches. `position` changes on every gesture frame; the release detector below
+    // watches the same flow go quiet, which means the finger lifted (or the animation
+    // ended). No separate release signal needed, and a host that never gestures never
+    // freezes. Animations freeze fetch too, deliberately: a 500ms `animateTo` crosses
+    // the same intermediate zooms a pinch does.
+    //
+    // One flow owns the whole session: each position emission marks active and stamps the
+    // time, and the `withTimeoutOrNull` below fires the release after
+    // [GESTURE_QUIET_MILLIS] of quiet. A fresh emission cancels the timeout and
+    // re-arms it; the loop exits only when the effect leaves the composition, releasing
+    // on the way out. No ticker coroutine, no new thread — and it never touches the
+    // frame loop (release needs no frame).
+    LaunchedEffect(host, cameraState) {
+        var active = false
+        // The last position already consumed: `snapshotFlow.first()` replays the current
+        // value immediately, so without this the loop would spin on a stale position
+        // instead of waiting for a new one. Seeded to the current position (which the
+        // original position effect below already invalidates for).
+        var last = cameraState.position
+        while (isActive) {
+            // A fresh flow per iteration, filtered to genuine changes: `first()` on an
+            // unfiltered flow returns the current value at once, which would defeat the
+            // quiet timeout below. Consecutive duplicates are impossible here — the
+            // filter holds until the position actually moves again.
+            val position = withTimeoutOrNull(GESTURE_QUIET_MILLIS) {
+                snapshotFlow { cameraState.position }.first { it != last }
+            }
+            if (position == null) {
+                // Quiet: the finger lifted or the animation ended. Release the freeze
+                // so the settled zoom fetches; the next gesture re-arms above.
+                if (active) {
+                    active = false
+                    renderer.setGestureActive(false, 0f)
+                }
+                continue
+            }
+            last = position
+            if (!active) {
+                active = true
+                renderer.setGestureActive(true, position.zoom.toFloat())
+            }
+            renderer.invalidate()
+        }
+        if (active) renderer.setGestureActive(false, 0f)
     }
     // Separately, because a viewport change is rare and a camera change is per-frame: keeping
     // them apart means the hot path compares one reference rather than allocating a pair.

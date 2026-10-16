@@ -1,6 +1,7 @@
 use super::{
     argb_to_rgba, Renderer, IDENTITY, QUAD_INDICES, VEHICLE_RING_DP, VEHICLE_RING_QUAD_DP,
 };
+use super::bind_state::BindState;
 use super::record_markers::{
     emit_marker_corners, emit_marker_label, marker_screen_geom, upright_offset,
 };
@@ -50,6 +51,7 @@ impl Renderer {
         markers: &[Marker],
         labels: &[String],
         submitted: &mut usize,
+        binds: &mut BindState,
         // This frame's globe flag: far-side markers culled, screen quads placed
         // via the globe anchor — or the flat billboard path bit-identically.
         globe: bool,
@@ -149,6 +151,7 @@ impl Renderer {
             &indices,
             &push,
             submitted,
+            binds,
         );
         if text_indices.is_empty() {
             return;
@@ -190,6 +193,7 @@ impl Renderer {
             &text_indices,
             &label_push,
             submitted,
+            binds,
         );
     }
 
@@ -210,16 +214,15 @@ impl Renderer {
         camera: &Camera,
         vehicles: &[Marker],
         submitted: &mut usize,
+        binds: &mut BindState,
         // This frame's globe flag: far-side vehicles culled via the globe anchor.
         globe: bool,
     ) {
         let density = camera.density;
         let device = &self.context.device;
-        device.cmd_bind_pipeline(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.pipelines.puck,
-        );
+        // Rings share the puck pipeline with the puck draw below: one bind for both
+        // when vehicles are present, none at all when they are not.
+        binds.bind_pipeline(device, command_buffer, self.pipelines.puck);
         device.cmd_bind_vertex_buffers(command_buffer, 0, &[self.quad.vertices.buffer], &[0]);
         device.cmd_bind_index_buffer(
             command_buffer,
@@ -289,6 +292,7 @@ impl Renderer {
         indices: &[u32],
         push: &Push,
         submitted: &mut usize,
+        binds: &mut BindState,
     ) {
         let frame_index = self.frame_index;
         let device = &self.context.device;
@@ -311,14 +315,15 @@ impl Renderer {
         ) else {
             return;
         };
-        device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline);
-        device.cmd_bind_descriptor_sets(
+        // One bind per (pipeline, atlas) pair no matter how many batches share it:
+        // consecutive text batches at one size collapse to a single bind.
+        let symbol_layout = self.pipelines.symbol_layout;
+        binds.bind_pipeline_with_set(
+            device,
             command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.pipelines.symbol_layout,
-            0,
-            &[set],
-            &[],
+            symbol_layout,
+            pipeline,
+            set,
         );
         device.cmd_push_constants(
             command_buffer,

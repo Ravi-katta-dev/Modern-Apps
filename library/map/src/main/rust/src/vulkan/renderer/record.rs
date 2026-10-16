@@ -1,4 +1,5 @@
-use super::fog::{apply_fog, fog_color, fog_factor};
+use super::fog::{apply_fog, culled_flat_draws, fog_color, fog_factor};
+use super::bind_state::{flat_pipeline, BindState};
 use super::{
     anchors_for, argb_to_rgba, scale_alpha, Overlay, Renderer, UserPuck, ARROW_COLOR, ARROW_DP,
     BUILDINGS_DRAW_MIN_ZOOM, IDENTITY, PUCK_COLOR, PUCK_CONE_DP, PUCK_CONE_HALF_STROKE_DP,
@@ -59,48 +60,9 @@ impl Renderer {
     }
 
     /// The body of [`record`](Self::record): split out so the borrow structure
-    /// reads linearly. All Vulkan calls go through raw handles copied out of
-    /// `self` at each step; `record_symbol` is the only `&mut self` callee.
-    ///
-    /// # Draw order (the contract A/C/D/E/G extend)
-    ///
-    /// Everything happens in one subpass, so order *is* correctness for the flat layers (they
-    /// blend, depth-off) and the depth attachment resolves it for the 3D ones. The sequence is:
-    ///
-    /// 0. **`record_terrain`** (WS-G) — the DEM-displaced ground, depth-tested, drawn first so it is
-    ///    the ground the flat layers sit over. A tile with no heightmap draws nothing here and keeps
-    ///    its flat `earth` fill in step 1; at pitch 0 the grid collapses to the flat footprint.
-    /// 1. **Basemap layers**, layer-major across tiles, coarsest tile first (fill/line, then
-    ///    symbols per layer). WS-D scales each tile draw's alpha through `Push.morph.x`.
-    /// 2. **`record_carriageways`** — road surfaces and their lane markings at z16+, over the road
-    ///    fills they replace and still under the buildings and the deferred symbols.
-    /// 3. **`record_traffic`** — basemap detail, so it dims with the region scrim (WS-B animates
-    ///    it via `Push.misc.w`).
-    /// 4. **`record_arrows`** — lane turn arrows over the roads.
-    /// 5. **`record_region_mask`** — stencil + scrim; dims 1–4, not the route/puck.
-    /// 6. **`record_route`** — over the scrim (a followed route must not dim), under the puck.
-    ///    **`record_rail_lines`** draws immediately before it: same mesh path, so the
-    ///    pack-driven rail network sits under a selected route.
-    /// 7. **`record_overlays`** — markers (app pins; WS-F vehicles) billboarded upright under tilt,
-    ///    then the puck on top; last.
-    ///
-    /// Where a new workstream slots in: **WS-A buildings** and **WS-G terrain** draw with the
-    /// depth-enabled pipeline; terrain goes *before* step 1 (it is the ground the flat layers
-    /// drape over / sit above) and buildings *after* step 1 at z14+ so they occlude the basemap
-    /// by depth. **WS-C markers + id pass** slot beside `record_overlays`. **WS-E curved labels**
-    /// ride the symbol path inside step 1. Each adds its own pass/branch; keep this list current
-    /// and serialise merges so the passes do not collide.
-    ///
-    /// # Flat layers over terrain: draped, not offset (WS-G)
-    ///
-    /// The flat 2D layers (roads, water, landuse) carry a draped z sampled from the same
-    /// heightmap as the terrain at build time (plus a sub-metre lift) and draw depth-off,
-    /// painting over the terrain in draw order. The vertex z is tile-normalised; each draw
-    /// pushes the tile's world-px span in `morph.z` (mirroring the buildings/terrain
-    /// `line.x`), which the shader multiplies back to the world-px height the perspective
-    /// matrix expects — that scale is what puts roads on the slopes instead of through them.
-    /// Terrain writes depth for the 3D layers (buildings occlude against it) while the flat
-    /// layers paint on top with no z-fighting and need no polygon depth offset.
+    /// reads linearly. Draw order: one subpass, so order *is* correctness — flat
+    /// layers blend (depth-off), 3D ones resolve by depth. Sequence:
+    /// terrain, basemap layers, carriageways, traffic, arrows, region, route, overlays.
     #[allow(clippy::too_many_arguments)]
     unsafe fn record_inner(
         &mut self,
@@ -126,20 +88,23 @@ impl Renderer {
 
         let mut bound: Option<LayerKind> = None;
         let mut submitted = 0usize;
+        // Flat draws skipped by the off-screen cull below, counted into `Step::CullSkipped`
+        // so the debug overlay shows what the cull saved. Tail passes add their own skips
+        // to this through `record_tail`.
+        let mut culled = 0usize;
+        // Pipeline + descriptor bind dedup for the frame (MapLibre's program batching
+        // without reordering any draw): every pass below binds through this instead of
+        // issuing raw binds, so repeated binds of the same state collapse to one.
+        let mut binds = BindState::new();
         // One tile-layer's draws, reused across the whole frame — and across frames: the
         // buffer lives on the renderer (`scratch_draws`) and is only cleared per tile below,
-        // so a frame pays no allocation for it.
-        //
-        // A layer used to have at most one mesh per tile, so the draw could be a single
-        // `find`. Transit breaks that: a tile holding two route colours emits two meshes
-        // for one layer, and a `find` would silently draw only the first line. Copying the
-        // handles out (rather than iterating `self.tiles` in place) is what keeps
-        // `record_symbol`'s `&mut self` call legal in the sibling arm below; reusing the
-        // buffer keeps that free of allocation.
-        //
+        // so a frame pays no allocation for it. Each draw carries its pool's bind offsets
+        // alongside the slice (see the loop). A layer used to have at most one mesh per
+        // tile; transit breaks that, so the handles are copied out rather than `find`-ing
+        // — which also keeps `record_symbol`'s `&mut self` call legal below.
         // Borrowed out once here (not per tile below): `draws`/`ordered`/`tile_alpha` are
         // disjoint fields from `self.tiles`, and the loop's `&mut self` symbol call needs
-        // the compiler to see that. Split at the top, rejoined after the loop.
+        // the compiler to see that.
         let (draws, ordered, tile_alpha) = {
             self.scratch_draws.clear();
             self.scratch_ordered.clear();
@@ -187,7 +152,9 @@ impl Renderer {
                 u32,
                 LayerKind,
                 vk::Buffer,
+                vk::DeviceSize,
                 vk::Buffer,
+                vk::DeviceSize,
                 u32,
                 u32,
                 Option<u32>,
@@ -226,7 +193,16 @@ impl Renderer {
         // Fog toward the `earth` land colour, not the water-blue `clear`.
         let fog = fog_color(layers, palette, camera.zoom);
         let step_start = std::time::Instant::now();
-        self.record_terrain(command_buffer, camera, layers, palette, fog, &mut submitted);
+        self.record_terrain(
+            command_buffer,
+            camera,
+            layers,
+            palette,
+            fog,
+            &mut submitted,
+            &mut culled,
+            &mut binds,
+        );
         self.step_times
             .borrow_mut()
             .record(Step::RecordTerrain, nanos_since(step_start));
@@ -317,19 +293,34 @@ impl Renderer {
                     deferred_symbols.push((*key, index));
                     continue;
                 }
+                // Off-screen cull (MapLibre's bucket cull equivalent): a resident tile the
+                // viewport cannot see issues no flat draws — see `culled_flat_draws`. Symbols
+                // are deliberately NOT culled: placement dedup may have crowned this tile's
+                // copy of a border label, so the deferred symbol job above still runs.
+                if let Some(tile) = self.tiles.get(key) {
+                    let skipped = culled_flat_draws(tile, index, camera);
+                    if skipped > 0 {
+                        culled += skipped;
+                        continue;
+                    }
+                }
                 // Copy the draw's inputs out, then issue them through the owned `device`
                 // clone: `record_symbol` above takes `&mut self`, so this path must not
-                // hold a `self.tiles` borrow either. Draws read from the tile's pooled
-                // buffers (bound once per tile below), so only the pool pair plus the
-                // slice's firstIndex ride here.
+                // hold a `self.tiles` borrow either.
                 draws.clear();
                 if let Some(tile) = self.tiles.get(key) {
                     let pool = match layer.kind {
-                        LayerKind::Fill => tile.flat.as_ref().map(|(v, i)| (v.buffer, i.buffer)),
-                        LayerKind::Line => tile.lines.as_ref().map(|(v, i)| (v.buffer, i.buffer)),
+                        LayerKind::Fill => tile
+                            .flat
+                            .as_ref()
+                            .map(|(v, vo, i, io)| (*v, *vo, *i, *io)),
+                        LayerKind::Line => tile
+                            .lines
+                            .as_ref()
+                            .map(|(v, vo, i, io)| (*v, *vo, *i, *io)),
                         LayerKind::Symbol => None,
                     };
-                    let Some((pool_vbuf, pool_ibuf)) = pool else {
+                    let Some((pool_vbuf, pool_voff, pool_ibuf, pool_ioff)) = pool else {
                         // No pool means no mesh of this format packed — nothing to draw.
                         // (Symbols never take this path; see the deferred arm above.)
                         if layer.kind == LayerKind::Symbol {
@@ -344,7 +335,9 @@ impl Renderer {
                             tile.y,
                             mesh.kind,
                             pool_vbuf,
+                            pool_voff,
                             pool_ibuf,
+                            pool_ioff,
                             mesh.first_index,
                             mesh.index_count,
                             mesh.color_override,
@@ -357,24 +350,18 @@ impl Renderer {
                 // (owned by WS-B's `line.frag`) ignores `morph.x`, so road casings stay crisp
                 // while the fill fades — the fade reads as the flat basemap ramping in.
                 let tile_fade = tile_alpha.get(key).copied().unwrap_or(1.0);
-                for &(tz, tx, ty, kind, vbuf, ibuf, first_index, count, color_override, lane) in
-                    draws.iter()
+                for &(tz, tx, ty, kind, vbuf, voff, ibuf, ioff, first_index, count, color_override, lane)
+                    in draws.iter()
                 {
+                    // One bind per pipeline no matter how the kinds interleave across layers
+                    // (`BindState` dedups for the frame).
                     if bound != Some(kind) {
-                        let pipeline = match kind {
-                            LayerKind::Fill if globe => self.pipelines.fill_globe,
-                            LayerKind::Fill => self.pipelines.fill,
-                            LayerKind::Line if globe => self.pipelines.line_globe,
-                            LayerKind::Line => self.pipelines.line,
-                            // Symbols never take this path (drawn above); this arm is
-                            // unreachable but the match must stay exhaustive.
-                            LayerKind::Symbol => continue,
+                        let Some(pipeline) = flat_pipeline(self, kind, globe) else {
+                            // Symbols never take this path (drawn deferred); the match stays
+                            // exhaustive without panicking.
+                            continue;
                         };
-                        device.cmd_bind_pipeline(
-                            command_buffer,
-                            vk::PipelineBindPoint::GRAPHICS,
-                            pipeline,
-                        );
+                        binds.bind_pipeline(&device, command_buffer, pipeline);
                         bound = Some(kind);
                     }
 
@@ -450,12 +437,12 @@ impl Renderer {
                         0,
                         push.as_bytes(),
                     );
-                    device.cmd_bind_vertex_buffers(command_buffer, 0, &[vbuf], &[0]);
+                    device.cmd_bind_vertex_buffers(command_buffer, 0, &[vbuf], &[voff]);
                     // Uint32 rather than Uint16: a dense z14 tile can exceed 65535 vertices in
                     // one layer, and overflowing folds geometry back on itself rather than
                     // failing loudly. Indices are rebased to absolute at upload, so the slice
                     // draws from its firstIndex inside the shared pool.
-                    device.cmd_bind_index_buffer(command_buffer, ibuf, 0, vk::IndexType::UINT32);
+                    device.cmd_bind_index_buffer(command_buffer, ibuf, ioff, vk::IndexType::UINT32);
                     device.cmd_draw_indexed(command_buffer, count, 1, first_index, 0, 0);
                     submitted += 1;
                 }
@@ -473,6 +460,8 @@ impl Renderer {
             &accepted,
             &mut bound,
             &mut submitted,
+            &mut culled,
+            &mut binds,
             &device,
             flat_start,
             globe,

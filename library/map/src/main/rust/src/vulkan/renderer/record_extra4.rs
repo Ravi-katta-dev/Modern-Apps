@@ -1,4 +1,5 @@
 use super::{argb_to_rgba, Renderer};
+use super::bind_state::BindState;
 use crate::camera::Camera;
 use crate::style::{Layer, LayerKind, Palette};
 use crate::timing::{nanos_since, Step};
@@ -92,6 +93,8 @@ impl Renderer {
         accepted: &HashMap<u64, (bool, u32)>,
         bound: &mut Option<LayerKind>,
         submitted: &mut usize,
+        culled: &mut usize,
+        binds: &mut BindState,
         device: &ash::Device,
         flat_start: std::time::Instant,
         // This frame's globe flag (read once in `record_inner`): globe shaders +
@@ -126,6 +129,8 @@ impl Renderer {
             ordered,
             fog,
             submitted,
+            culled,
+            binds,
             globe,
         );
         self.step_times
@@ -136,7 +141,7 @@ impl Renderer {
         // footprint, so the flat overhead map is unchanged. Before the deferred symbols, so POI
         // icons and labels are not buried behind a tower.
         let step_start = std::time::Instant::now();
-        self.record_buildings(command_buffer, camera, layers, palette, submitted);
+        self.record_buildings(command_buffer, camera, layers, palette, submitted, culled, binds);
         self.step_times
             .borrow_mut()
             .record(Step::RecordBuildings, nanos_since(step_start));
@@ -152,6 +157,7 @@ impl Renderer {
                 accepted,
                 submitted,
                 bound,
+                binds,
                 globe,
             );
         }
@@ -159,12 +165,12 @@ impl Renderer {
             .borrow_mut()
             .record(Step::RecordSymbols, nanos_since(step_start));
         let step_start = std::time::Instant::now();
-        self.record_traffic(command_buffer, camera, submitted, globe);
+        self.record_traffic(command_buffer, camera, submitted, culled, binds, globe);
         self.step_times
             .borrow_mut()
             .record(Step::RecordTraffic, nanos_since(step_start));
         let step_start = std::time::Instant::now();
-        self.record_arrows(command_buffer, camera, layers, submitted);
+        self.record_arrows(command_buffer, camera, layers, submitted, culled, binds);
         self.step_times
             .borrow_mut()
             .record(Step::RecordArrows, nanos_since(step_start));
@@ -175,30 +181,39 @@ impl Renderer {
         // threshold anyway, so this only affects a zoomed-out preview.
         if !globe {
             let rail_start = std::time::Instant::now();
-            self.record_rail_lines(command_buffer, camera, submitted);
+            self.record_rail_lines(command_buffer, camera, submitted, binds);
             self.step_times
                 .borrow_mut()
                 .record(Step::RecordRail, nanos_since(rail_start));
             // No route slot: it shares `record_route_buffers` with the rail lines, so its cost
             // rides on `RecordRail` rather than a slot that reads zero on route-less frames.
-            self.record_route(command_buffer, camera, submitted);
+            self.record_route(command_buffer, camera, submitted, binds);
         }
         // Region mask on the globe: skipped with the route (flat-plane stencil
         // over a depth-tested ball). A selected region's mask reappears on zoom-in.
         if !globe {
             let step_start = std::time::Instant::now();
-            self.record_region_mask(command_buffer, camera, submitted);
+            self.record_region_mask(command_buffer, camera, submitted, culled, binds);
             self.step_times
                 .borrow_mut()
                 .record(Step::RecordRegion, nanos_since(step_start));
         }
         let step_start = std::time::Instant::now();
-        self.record_overlays(command_buffer, camera, palette, submitted, globe);
+        self.record_overlays(command_buffer, camera, palette, submitted, binds, globe);
         self.step_times
             .borrow_mut()
             .record(Step::RecordOverlays, nanos_since(step_start));
 
         self.submitted_draws.set(*submitted);
+        // What the off-screen cull saved this frame, for the debug overlay: recorded every
+        // frame (including zero) so the overlay row tracks the cull rather than going stale.
+        self.step_times
+            .borrow_mut()
+            .record(Step::CullSkipped, *culled as u64);
+        // What bind dedup saved: flushed from the frame's `BindState` (see `bind_state`).
+        // Early-out skips never reach here, so their row keeps the last real frame's count
+        // beside an `eout` of 1 — the two rows read together.
+        binds.flush(self);
         device.cmd_end_render_pass(command_buffer);
         device
             .end_command_buffer(command_buffer)

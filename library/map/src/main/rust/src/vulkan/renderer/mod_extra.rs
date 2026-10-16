@@ -11,9 +11,11 @@ use std::cell::Cell;
 use std::collections::HashMap;
 
 use super::{
-    AcceptSet, Frame, Overlay, PlacedHit, PlacementKey, Quad, ResidentTile, RouteBuffers,
+    AcceptSet, Frame, Overlay, PlacedHit, PlacementKey, ResidentTile, RouteBuffers,
     TransientBuffers,
 };
+use super::quad::Quad;
+use super::upload_pool::UploadPool;
 use crate::style::LayerKind;
 
 pub struct Renderer {
@@ -62,7 +64,9 @@ pub struct Renderer {
         u32,
         LayerKind,
         ash::vk::Buffer,
+        ash::vk::DeviceSize,
         ash::vk::Buffer,
+        ash::vk::DeviceSize,
         u32,
         u32,
         Option<u32>,
@@ -173,4 +177,107 @@ pub struct Renderer {
     /// The last camera a frame was recorded with, so [`pick_at`](Self::pick_at) can place markers
     /// against the frame the user is actually looking at. `None` before the first frame.
     pub(crate) last_camera: Option<Camera>,
+    /// Version of everything affecting the picture that is NOT the camera pose: overlays
+    /// (puck, markers, vehicles), route/rail meshes, traffic table + toggle, region mask,
+    /// Moon textures. Bumped by every setter below; part of the submit early-out key in
+    /// [`render`](Self::render) (see `FrameVersion`).
+    pub(crate) state_epoch: Cell<u64>,
+    /// Version of tile residency: bumped by [`upload`](Self::upload) and by
+    /// [`retain`](Self::retain) when it evicts anything. A new tile or an eviction changes
+    /// the picture, so the early-out key carries this instead of hashing the resident set.
+    pub(crate) residency_epoch: Cell<u64>,
+    /// How many times [`place_symbols`](Self::place_symbols) recomputed (not reused) the
+    /// accept-set. Reuse hits leave this alone, so the early-out key sees a stable placement
+    /// across the retained-collision slow path without hashing the accept-set per frame.
+    pub(crate) placement_version: Cell<u64>,
+    /// What the last submitted frame drew, for the MapLibre-style submit early-out: when the
+    /// next frame's version is identical, re-recording + `queue_submit` would present a
+    /// bit-identical image, so the frame is skipped (counted in `Step::EarlyOut`). `None`
+    /// before the first submit and after anything that invalidates unconditionally
+    /// (swapchain rebuild), forcing the next frame through.
+    pub(crate) last_frame_version: Option<FrameVersion>,
+    /// Tile-upload staging arenas (see `upload_pool`): bump-allocated once, never freed
+    /// until the renderer dies, so a tile upload costs copies but no `vkAllocateMemory`.
+    pub(crate) upload_pool: UploadPool,
+}
+
+/// What one submitted frame drew, for the submit early-out.
+///
+/// Everything here is compared by value per frame — all integers or bit patterns, no hashing,
+/// no allocation. The camera pose is exact bits (any pose change draws); the clock is
+/// quantised to 50 ms bins so dash-phase animation still steps during grace windows while
+/// identical frames 16 ms apart skip. Residency, placement and overlay state ride as epoch
+/// counters bumped at their single choke points; palette is a plain value (push-constant
+/// recolour, no re-tessellation).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct FrameVersion {
+    cam_lon: u64,
+    cam_lat: u64,
+    zoom: u64,
+    bearing: u64,
+    pitch: u64,
+    width_dp: u32,
+    height_dp: u32,
+    density: u32,
+    globe: bool,
+    moon: bool,
+    /// `time_seconds` in 50 ms bins: animation still moves during grace, steady frames skip.
+    time_bin: i64,
+    palette_dark: bool,
+    palette_muted: bool,
+    residency: u64,
+    placement: u64,
+    state: u64,
+}
+
+impl FrameVersion {
+    /// The version the current frame would submit. `palette` is read live (push-constant
+    /// state, never tessellated); the epochs come from the renderer's counters.
+    pub(crate) fn current(
+        camera: &Camera,
+        palette: crate::style::Palette,
+        residency: u64,
+        placement: u64,
+        state: u64,
+    ) -> FrameVersion {
+        FrameVersion {
+            cam_lon: camera.center_lon.to_bits(),
+            cam_lat: camera.center_lat.to_bits(),
+            zoom: camera.zoom.to_bits(),
+            bearing: camera.bearing_deg.to_bits(),
+            pitch: camera.pitch_deg.to_bits(),
+            width_dp: camera.width_dp.to_bits(),
+            height_dp: camera.height_dp.to_bits(),
+            density: camera.density.to_bits(),
+            globe: camera.globe,
+            moon: camera.moon,
+            time_bin: (camera.time_seconds * 20.0).floor() as i64,
+            palette_dark: palette.variant == crate::style::Variant::Dark,
+            palette_muted: palette.muted,
+            residency,
+            placement,
+            state,
+        }
+    }
+}
+
+impl Renderer {
+    /// Bump the picture-state epoch: anything that changes what a frame draws outside the
+    /// camera pose and tile residency (overlays, route/rail, traffic, region, Moon) calls
+    /// this, so the submit early-out sees the change without comparing state.
+    pub(crate) fn bump_state(&self) {
+        self.state_epoch.set(self.state_epoch.get().wrapping_add(1));
+    }
+
+    /// Bump the residency epoch: an upload or an eviction changed the resident set.
+    pub(crate) fn bump_residency(&self) {
+        self.residency_epoch
+            .set(self.residency_epoch.get().wrapping_add(1));
+    }
+
+    /// Forcibly retire the last submitted version (swapchain rebuild path): the next frame
+    /// submits unconditionally, because a new swapchain/extent must present at least once.
+    pub(crate) fn forget_submitted(&mut self) {
+        self.last_frame_version = None;
+    }
 }

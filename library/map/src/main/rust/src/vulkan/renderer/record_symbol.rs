@@ -4,6 +4,7 @@
 //! the tile, its batches and its billboard inputs; `record_symbol_emit` builds the
 //! globe/flat push blocks and issues the draws.
 use super::{anchors_for, argb_to_rgba, scale_alpha, Renderer};
+use super::bind_state::BindState;
 use crate::camera::Camera;
 use crate::style::{Layer, LayerKind, Palette};
 use crate::vulkan::pipeline::Push;
@@ -31,6 +32,7 @@ impl Renderer {
         glyph_set: vk::DescriptorSet,
         submitted: &mut usize,
         bound: &mut Option<LayerKind>,
+        binds: &mut BindState,
         // This frame's globe flag: globe symbol/icon pipelines + sphere push, or
         // the flat path bit-identically above.
         globe: bool,
@@ -89,6 +91,7 @@ impl Renderer {
                 icon_indices,
                 &push,
                 submitted,
+                binds,
             );
             // The icon pipeline shares `LayerKind::Symbol`, so this still forces the
             // fill/line path to rebind. The symbol pipeline is bound again immediately
@@ -132,6 +135,7 @@ impl Renderer {
                 indices,
                 &push,
                 submitted,
+                binds,
             );
             *bound = Some(LayerKind::Symbol);
         }
@@ -159,6 +163,7 @@ impl Renderer {
         accepted: &HashMap<u64, (bool, u32)>,
         submitted: &mut usize,
         bound: &mut Option<LayerKind>,
+        binds: &mut BindState,
         // This frame's globe flag: globe symbol/icon pipelines + sphere push, or
         // the flat path bit-identically above.
         globe: bool,
@@ -338,6 +343,7 @@ impl Renderer {
             glyph_set,
             submitted,
             bound,
+            binds,
             globe,
         );
     }

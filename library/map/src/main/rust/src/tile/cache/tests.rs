@@ -243,3 +243,20 @@ fn eviction_waits_for_a_batch_of_writes() {
         .sum();
     assert_eq!(total, 2000, "under the batch threshold no scan runs yet");
 }
+
+/// `flush_entry` re-syncs a written entry without changing it: the bytes still read
+/// back, freshness is untouched, and a missing entry is a silent no-op (best-effort).
+#[test]
+fn flushing_an_entry_keeps_it_readable() {
+    let f = Fixture::new("flush");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+    let key = RangeCache::key(URL, "bytes=0-3");
+    cache.write(&key, &[1, 2, 3, 4]);
+    cache.flush_entry(&key);
+    let entry = cache.read(&key).expect("still cached");
+    assert_eq!(entry.body, vec![1, 2, 3, 4]);
+    assert_eq!(entry.fetched_at_ms, 1_000_000);
+    // And flushing a key that was never written does nothing, not a panic.
+    cache.flush_entry(&RangeCache::key(URL, "bytes=999-1003"));
+}

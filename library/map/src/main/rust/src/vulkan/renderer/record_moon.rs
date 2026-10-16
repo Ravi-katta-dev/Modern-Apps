@@ -89,6 +89,11 @@ impl Renderer {
             }
         }
         self.frame_index = (self.frame_index + 1) % super::FRAMES_IN_FLIGHT;
+        // The Moon path binds exactly once and draws once: record the pair so the
+        // overlay's bind row stays truthful across body switches.
+        self.step_times
+            .borrow_mut()
+            .record(crate::timing::Step::PipelineBinds, 1);
         Ok(true)
     }
 

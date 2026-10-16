@@ -1,6 +1,6 @@
 use super::{
     anchors_for, kind_name,
-    placement_reuse::{box_inputs, box_inputs_with_arms, drift_reuse_ms, within_drift},
+    placement_reuse::{box_inputs, box_inputs_with_arms, bucket_for, reuse_cached_accept},
     AcceptSet, Overlay, PlacedHit, PlacementKey, Renderer, QUAD_INDICES,
 };
 use crate::camera::Camera;
@@ -60,12 +60,21 @@ impl Renderer {
         filter: &crate::style::KindFilter,
     ) -> AcceptSet {
         use crate::tile::placement;
+        let globe = crate::camera::globe_active(camera);
+        let (bucket_zoom, bucket_bearing, bucket_pitch, bucket_lon, bucket_lat) =
+            bucket_for(camera);
         let key = PlacementKey {
             center_lon: camera.center_lon.to_bits(),
             center_lat: camera.center_lat.to_bits(),
             zoom: camera.zoom.to_bits(),
             bearing: camera.bearing_deg.to_bits(),
             pitch: camera.pitch_deg.to_bits(),
+            bucket_zoom,
+            bucket_bearing,
+            bucket_pitch,
+            bucket_lon,
+            bucket_lat,
+            globe,
             width_dp: camera.width_dp.to_bits(),
             height_dp: camera.height_dp.to_bits(),
             density: camera.density.to_bits(),
@@ -87,36 +96,15 @@ impl Renderer {
             layers: layers.len(),
             markers: self.marker_epoch,
         };
-        if let Some((cached, accepted, at)) = self.placement_cache.borrow().as_ref() {
-            if *cached == key {
-                return accepted.clone();
-            }
-            // Same everything but the centre: a pan in progress. Reuse the last accept-set
-            // for a short window rather than re-running the quadratic pass every frame.
-            let mut moved = cached.clone();
-            moved.center_lon = key.center_lon;
-            moved.center_lat = key.center_lat;
-            if moved == key && at.elapsed().as_millis() < PLACE_REUSE_MS {
-                return accepted.clone();
-            }
-            // Small zoom/bearing/pitch drift on top of a pan: the candidate universe is
-            // bit-identical (tiles, stamps, filter, extent, layers, sizes) and only the
-            // projection moved a little, so reuse the accept-set within the same window.
-            // Boxes still re-project per frame in `refresh_placed`; only the collision
-            // outcome lags, by at most the window.
-            //
-            // A fast zoom-out shrinks the window: past ~1 level/sec the answer goes stale
-            // faster than the pan window allows, so re-place promptly.
-            if cached.same_universe(&key)
-                && within_drift(cached, &key)
-                && at.elapsed().as_millis() < drift_reuse_ms(cached, &key, at, PLACE_REUSE_MS)
-            {
-                return accepted.clone();
-            }
+        // The reuse prologue lives in `placement_reuse` (file-length split): an exact, drift
+        // or bucket hit returns the cached accept-set, a miss falls through to the full pass.
+        if let Some(accepted) =
+            reuse_cached_accept(&self.placement_cache, &self.step_times, &key, PLACE_REUSE_MS)
+        {
+            return accepted;
         }
         let mut candidates: Vec<placement::SegmentedCandidate> = Vec::new();
         let camera_z = camera.zoom.floor().clamp(0.0, 22.0) as u8;
-        let globe = crate::camera::globe_active(camera);
         for (index, layer) in layers.iter().enumerate() {
             if layer.kind != LayerKind::Symbol {
                 continue;
@@ -300,6 +288,13 @@ impl Renderer {
             .enumerate()
             .map(|(order, (id, flipped))| (id, (flipped, order as u32)))
             .collect();
+        // A fresh accept-set is a new placement version: the submit early-out keys on this
+        // rather than hashing the set per frame, and reuse hits above leave it alone.
+        self.placement_version
+            .set(self.placement_version.get().wrapping_add(1));
+        self.step_times
+            .borrow_mut()
+            .record(crate::timing::Step::PlacementHit, 0);
         *self.placement_cache.borrow_mut() = Some((key, accepted.clone(), Instant::now()));
         accepted
     }

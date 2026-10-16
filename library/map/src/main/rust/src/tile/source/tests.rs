@@ -1,6 +1,5 @@
 use super::*;
 use crate::tile::cache::RangeCache;
-use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -79,7 +78,7 @@ struct Fake {
     status: u16,
     body: Vec<u8>,
     fail: bool,
-    ranges: RefCell<Vec<String>>,
+    ranges: std::sync::Mutex<Vec<String>>,
 }
 
 impl Fake {
@@ -88,14 +87,18 @@ impl Fake {
             status: 206,
             body,
             fail: false,
-            ranges: RefCell::new(Vec::new()),
+            ranges: std::sync::Mutex::new(Vec::new()),
         }
+    }
+
+    fn logged(&self) -> Vec<String> {
+        self.ranges.lock().unwrap().clone()
     }
 }
 
 impl RangeFetcher for Fake {
     fn fetch(&self, _url: &str, range: &str) -> Result<RangeResponse> {
-        self.ranges.borrow_mut().push(range.to_string());
+        self.ranges.lock().unwrap().push(range.to_string());
         if self.fail {
             return err("no route to host");
         }
@@ -125,9 +128,9 @@ fn the_range_header_names_the_exact_byte_range() {
     let clock = Arc::new(AtomicU64::new(1_000_000));
     let r = reader(&f.dir, clock, Fake::ok(vec![0u8; 127]));
     r.read(0, 127).expect("read");
-    assert_eq!(r.fetcher.ranges.borrow()[0], "bytes=0-126");
+    assert_eq!(r.fetcher.logged()[0], "bytes=0-126");
     r.read(2_409_278, 4).ok();
-    assert_eq!(r.fetcher.ranges.borrow()[1], "bytes=2409278-2409281");
+    assert_eq!(r.fetcher.logged()[1], "bytes=2409278-2409281");
 }
 
 #[test]
@@ -137,7 +140,7 @@ fn a_fresh_entry_is_served_without_touching_the_network() {
     {
         let r = reader(&f.dir, clock.clone(), Fake::ok(vec![7u8; 16]));
         assert_eq!(r.read(0, 16).unwrap(), vec![7u8; 16]);
-        assert_eq!(r.fetcher.ranges.borrow().len(), 1);
+        assert_eq!(r.fetcher.logged().len(), 1);
     }
     // A second reader over the same directory: the entry is on disk and fresh.
     let r = reader(&f.dir, clock, Fake::ok(vec![9u8; 16]));
@@ -148,10 +151,10 @@ fn a_fresh_entry_is_served_without_touching_the_network() {
         vec![9u8; 16],
         "the header is refetched"
     );
-    assert_eq!(r.fetcher.ranges.borrow().len(), 1);
+    assert_eq!(r.fetcher.logged().len(), 1);
     // Everything after it is served from the cache.
     assert_eq!(r.read(0, 16).unwrap(), vec![9u8; 16], "the cached bytes");
-    assert_eq!(r.fetcher.ranges.borrow().len(), 1, "no second request");
+    assert_eq!(r.fetcher.logged().len(), 1, "no second request");
 }
 
 /// The archive header cannot be answered from the cache it decides the fate of.
@@ -193,7 +196,7 @@ fn the_first_read_still_uses_the_cache_when_offline() {
     r.set_online(false);
     assert_eq!(r.read(0, 16).unwrap(), vec![3u8; 16], "the cached header");
     assert!(
-        r.fetcher.ranges.borrow().is_empty(),
+        r.fetcher.logged().is_empty(),
         "and no request attempted"
     );
 }
@@ -212,7 +215,7 @@ fn a_stale_entry_is_refetched_when_online() {
     );
     let r = reader(&f.dir, clock, Fake::ok(vec![2u8; 4]));
     assert_eq!(r.read(0, 4).unwrap(), vec![2u8; 4], "the refreshed bytes");
-    assert_eq!(r.fetcher.ranges.borrow().len(), 1);
+    assert_eq!(r.fetcher.logged().len(), 1);
 }
 
 #[test]
@@ -232,7 +235,7 @@ fn a_stale_entry_is_served_offline_rather_than_failing() {
     r.set_online(false);
     assert_eq!(r.read(0, 4).unwrap(), vec![1u8; 4], "the stale bytes");
     assert!(
-        r.fetcher.ranges.borrow().is_empty(),
+        r.fetcher.logged().is_empty(),
         "offline must not attempt a request"
     );
 }
@@ -255,7 +258,7 @@ fn a_failed_fetch_is_an_error_not_a_stale_fallback() {
         status: 206,
         body: Vec::new(),
         fail: true,
-        ranges: RefCell::new(Vec::new()),
+        ranges: std::sync::Mutex::new(Vec::new()),
     };
     let r = reader(&f.dir, clock, failing);
     assert!(
@@ -272,7 +275,7 @@ fn a_failed_fetch_with_nothing_cached_propagates() {
         status: 206,
         body: Vec::new(),
         fail: true,
-        ranges: RefCell::new(Vec::new()),
+        ranges: std::sync::Mutex::new(Vec::new()),
     };
     let r = reader(&f.dir, clock, failing);
     assert!(r.read(0, 4).is_err());
@@ -295,7 +298,7 @@ fn a_server_error_is_an_error_not_a_cache_fallback() {
         status: 503,
         body: vec![9u8; 4],
         fail: false,
-        ranges: RefCell::new(Vec::new()),
+        ranges: std::sync::Mutex::new(Vec::new()),
     };
     let r = reader(&f.dir, clock, erroring);
     assert!(
@@ -316,7 +319,7 @@ fn a_whole_file_200_reply_to_a_range_request_is_never_cached() {
         status: 200,
         body: vec![3u8; 4096],
         fail: false,
-        ranges: RefCell::new(Vec::new()),
+        ranges: std::sync::Mutex::new(Vec::new()),
     };
     let r = reader(&f.dir, clock, whole);
     assert_eq!(
@@ -400,4 +403,52 @@ fn an_origin_marker_names_the_layout_the_url_and_the_build() {
         basemap_origin(url, 1),
         basemap_origin("https://other.invalid/x", 1)
     );
+}
+
+/// Batch reads overlap latency: two ranges cost each its own request, in order, with one
+/// request per range — no merging, no reordering.
+#[test]
+fn a_batch_read_issues_one_request_per_range_in_order() {
+    let f = Fixture::new("batch");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let r = reader(&f.dir, clock, Fake::ok(vec![7u8; 64]));
+    let out = read_batch(&r, &[(0, 8), (100, 8), (200, 8)]);
+    assert_eq!(out.len(), 3);
+    for slot in &out {
+        assert_eq!(slot.as_ref().unwrap().len(), 64);
+    }
+    assert_eq!(
+        r.fetcher.logged(),
+        vec!["bytes=0-7", "bytes=100-107", "bytes=200-207"],
+    );
+}
+
+/// A failed range fails its own slot, not the batch: the other ranges still land.
+#[test]
+fn a_batch_read_isolates_a_failed_range() {
+    let f = Fixture::new("batch_fail");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let failing = Fake {
+        status: 503,
+        body: Vec::new(),
+        fail: false,
+        ranges: std::sync::Mutex::new(Vec::new()),
+    };
+    let r = reader(&f.dir, clock, failing);
+    let out = read_batch(&r, &[(0, 4), (64, 4)]);
+    assert_eq!(out.len(), 2);
+    assert!(out[0].is_err() && out[1].is_err());
+    assert_eq!(r.fetcher.logged().len(), 2);
+}
+
+/// A single-range batch takes the serial path with identical results.
+#[test]
+fn a_single_range_batch_reads_like_a_plain_read() {
+    let f = Fixture::new("batch_single");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let r = reader(&f.dir, clock, Fake::ok(vec![5u8; 16]));
+    let out = read_batch(&r, &[(0, 16)]);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0].as_ref().unwrap(), &vec![5u8; 16]);
+    assert_eq!(r.fetcher.logged().len(), 1);
 }

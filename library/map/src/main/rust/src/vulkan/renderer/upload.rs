@@ -1,14 +1,12 @@
-use super::{
-    BuildingBuffers, CarriagewayBuffers, LayerBuffers, RegionBuffers, Renderer, ResidentTile,
-    TerrainBuffers, TrafficBuffers, FRAMES_IN_FLIGHT,
-};
+use super::Renderer;
+use super::upload_tail;
+use super::{BuildingBuffers, FRAMES_IN_FLIGHT, ResidentTile, TerrainBuffers};
 use crate::tile::geometry::TileMesh;
 use crate::tile::select;
 use crate::vulkan::buffers::Buffer;
 use crate::vulkan::context::Context;
 use crate::vulkan::images::{AtlasSet, SampledImage};
 use ash::vk;
-use std::collections::HashSet;
 
 impl Renderer {
     /// Upload a tile's geometry, replacing anything already resident for it.
@@ -24,9 +22,13 @@ impl Renderer {
         use crate::style::LayerKind;
         use crate::tess::{fill, ribbon, stroke};
         use crate::vulkan::buffers::upload_packed;
-        let instance = &self.context.instance;
+        use super::upload_pool::UploadPool;
+        // Read the context handles once, before the `&mut self` pooled commit below:
+        // `commit_tile_groups` grows the pool through `&mut self`, so no borrow of
+        // `self.context` may live across it. Copied values, never borrows.
+        let instance = self.context.instance.clone();
         let physical = self.context.physical_device;
-        let device = &self.context.device;
+        let device = self.context.device.clone();
         // Fills and region shapes share the position-only flat pool; collect which flat mesh
         // each belongs to so the draw slices line up with the packed order below.
         let mut flat_meshes: Vec<(&[f32], &[u32])> = Vec::new();
@@ -68,131 +70,123 @@ impl Renderer {
             }
             ribbon_meshes.push((&road.vertices, &road.indices));
         }
+        // Pooled staging first: pack the three mesh groups into the upload arenas, which
+        // costs copies but no `vkAllocateMemory`. `None` (no room, copy failed) falls
+        // through to fresh buffers below, counting the allocation — so `Step::UploadAllocs`
+        // reads zero in the steady state and names every fallback.
+        //
+        // SAFETY: arena ranges are bump-allocated and never reused for another tile, so no
+        // live draw can reference the ranges this commit writes; draws bind the committed
+        // offsets below, which outlive the tile like every other resident buffer.
+        //
+        // The pooled path needs the same `first_index` bookkeeping the fresh path does
+        // below (layer slices, region/traffic/carriageway lookups), so both paths funnel
+        // through one tail: `pooled` carries arena slices, `fresh_*` carry fresh buffers,
+        // and exactly one of them is `Some`. The pooled slices name arena ranges; the
+        // draws bind them with byte offsets (see `pool_draw_buffers`), which is the only
+        // place the two paths differ.
+        let pooled = unsafe {
+            super::upload_pool::commit_tile_groups(
+                self,
+                super::upload_pool::UploadGroups {
+                    flat: &flat_meshes,
+                    lines: &line_meshes,
+                    ribbons: &ribbon_meshes,
+                },
+            )
+        };
         // SAFETY: uploading fresh GPU buffers for a tile whose previous buffers (if any)
-        // are retired below, after every buffer below has landed.
-        let flat = unsafe {
-            upload_packed(
-                instance,
-                physical,
-                device,
-                fill::FLOATS_PER_VERTEX,
-                &flat_meshes,
-            )?
-        };
-        let lines = unsafe {
-            upload_packed(
-                instance,
-                physical,
-                device,
-                stroke::FLOATS_PER_VERTEX,
-                &line_meshes,
-            )?
-        };
-        let ribbons = unsafe {
-            upload_packed(
-                instance,
-                physical,
-                device,
-                ribbon::FLOATS_PER_VERTEX,
-                &ribbon_meshes,
-            )?
-        };
-        let mut flat_layer_iter = flat_layer_at.iter();
-        let mut line_layer_iter = line_layer_at.iter();
-        let mut layers: Vec<LayerBuffers> = Vec::with_capacity(mesh.meshes.len());
-        for layer_mesh in &mesh.meshes {
-            if layer_mesh.indices.is_empty() {
-                continue;
+        // are retired below, after every buffer below has landed. Skipped entirely on
+        // the pooled path — that is the whole point. Borrows `&` (not `&mut self`)
+        // locals: `instance`/`physical`/`device` above are owned clones.
+        let (flat, lines, ribbons) = match &pooled {
+            Some(_) => (None, None, None),
+            None => {
+                UploadPool::record_allocs(self, 6);
+                let flat = unsafe {
+                    upload_packed(
+                        &instance,
+                        physical,
+                        &device,
+                        fill::FLOATS_PER_VERTEX,
+                        &flat_meshes,
+                    )?
+                };
+                let lines = unsafe {
+                    upload_packed(
+                        &instance,
+                        physical,
+                        &device,
+                        stroke::FLOATS_PER_VERTEX,
+                        &line_meshes,
+                    )?
+                };
+                let ribbons = unsafe {
+                    upload_packed(
+                        &instance,
+                        physical,
+                        &device,
+                        ribbon::FLOATS_PER_VERTEX,
+                        &ribbon_meshes,
+                    )?
+                };
+                (flat, lines, ribbons)
             }
-            // The `*_at` vectors parallel their pool's mesh order: the nth fill-kind mesh is
-            // the nth entry of the flat pool's first-index list, and likewise for lines.
-            let first_index = match layer_mesh.kind {
-                LayerKind::Fill => {
-                    let Some(at) = flat_layer_iter.next() else {
-                        continue;
-                    };
-                    let Some((_, _, first)) = flat.as_ref() else {
-                        continue;
-                    };
-                    first[*at]
-                }
-                LayerKind::Line => {
-                    let Some(at) = line_layer_iter.next() else {
-                        continue;
-                    };
-                    let Some((_, _, first)) = lines.as_ref() else {
-                        continue;
-                    };
-                    first[*at]
-                }
-                LayerKind::Symbol => continue,
-            };
-            layers.push(LayerBuffers {
-                layer_index: layer_mesh.layer_index,
-                kind: layer_mesh.kind,
-                first_index,
-                index_count: layer_mesh.indices.len() as u32,
-                color_override: layer_mesh.color_override,
-                lane: layer_mesh.lane,
-            });
-        }
-        let flat_first: Vec<u32> = flat.as_ref().map(|(_, _, f)| f.clone()).unwrap_or_default();
-        let line_first: Vec<u32> = lines
-            .as_ref()
-            .map(|(_, _, f)| f.clone())
-            .unwrap_or_default();
-        let mut regions = Vec::with_capacity(mesh.regions.len());
-        for (n, region) in mesh.regions.iter().enumerate() {
-            let Some(&first_index) = flat_first.get(flat_region_at[n]) else {
-                continue;
-            };
-            regions.push(RegionBuffers {
-                id: region.id,
-                first_index,
-                index_count: region.indices.len() as u32,
-                rings: region.rings.clone(),
-                area: region.area,
-                level: region.level,
-            });
-        }
-        let mut traffic = Vec::with_capacity(mesh.traffic.len());
-        for (n, segment) in mesh.traffic.iter().enumerate() {
-            if segment.indices.is_empty() {
-                continue;
-            }
-            let Some(&first_index) = line_first.get(line_traffic_at[n]) else {
-                continue;
-            };
-            traffic.push(TrafficBuffers {
-                id: segment.id,
-                first_index,
-                index_count: segment.indices.len() as u32,
-            });
-        }
-        let ribbon_first: Vec<u32> = ribbons
-            .as_ref()
-            .map(|(_, _, f)| f.clone())
-            .unwrap_or_default();
-        let mut carriageways = Vec::with_capacity(mesh.carriageways.len());
-        let mut ri = 0usize;
-        for road in &mesh.carriageways {
-            if road.indices.is_empty() {
-                continue;
-            }
-            let Some(&first_index) = ribbon_first.get(ri) else {
-                continue;
-            };
-            ri += 1;
-            carriageways.push(CarriagewayBuffers {
-                layer_index: road.layer_index,
-                lanes: road.lanes,
-                split: road.split,
-                oneway: road.oneway,
-                first_index,
-                index_count: road.indices.len() as u32,
-            });
-        }
-        // The tile's 3D buildings, if any: one combined mesh, uploaded like the rest.
+        };
+        // The draws bind arena ranges with byte offsets: the pooled slices name
+        // (arena, offset) pairs, while the fresh path names whole buffers at offset 0.
+        // `PooledPair` (see `upload_tail`) carries one pool's bind inputs either way.
+        // Handles come out by value through `arena_buffers` — no borrow of the pool
+        // lives past this closure.
+        let pooled_buffers = pooled.as_ref().map(|s| {
+            let pool = &self.upload_pool;
+            let (flat_v, flat_i) = pool.arena_buffers(s.flat.arena);
+            let (lines_v, lines_i) = pool.arena_buffers(s.lines.arena);
+            let (ribbons_v, ribbons_i) = pool.arena_buffers(s.ribbons.arena);
+            (
+                upload_tail::PooledPair {
+                    vbuf: flat_v,
+                    voff: s.flat.vert_offset,
+                    ibuf: flat_i,
+                    ioff: s.flat.index_offset,
+                    first: s.flat.first_index.clone(),
+                },
+                upload_tail::PooledPair {
+                    vbuf: lines_v,
+                    voff: s.lines.vert_offset,
+                    ibuf: lines_i,
+                    ioff: s.lines.index_offset,
+                    first: s.lines.first_index.clone(),
+                },
+                upload_tail::PooledPair {
+                    vbuf: ribbons_v,
+                    voff: s.ribbons.vert_offset,
+                    ibuf: ribbons_i,
+                    ioff: s.ribbons.index_offset,
+                    first: s.ribbons.first_index.clone(),
+                },
+            )
+        });
+        let (flat_first_src, line_first_src, ribbon_first_src) =
+            upload_tail::first_index_lists(&pooled_buffers, &flat, &lines, &ribbons);
+        let layers = upload_tail::build_layers(
+            mesh,
+            &flat_layer_at,
+            &line_layer_at,
+            &flat_first_src,
+            &line_first_src,
+        );
+        let flat_first: Vec<u32> = flat_first_src;
+        let line_first: Vec<u32> = line_first_src;
+        let regions = upload_tail::build_regions(mesh, &flat_region_at, &flat_first);
+        let traffic = upload_tail::build_traffic(mesh, &line_traffic_at, &line_first);
+        let ribbon_first: Vec<u32> = ribbon_first_src;
+        let carriageways = upload_tail::build_carriageways(mesh, &ribbon_first);
+        // The tile's 3D buildings, if any: one combined mesh, uploaded fresh — 2 allocs
+        // when present, counted below. Buildings and terrain stay on the fresh path
+        // deliberately: they are single meshes per tile (not packed groups), rare (z14+
+        // with extruded detail only), and pooling them would complicate the arena
+        // bookkeeping for no steady-state gain — the packed groups are the per-frame cost.
         let buildings = if mesh.buildings.indices.is_empty() {
             None
         } else {
@@ -211,7 +205,10 @@ impl Renderer {
                     vk::BufferUsageFlags::INDEX_BUFFER,
                     &mesh.buildings.indices,
                 ) {
-                    Ok(buffer) => buffer,
+                    Ok(buffer) => {
+                        UploadPool::record_allocs(self, 2);
+                        buffer
+                    }
                     Err(e) => {
                         vertices.destroy(&self.context.device);
                         return Err(e);
@@ -224,7 +221,8 @@ impl Renderer {
                 })
             }
         };
-        // The tile's terrain grid, if any: one combined mesh, uploaded like the buildings above.
+        // The tile's terrain grid, if any: one combined mesh, uploaded fresh like the
+        // buildings above (see that comment for why these stay off the pooled path).
         let terrain = if mesh.terrain.indices.is_empty() {
             None
         } else {
@@ -243,7 +241,10 @@ impl Renderer {
                     vk::BufferUsageFlags::INDEX_BUFFER,
                     &mesh.terrain.indices,
                 ) {
-                    Ok(buffer) => buffer,
+                    Ok(buffer) => {
+                        UploadPool::record_allocs(self, 2);
+                        buffer
+                    }
                     Err(e) => {
                         vertices.destroy(&self.context.device);
                         return Err(e);
@@ -256,82 +257,23 @@ impl Renderer {
                 })
             }
         };
-        let tile = ResidentTile {
-            flat: flat.map(|(v, i, _)| (v, i)),
-            lines: lines.map(|(v, i, _)| (v, i)),
-            ribbons: ribbons.map(|(v, i, _)| (v, i)),
+        let tile = upload_tail::assemble_tile(
+            &pooled_buffers,
+            (flat, lines, ribbons),
             layers,
-            buildings,
-            terrain,
             regions,
             traffic,
             carriageways,
-            yellow_centre: mesh.yellow_centre,
-            labels: mesh.labels.clone(),
-            arrows: mesh.arrows.clone(),
-            heightmap: mesh.heightmap.clone(),
-            z: mesh.z,
-            x: mesh.x,
-            y: mesh.y,
-            // Stamp the tile with the latest frame clock so the fade below measures from the
-            // moment its GPU buffers landed. Before the first frame there is no clock yet;
-            // 0.0 makes `now - uploaded_at` large, so a startup tile is fully opaque at once
-            // (nothing is under it to fade over anyway).
-            uploaded_at: self.last_camera.map(|c| c.time_seconds).unwrap_or(0.0),
-            generation: mesh.generation,
-        };
+            buildings,
+            terrain,
+            mesh,
+            self.last_camera.map(|c| c.time_seconds).unwrap_or(0.0),
+        );
         if let Some(previous) = self.tiles.insert(key, tile) {
             self.retire(previous);
         }
+        self.bump_residency();
         Ok(())
-    }
-
-    /// Drop resident tiles that are neither wanted nor useful as a stand-in, and enforce the
-    /// residency cap.
-    ///
-    /// `keep` is the visible tiles and their ancestors, in the order [`select::resident_set`]
-    /// produced them — coarsest first. `visible` is needed separately because descendants cannot
-    /// be enumerated into a keep list without naming tiles that were never fetched; they are
-    /// recognised here, against what is actually resident.
-    ///
-    /// This is also the **only** bound on GPU memory. Tiles live until they fall out of this, so
-    /// the cap is not belt-and-braces: without it, retaining descendants would mean every deep
-    /// tile visited during a session stays resident for as long as the camera sits above it.
-    pub fn retain(&mut self, keep: &[u64], visible: &[select::TileId], cap: usize) {
-        let visible_keys: HashSet<u64> = visible.iter().map(|t| t.key()).collect();
-        let wanted: HashSet<u64> = keep.iter().copied().collect();
-
-        // Rank by how much is lost if it goes, because the cap has to evict *something* and the
-        // stand-ins are what it should reach for first.
-        let mut ranked: Vec<(u8, u64)> = self
-            .tiles
-            .keys()
-            .map(|&key| {
-                let rank = if visible_keys.contains(&key) {
-                    0 // on screen at its own zoom; evicting this is the blank frame itself
-                } else if wanted.contains(&key) {
-                    1 // an ancestor: one coarse tile covers many fine ones, so cheap to hold
-                } else if select::stands_in_for_visible(key, visible, select::DESCENDANT_DEPTH) {
-                    2 // a descendant: only covers a fraction of the screen, so the first to go
-                } else {
-                    3 // unrelated to anything on screen
-                };
-                (rank, key)
-            })
-            .collect();
-        ranked.sort_unstable();
-
-        let doomed: Vec<u64> = ranked
-            .iter()
-            .enumerate()
-            .filter(|(at, (rank, _))| *rank == 3 || *at >= cap)
-            .map(|(_, (_, key))| *key)
-            .collect();
-        for key in doomed {
-            if let Some(tile) = self.tiles.remove(&key) {
-                self.retire(tile);
-            }
-        }
     }
 
     /// Hold a tile's buffers until every in-flight frame that might reference them has
@@ -340,55 +282,43 @@ impl Renderer {
     /// Freeing them immediately is the classic Vulkan use-after-free: a command buffer
     /// submitted last frame can still be executing, and destroying its vertex buffer is
     /// undefined behaviour that usually looks like corrupted geometry rather than a crash.
-    fn retire(&mut self, tile: ResidentTile) {
+    pub(super) fn retire(&mut self, tile: ResidentTile) {
         self.retiring.push((FRAMES_IN_FLIGHT, tile));
     }
 
-    /// Free anything whose grace period has expired.
+    /// Drop resident tiles that are neither wanted nor useful as a stand-in, and enforce
+    /// the residency cap. Split into `upload_tail` (file-length limit); see it for the
+    /// ranking contract — this only forwards, so the call sites are unchanged.
+    pub fn retain(&mut self, keep: &[u64], visible: &[select::TileId], cap: usize) {
+        upload_tail::retain(self, keep, visible, cap);
+    }
+
+    /// Free anything whose grace period has expired. Split into `upload_tail`
+    /// (file-length limit): `fresh_owned` destroys, arena ranges free nothing — see
+    /// `free_retired_tile` for the ownership rule.
     pub(super) fn collect_retired(&mut self) {
         self.collect_moon_retired();
-        let device = &self.context.device;
+        let device = self.context.device.clone();
         self.retiring.retain_mut(|(remaining, tile)| {
             if *remaining > 0 {
                 *remaining -= 1;
                 return true;
             }
-            unsafe {
-                // Draw slices are plain indices into the pools — nothing per draw to free.
-                // Each pool is one pair no matter how many meshes packed into it.
-                if let Some((v, i)) = &tile.flat {
-                    v.destroy(device);
-                    i.destroy(device);
-                }
-                if let Some((v, i)) = &tile.lines {
-                    v.destroy(device);
-                    i.destroy(device);
-                }
-                if let Some((v, i)) = &tile.ribbons {
-                    v.destroy(device);
-                    i.destroy(device);
-                }
-                if let Some(buildings) = &tile.buildings {
-                    buildings.vertices.destroy(device);
-                    buildings.indices.destroy(device);
-                }
-                if let Some(terrain) = &tile.terrain {
-                    terrain.vertices.destroy(device);
-                    terrain.indices.destroy(device);
-                }
-            }
+            upload_tail::free_retired_tile_owned(tile, &device);
             false
         });
         // Transient per-frame symbol buffers retire on the same grace count, in
         // their own queue — no device_wait_idle stall on the frame path.
+        // `device` is the owned clone above, so borrows are explicit: `destroy`
+        // takes `&Device`, not `Device`.
         self.transients.retain_mut(|t| {
             if t.frames > 0 {
                 t.frames -= 1;
                 return true;
             }
             unsafe {
-                t.vbuf.destroy(device);
-                t.ibuf.destroy(device);
+                t.vbuf.destroy(&device);
+                t.ibuf.destroy(&device);
             }
             false
         });

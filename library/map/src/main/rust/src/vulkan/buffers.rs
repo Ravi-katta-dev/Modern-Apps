@@ -346,6 +346,10 @@ fn align_up(size: vk::DeviceSize) -> vk::DeviceSize {
 /// offset 0 and passes its `firstIndex`. `None` when there is nothing to pack, in which case
 /// the caller emits no draws, exactly as the per-mesh path did for empty input.
 ///
+/// The pooled-upload path ([`upload_pool`]) packs the same bytes into long-lived arenas
+/// instead of fresh buffers; this stays as the fallback for tiles that do not fit, and as
+/// the packing reference both paths share.
+///
 /// # Safety
 ///
 /// `device` must outlive the returned buffers, and the caller must destroy them before

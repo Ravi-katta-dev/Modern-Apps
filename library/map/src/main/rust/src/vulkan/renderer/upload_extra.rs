@@ -1,7 +1,9 @@
 use super::{
-    Frame, Quad, Renderer, RouteBuffers, TransientBuffers, FRAMES_IN_FLIGHT, QUAD_INDICES,
-    QUAD_VERTICES,
+    Frame, Renderer, RouteBuffers, TransientBuffers, FRAMES_IN_FLIGHT,
 };
+use super::quad::Quad;
+use crate::vulkan::renderer::quad::{QUAD_INDICES, QUAD_VERTICES};
+use super::upload_pool::UploadPool;
 use crate::overlay::RouteMesh;
 use crate::vulkan::buffers::{Buffer, ScratchRing};
 use crate::vulkan::cache::ShaderCache;
@@ -184,9 +186,14 @@ impl Renderer {
             scratch_resident: HashSet::new(),
             scratch_tile_alpha: HashMap::new(),
             scratch_deferred_symbols: Vec::new(),
+            upload_pool: UploadPool::new(),
             placement_cache: std::cell::RefCell::new(None),
             overlays: Vec::new(),
             marker_epoch: 0,
+            state_epoch: Cell::new(0),
+            residency_epoch: Cell::new(0),
+            placement_version: Cell::new(0),
+            last_frame_version: None,
             quad,
             selected_region: None,
             route: None,
@@ -215,6 +222,7 @@ impl Renderer {
                 frames: FRAMES_IN_FLIGHT,
             });
         }
+        self.bump_state();
         let Some(mesh) = mesh else { return Ok(()) };
         if mesh.indices.is_empty() {
             return Ok(());
@@ -236,6 +244,7 @@ impl Renderer {
                 frames: FRAMES_IN_FLIGHT,
             });
         }
+        self.bump_state();
         let Some(mesh) = mesh else { return Ok(()) };
         if mesh.indices.is_empty() {
             return Ok(());

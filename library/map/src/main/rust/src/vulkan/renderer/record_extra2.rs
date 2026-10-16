@@ -4,6 +4,8 @@ use super::{
     PUCK_CONE_HALF_STROKE_DP, PUCK_DOT_DP, PUCK_QUAD_DP, PUCK_RIM_DP, QUAD_INDICES, SCRIM_COLOR,
     TRAFFIC_WIDTH_DP, VEHICLE_RING_DP, VEHICLE_RING_QUAD_DP,
 };
+use super::fog::tile_offscreen;
+use super::bind_state::BindState;
 use crate::camera::Camera;
 use crate::marker::{Marker, MARKER_SIZE_DP};
 use crate::style::paint::Stroke;
@@ -35,6 +37,8 @@ impl Renderer {
         command_buffer: vk::CommandBuffer,
         camera: &Camera,
         submitted: &mut usize,
+        culled: &mut usize,
+        binds: &mut BindState,
         // This frame's globe flag: globe line pipeline + sphere push below, or
         // the flat path bit-identically above.
         globe: bool,
@@ -48,13 +52,26 @@ impl Renderer {
         let half_width_px = TRAFFIC_WIDTH_DP * camera.density / 2.0;
         let edge_aa = f32::from(self.swapchain.samples == vk::SampleCountFlags::TYPE_1);
 
-        let mut bound = false;
         for tile in self.tiles.values() {
             if tile.traffic.is_empty() {
                 continue;
             }
-            // The line pool, bound at offset 0; each segment draws its slice by firstIndex.
-            let Some((pool_v, pool_i)) = tile.lines.as_ref().map(|(v, i)| (v.buffer, i.buffer))
+            // Same off-screen cull as the flat layer loop (see `tile_offscreen`).
+            if tile_offscreen(camera, tile.z, tile.x, tile.y) {
+                *culled += tile
+                    .traffic
+                    .iter()
+                    .filter(|s| self.traffic_colors.contains_key(&s.id))
+                    .count();
+                continue;
+            }
+            // The line pool, bound at its offsets; each segment draws its slice by
+            // firstIndex. Fresh pools bind at 0, arena ranges at their committed offsets.
+            // Handles are raw `vk::Buffer`s now (see `ResidentTile`): copy by value.
+            let Some((pool_v, pool_vo, pool_i, pool_io)) = tile
+                .lines
+                .as_ref()
+                .map(|(v, vo, i, io)| (*v, *vo, *i, *io))
             else {
                 continue;
             };
@@ -66,18 +83,17 @@ impl Renderer {
                 let Some(&argb) = self.traffic_colors.get(&segment.id) else {
                     continue;
                 };
-                if !bound {
-                    device.cmd_bind_pipeline(
-                        command_buffer,
-                        vk::PipelineBindPoint::GRAPHICS,
-                        if globe {
-                            self.pipelines.line_globe
-                        } else {
-                            self.pipelines.line
-                        },
-                    );
-                    bound = true;
-                }
+                // One bind no matter how many segments draw: traffic shares the line
+                // pipeline with the layer loop, so this usually binds nothing at all.
+                binds.bind_pipeline(
+                    device,
+                    command_buffer,
+                    if globe {
+                        self.pipelines.line_globe
+                    } else {
+                        self.pipelines.line
+                    },
+                );
                 // Globe and flat share this block (see the layer loop): the
                 // globe matrix carries the centre and radius; `misc`/`morph`
                 // keep their flat meaning (tile px, edge AA, clock; fade, span).
@@ -107,8 +123,8 @@ impl Renderer {
                     0,
                     push.as_bytes(),
                 );
-                device.cmd_bind_vertex_buffers(command_buffer, 0, &[pool_v], &[0]);
-                device.cmd_bind_index_buffer(command_buffer, pool_i, 0, vk::IndexType::UINT32);
+                device.cmd_bind_vertex_buffers(command_buffer, 0, &[pool_v], &[pool_vo]);
+                device.cmd_bind_index_buffer(command_buffer, pool_i, pool_io, vk::IndexType::UINT32);
                 device.cmd_draw_indexed(
                     command_buffer,
                     segment.index_count,
@@ -134,29 +150,41 @@ impl Renderer {
         command_buffer: vk::CommandBuffer,
         camera: &Camera,
         submitted: &mut usize,
+        culled: &mut usize,
+        binds: &mut BindState,
     ) {
         let Some(selected) = self.selected_region else {
             return;
         };
         let device = &self.context.device;
 
+        // Whether any piece drew: the scrim below still draws when a visible piece remains.
+        // A local rather than `BindState` state — the scrim decision is draw order, not
+        // pipeline state.
         let mut any = false;
         for tile in self.tiles.values() {
-            // The flat pool, bound at offset 0; each region piece draws its slice by
-            // firstIndex.
-            let Some((pool_v, pool_i)) = tile.flat.as_ref().map(|(v, i)| (v.buffer, i.buffer))
+            // Off-screen region pieces rasterise nothing on-screen, so they add no stencil
+            // (see `tile_offscreen`). The scrim below still draws when any visible piece
+            // remains — `any` is only set by drawn pieces.
+            if tile_offscreen(camera, tile.z, tile.x, tile.y) {
+                *culled += tile.regions.iter().filter(|r| r.id == selected).count();
+                continue;
+            }
+            // The flat pool, bound at its offsets; each region piece draws its slice by
+            // firstIndex. Fresh pools bind at 0, arena ranges at their committed offsets.
+            // Handles are raw `vk::Buffer`s now (see `ResidentTile`): copy by value.
+            let Some((pool_v, pool_vo, pool_i, pool_io)) = tile
+                .flat
+                .as_ref()
+                .map(|(v, vo, i, io)| (*v, *vo, *i, *io))
             else {
                 continue;
             };
             for region in tile.regions.iter().filter(|r| r.id == selected) {
-                if !any {
-                    device.cmd_bind_pipeline(
-                        command_buffer,
-                        vk::PipelineBindPoint::GRAPHICS,
-                        self.pipelines.mask,
-                    );
-                    any = true;
-                }
+                // The stencil union draws in tile order, but the pipeline binds once:
+                // every piece shares the mask pipeline.
+                binds.bind_pipeline(device, command_buffer, self.pipelines.mask);
+                any = true;
                 let push = Push {
                     tile_to_clip: camera.tile_to_clip(tile.z, tile.x, tile.y),
                     color: [0.0; 4],
@@ -171,8 +199,8 @@ impl Renderer {
                     0,
                     push.as_bytes(),
                 );
-                device.cmd_bind_vertex_buffers(command_buffer, 0, &[pool_v], &[0]);
-                device.cmd_bind_index_buffer(command_buffer, pool_i, 0, vk::IndexType::UINT32);
+                device.cmd_bind_vertex_buffers(command_buffer, 0, &[pool_v], &[pool_vo]);
+                device.cmd_bind_index_buffer(command_buffer, pool_i, pool_io, vk::IndexType::UINT32);
                 device.cmd_draw_indexed(
                     command_buffer,
                     region.index_count,
@@ -199,11 +227,9 @@ impl Renderer {
             misc: [0.0; 4],
             morph: MORPH_NONE,
         };
-        device.cmd_bind_pipeline(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.pipelines.scrim,
-        );
+        // The scrim follows the stencil pieces in draw order, but its pipeline binds
+        // through the shared state so a repeated mask→scrim sequence costs one bind.
+        binds.bind_pipeline(device, command_buffer, self.pipelines.scrim);
         device.cmd_push_constants(
             command_buffer,
             self.pipelines.layout,
@@ -239,9 +265,10 @@ impl Renderer {
         command_buffer: vk::CommandBuffer,
         camera: &Camera,
         submitted: &mut usize,
+        binds: &mut BindState,
     ) {
         if let Some(route) = &self.route {
-            Self::record_route_buffers(self, command_buffer, camera, route, submitted);
+            Self::record_route_buffers(self, command_buffer, camera, route, submitted, binds);
         }
     }
 
@@ -254,9 +281,10 @@ impl Renderer {
         command_buffer: vk::CommandBuffer,
         camera: &Camera,
         submitted: &mut usize,
+        binds: &mut BindState,
     ) {
         if let Some(rails) = &self.rail_lines {
-            Self::record_route_buffers(self, command_buffer, camera, rails, submitted);
+            Self::record_route_buffers(self, command_buffer, camera, rails, submitted, binds);
         }
     }
 
@@ -266,6 +294,7 @@ impl Renderer {
         camera: &Camera,
         route: &RouteBuffers,
         submitted: &mut usize,
+        binds: &mut BindState,
     ) {
         let device = &renderer.context.device;
         let (origin, span) = route.placement.at_zoom(camera.zoom);
@@ -276,11 +305,9 @@ impl Renderer {
         let span_px = (span * camera.density as f64) as f32;
         let edge_aa = f32::from(renderer.swapchain.samples == vk::SampleCountFlags::TYPE_1);
 
-        device.cmd_bind_pipeline(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            renderer.pipelines.line,
-        );
+        // Rail network and route share the line pipeline: the second draws with no
+        // rebind when both are present.
+        binds.bind_pipeline(device, command_buffer, renderer.pipelines.line);
         device.cmd_bind_vertex_buffers(command_buffer, 0, &[route.vertices.buffer], &[0]);
         device.cmd_bind_index_buffer(
             command_buffer,
@@ -344,6 +371,7 @@ impl Renderer {
         camera: &Camera,
         palette: Palette,
         submitted: &mut usize,
+        binds: &mut BindState,
         // This frame's globe flag: far-side markers/puck culled, positions via
         // the globe anchor below — or the flat path bit-identically above.
         globe: bool,
@@ -374,8 +402,17 @@ impl Renderer {
             // vehicle reads in its line's colour: a dot-only pass on the puck
             // pipeline (no cone, no white rim), sized just past the 28 Dp
             // sprite, drawn before the sprites so they cover its middle.
-            self.draw_vehicle_rings(command_buffer, camera, &vehicles, submitted, globe);
-            self.draw_markers(command_buffer, camera, palette, &vehicles, &[], submitted, globe);
+            self.draw_vehicle_rings(command_buffer, camera, &vehicles, submitted, binds, globe);
+            self.draw_markers(
+                command_buffer,
+                camera,
+                palette,
+                &vehicles,
+                &[],
+                submitted,
+                binds,
+                globe,
+            );
         }
         if !markers.is_empty() {
             self.draw_markers(
@@ -385,6 +422,7 @@ impl Renderer {
                 &markers,
                 &marker_labels,
                 submitted,
+                binds,
                 globe,
             );
         }
@@ -431,11 +469,9 @@ impl Renderer {
             ],
             morph: MORPH_NONE,
         };
-        device.cmd_bind_pipeline(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            self.pipelines.puck,
-        );
+        // The puck binds through the shared state: with no vehicles it binds once, with
+        // rings before it the puck pipeline is usually already bound.
+        binds.bind_pipeline(device, command_buffer, self.pipelines.puck);
         device.cmd_push_constants(
             command_buffer,
             self.pipelines.layout,
