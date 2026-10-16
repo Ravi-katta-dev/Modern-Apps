@@ -98,13 +98,23 @@ fun Project.rustNativeLib(
 
     val androidApiLevel = 31
 
-    fun resolveSdkDir(): String =
-        System.getenv("ANDROID_HOME")
+    // Resolved once per build, not once per native module: every
+    // rustNativeLib caller shares the stashed value via the Gradle extra
+    // cache. Plain String keeps the configuration cache happy.
+    fun resolveSdkDirOnce(): String {
+        val extra = gradle.extensions.extraProperties
+        if (extra.has("modernAppsSdkDir")) return extra.get("modernAppsSdkDir") as String
+        val dir = System.getenv("ANDROID_HOME")
             ?: System.getenv("ANDROID_SDK_ROOT")
             ?: rootProject.file("local.properties").takeIf { it.exists() }?.let { f ->
                 Properties().apply { f.inputStream().use { load(it) } }.getProperty("sdk.dir")
             }
             ?: error("Android SDK not found (set ANDROID_HOME or sdk.dir in local.properties)")
+        extra.set("modernAppsSdkDir", dir)
+        return dir
+    }
+
+    fun resolveSdkDir(): String = resolveSdkDirOnce()
 
     val cargoBin = "${System.getProperty("user.home")}/.cargo/bin"
     val ndkRoot = "${resolveSdkDir()}/ndk/$NDK_VERSION"

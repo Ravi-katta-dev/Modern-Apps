@@ -15,23 +15,19 @@ plugins {
 
 val libs = the<org.gradle.accessors.dm.LibrariesForLibs>()
 
-fun readVersionInfo(): Pair<Int, String> {
-    val versionFile = File(rootDir, "version.txt")
-
-    return if (versionFile.exists()) {
-        val lines = versionFile.readLines()
-        if (lines.size >= 2) {
-            val code = lines[0].trim().toIntOrNull() ?: 1
-            val name = lines[1].trim()
-            code to name
-        } else throw IllegalStateException("Invalid version.txt format")
-    } else throw IllegalStateException("version.txt not found")
-}
-
+// Shared with common-conventions-app: version.txt is read once per build via
+// the Gradle extra cache (see readVersionInfoOnce there). No wear module
+// exists yet (settings.gradle.kts has no wear consumers); when one lands,
+// call readVersionInfoOnce() instead of re-adding a local reader.
+//
+// NOTE: this script must not call functions declared in another precompiled
+// script plugin (each compiles to an isolated class): the values below are
+// inlined defaults, replaced by the real readVersionInfoOnce() call when a
+// wear consumer appears.
 val proguardFile
     get() = File(rootDir, "proguard-rules.pro")
 
-val (appVersionCode, appVersionName) = readVersionInfo()
+val (appVersionCode, appVersionName) = 1 to "1.0"
 
 // Adaptive launcher icons are generated at build time from Material Symbols
 // (same mechanism as common-conventions-app). Each app declares its symbol via
@@ -167,6 +163,6 @@ tasks.withType<AbstractArchiveTask>().configureEach {
 }
 
 // Reproducible builds: log SOURCE_DATE_EPOCH if present for verification
-System.getenv("SOURCE_DATE_EPOCH")?.let {
+providers.environmentVariable("SOURCE_DATE_EPOCH").orNull?.let {
     logger.lifecycle("Reproducible build: SOURCE_DATE_EPOCH=$it")
 }

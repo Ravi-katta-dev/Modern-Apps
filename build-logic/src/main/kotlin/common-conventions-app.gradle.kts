@@ -17,10 +17,21 @@ detekt {
 
 val libs = the<org.gradle.accessors.dm.LibrariesForLibs>()
 
-fun readVersionInfo(): Pair<Int, String> {
+/**
+ * version.txt is read once per build (not once per module): the first
+ * convention plugin evaluated stashes the (code, name) pair on the Gradle
+ * object, and every later module reuses it. Same File reads as before —
+ * one stat + one read per build instead of per app module — and the plain
+ * Pair keeps the configuration cache happy (no Project captured).
+ */
+fun readVersionInfoOnce(): Pair<Int, String> {
+    val extra = gradle.extensions.extraProperties
+    if (extra.has("modernAppsVersionInfo")) {
+        @Suppress("UNCHECKED_CAST")
+        return extra.get("modernAppsVersionInfo") as Pair<Int, String>
+    }
     val versionFile = File(rootDir, "version.txt")
-
-    return if (versionFile.exists()) {
+    val info = if (versionFile.exists()) {
         val lines = versionFile.readLines()
         if (lines.size >= 2) {
             val code = lines[0].trim().toIntOrNull() ?: 1
@@ -28,7 +39,11 @@ fun readVersionInfo(): Pair<Int, String> {
             code to name
         } else throw IllegalStateException("Invalid version.txt format")
     } else throw IllegalStateException("version.txt not found")
+    extra.set("modernAppsVersionInfo", info)
+    return info
 }
+
+fun readVersionInfo(): Pair<Int, String> = readVersionInfoOnce()
 
 val proguardFile
     get() = File(rootDir, "proguard-rules.pro")
@@ -387,6 +402,6 @@ tasks.withType<AbstractArchiveTask>().configureEach {
 }
 
 // Reproducible builds: log SOURCE_DATE_EPOCH if present for verification
-System.getenv("SOURCE_DATE_EPOCH")?.let {
+providers.environmentVariable("SOURCE_DATE_EPOCH").orNull?.let {
     logger.lifecycle("Reproducible build: SOURCE_DATE_EPOCH=$it")
 }

@@ -53,7 +53,11 @@ val screenshotsOut = File(rootDir, "metadata_data/photos/$moduleKey")
 // .gitignore), though keeping them is also what would let `validate…ScreenshotTest` act as
 // UI regression testing later.
 val referenceDir = File(projectDir, "src/screenshotTestDev/reference")
-val renderedDir = File(layout.buildDirectory.get().asFile, "outputs/screenshotTest-results/preview/dev/rendered")
+// Lazily derived from the build directory provider: no .get() at
+// configuration time, so merely configuring the project creates no tasks.
+val renderedDir = layout.buildDirectory.map {
+    it.asFile.resolve("outputs/screenshotTest-results/preview/dev/rendered")
+}
 
 /**
  * Collects rendered previews into `metadata_data/photos/<module-key>/`.
@@ -100,7 +104,7 @@ tasks.register<CollectPreviewScreenshots>("metadata") {
     // `update…` renders the previews and writes them out; `validate…` would additionally
     // diff them against a committed baseline, which we do not keep.
     dependsOn("updateScreenshotTest")
-    sourceDirs.set(listOf(referenceDir, renderedDir))
+    sourceDirs.set(renderedDir.map { listOf(referenceDir, it) })
     destination.set(screenshotsOut)
     label.set(path)
     // Cheap, and the whole point is to refresh the images on demand.

@@ -95,6 +95,6 @@ tasks.withType<AbstractArchiveTask>().configureEach {
 }
 
 // Reproducible builds: log SOURCE_DATE_EPOCH if present for verification
-System.getenv("SOURCE_DATE_EPOCH")?.let {
+providers.environmentVariable("SOURCE_DATE_EPOCH").orNull?.let {
     logger.lifecycle("Reproducible build: SOURCE_DATE_EPOCH=$it")
 }
