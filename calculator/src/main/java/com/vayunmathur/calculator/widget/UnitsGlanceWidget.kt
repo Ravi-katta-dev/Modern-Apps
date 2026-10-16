@@ -50,10 +50,10 @@ import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.library.widgets.MaWidget
 
 /** What the widget draws: the category it is on and the conversion for that category's unit pair. */
-internal data class UnitsWidgetState(val categoryName: String, val conversion: String)
+data class UnitsWidgetState(val categoryName: String, val conversion: String)
 
 /** What the widget draws: the converter state plus whether the category list is showing. */
-internal data class UnitsWidgetData(val state: UnitsWidgetState, val expanded: Boolean)
+data class UnitsWidgetData(val state: UnitsWidgetState, val expanded: Boolean)
 
 /**
  * Home-screen converter for the units tab. Shows the unit pair the user last picked in the app
@@ -93,7 +93,6 @@ class UnitsGlanceWidget : MaWidget<UnitsWidgetData>() {
     override fun Content(data: UnitsWidgetData) {
         UnitsWidgetContent(data.state, data.expanded)
     }
-}
 
     @SuppressLint("RestrictedApi")
     @Composable
@@ -224,7 +223,7 @@ class UnitsGlanceWidget : MaWidget<UnitsWidgetData>() {
         const val EXTRA_OPEN_UNITS = "openUnits"
 
         /** Whether the inline category list is showing. Per-widget, so it is Glance state. */
-        internal val EXPANDED = booleanPreferencesKey("units_widget_category_expanded")
+        val EXPANDED = booleanPreferencesKey("units_widget_category_expanded")
 
         /** Static, so a preview never depends on stored state or a fetch that could fail. */
         private val SAMPLE = UnitsWidgetState("Temperature", "100\u202F°C = 212\u202F°F")
