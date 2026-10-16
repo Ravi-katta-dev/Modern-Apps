@@ -36,4 +36,9 @@
     <string name="safety_code_failed">Turvakoodi jaoks vajalike arvutuste tegemine ei õnnestunud</string>
     <string name="join_request_sending">Saadan liitumiskutset…</string>
     <string name="join_request_failed">Liitumiskutse saatmine ei õnnestunud</string>
+    <string name="sync_error_pull_failed">Sünkroonimisserver polnud leitav. Mitte midagi pole muutunud - proovin automaatselt uuesti.</string>
+    <string name="snapshot_restore">Taasta</string>
+    <string name="snapshot_take_now">Varunda kohe</string>
+    <string name="snapshots_empty">Ühtegi hetktõmmist veel pole. Hetktõmmised tehakse kord päevas enne sünkroonimise väljalülitamist.</string>
+    <string name="snapshot_restore_title">Kas taastad hetktõmmise?</string>
 </resources>
