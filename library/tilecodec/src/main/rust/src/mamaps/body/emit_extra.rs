@@ -213,7 +213,8 @@ pub(crate) fn write_v10_layer_payload(
         }
         out.extend_from_slice(&feature.parts_offset.to_le_bytes());
         out.extend_from_slice(&feature.part_count.to_le_bytes());
-        match class {
+        // Mixed landtype must include the selected Road record's lane byte.
+        match feature_class {
             RecordClass::Min => {}
             RecordClass::Road => {
                 out.push(feature.lane_count);
