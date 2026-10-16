@@ -89,4 +89,9 @@
     <string name="cable_status_cancelled">Teine seade katkestas päringu</string>
     <string name="cable_bluetooth_disabled_message">Bluetooth on lülitatud välja. Pääsuvõtme päringu kasutamiseks lülita ta sisse.</string>
     <string name="cable_bluetooth_unsupported_message">Selles seadmes puudub Bluetoothi tugi ja seega seadmeülene sisselogimine pole saadaval.</string>
+    <string name="sync_error_quarantined">Sünkroonimine on peatatud: kirjed on kadunud ilma kustutamismarketite lisamiseta. Mitte midagi pole veel muudetud. Olukorra lahendamiseks vaata alljärgnev üle.</string>
+    <string name="sync_quarantine_title">Vaata peatatud sünkroonimine üle</string>
+    <string name="sync_quarantine_description">Peatatud <xliff:g id="when" example="Oct 14, 2026 9:41 PM">%1$s</xliff:g>. Sinu salasõnad on muutmata.</string>
+    <string name="sync_quarantine_dialog">Muu rakendus tundub olema kustutanud sünkroonimisfailis leiduvat sisu (reason: <xliff:g id="reason" example="foreign_delete">%1$s</xliff:g>). Kui see pidigi nii olema, siis ava fail tolles rakenduses ja kustuta ka seal need kirjed või lisa nad siinkohal ja siis jätka. Sel puhul kontrollime faili uuesti - kui kirjed ikkagi on puudu, siis sünkroonimine peatub uuesti ilma midagi kustutamata.</string>
+    <string name="sync_quarantine_resolve">Kontrolli uuesti ja jätka</string>
 </resources>
