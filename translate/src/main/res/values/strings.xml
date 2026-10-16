@@ -22,4 +22,16 @@
     <string name="all_languages">All languages</string>
     <!-- Empty state when the search query matches no language; %1$s is the query. -->
     <string name="no_languages_match">No languages match “%1$s”</string>
+    <!-- History screen title (saved translations). -->
+    <string name="history">History</string>
+    <!-- Empty state when no translations have been saved yet. -->
+    <string name="history_empty">Translations you make will appear here</string>
+    <!-- Clear-history action: removes every non-favorite entry. -->
+    <string name="clear_history">Clear</string>
+    <!-- History row subtitle: the language pair; %1$s source, %2$s target. -->
+    <string name="history_language_pair">%1$s → %2$s</string>
+    <!-- Save-to-favorites action on the translation output card. -->
+    <string name="save">Save</string>
+    <!-- Saved-state label on the translation output card (already a favorite). -->
+    <string name="saved">Saved</string>
 </resources>

@@ -1,5 +1,6 @@
 package com.vayunmathur.translate.platform
 
+import com.vayunmathur.translate.data.TranslationRecord
 import com.vayunmathur.translate.domain.Language
 import com.vayunmathur.translate.domain.Languages
 
@@ -37,6 +38,10 @@ data class TextTranslateUiState(
     val inputText: String = "",
     val outputText: String = "",
     val isTranslating: Boolean = false,
+    /** True when the current input + pair is already saved as a favorite. */
+    val isFavorite: Boolean = false,
+    /** Only true once the displayed result has a persisted history row. */
+    val canSave: Boolean = false,
     val micState: MicState = MicState.IDLE,
     val speechError: String? = null,
 )
@@ -56,7 +61,9 @@ interface TextTranslateActions {
 
     fun copyOutput() {}
     fun speakOutput() {}
+    fun toggleFavorite() {}
     fun openCamera() {}
+    fun openHistory() {}
     fun openLanguagePicker(forSource: Boolean) {}
 
     companion object {
@@ -84,5 +91,26 @@ interface LanguagePickerActions {
 
     companion object {
         val Noop: LanguagePickerActions = object : LanguagePickerActions {}
+    }
+}
+
+/** Everything the history screen draws, as literal values for previews. */
+data class HistoryUiState(
+    val records: List<TranslationRecord> = emptyList(),
+)
+
+/**
+ * History callbacks. Every method has a no-op default so a preview can render the
+ * screen without supplying behaviour — [Noop] is the whole implementation a preview needs.
+ */
+interface HistoryActions {
+    fun toggleFavorite(id: Long, favorite: Boolean) {}
+    fun delete(record: TranslationRecord) {}
+    fun clearHistory() {}
+    fun reuse(record: TranslationRecord) {}
+    fun goBack() {}
+
+    companion object {
+        val Noop: HistoryActions = object : HistoryActions {}
     }
 }

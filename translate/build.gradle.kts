@@ -29,4 +29,6 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.androidx.camera.compose)
+    implementRoom(libs)
+    implementation(project(":library:room"))
 }

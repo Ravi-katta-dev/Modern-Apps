@@ -4,7 +4,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.translate.data.TranslationRecord
 import com.vayunmathur.translate.domain.Languages
+import com.vayunmathur.translate.platform.HistoryActions
+import com.vayunmathur.translate.platform.HistoryUiState
 import com.vayunmathur.translate.platform.LanguagePickerActions
 import com.vayunmathur.translate.platform.LanguagePickerUiState
 import com.vayunmathur.translate.platform.MicState
@@ -111,6 +114,36 @@ class MetadataPreviews {
                     ),
                 ),
                 actions = LanguagePickerActions.Noop,
+            )
+        }
+    }
+
+    @PreviewTest
+    @Preview(name = "5-history", device = PHONE, showSystemUi = true)
+    @Composable
+    fun Preview5History() {
+        DynamicTheme(darkTheme = true) {
+            HistoryScreen(
+                state = HistoryUiState(
+                    records = listOf(
+                        TranslationRecord(
+                            id = 1,
+                            sourceText = "Where is the nearest train station?",
+                            translatedText = "¿Dónde está la estación de tren más cercana?",
+                            sourceLang = "en",
+                            targetLang = "es",
+                            isFavorite = true,
+                        ),
+                        TranslationRecord(
+                            id = 2,
+                            sourceText = "Die Bibliothek schließt um achtzehn Uhr.",
+                            translatedText = "La bibliothèque ferme à dix-huit heures.",
+                            sourceLang = "de",
+                            targetLang = "fr",
+                        ),
+                    ),
+                ),
+                actions = HistoryActions.Noop,
             )
         }
     }

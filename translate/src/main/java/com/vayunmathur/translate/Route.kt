@@ -13,4 +13,7 @@ sealed interface Route : NavKey {
 
     @Serializable
     data class LanguagePicker(val forSource: Boolean) : Route
+
+    @Serializable
+    data object History : Route
 }

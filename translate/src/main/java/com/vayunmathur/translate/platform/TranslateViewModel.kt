@@ -1,6 +1,8 @@
 package com.vayunmathur.translate.platform
 
+import com.vayunmathur.translate.data.TranslateRepository
 import com.vayunmathur.translate.data.TranslateSettings
+import com.vayunmathur.translate.data.TranslationRecord
 import com.vayunmathur.translate.domain.Languages
 import com.vayunmathur.translate.domain.TranslationEngine
 
@@ -9,8 +11,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.library.ocr.OcrEngine
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
@@ -27,6 +31,7 @@ class TranslateViewModel(app: Application) : AndroidViewModel(app) {
     val ocr = OcrEngine(app)
     private val tts = TtsSpeaker(app)
     private val settings = TranslateSettings(app)
+    private val historyRepo = TranslateRepository.get(app)
 
     private val _sourceLang = MutableStateFlow(Languages.AUTO.code)
     val sourceLang: StateFlow<String> = _sourceLang.asStateFlow()
@@ -44,6 +49,16 @@ class TranslateViewModel(app: Application) : AndroidViewModel(app) {
     /** True once the NLLB engine is loaded (model already downloaded by the checker). */
     private val _translationAvailable = MutableStateFlow(false)
     val translationAvailable: StateFlow<Boolean> = _translationAvailable.asStateFlow()
+
+    /** Saved translations, favorites first then newest — for the history screen. */
+    val history: StateFlow<List<TranslationRecord>> = historyRepo.history.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList(),
+    )
+
+    /** Favorites only, newest first. */
+    val favorites: StateFlow<List<TranslationRecord>> = historyRepo.favorites.stateIn(
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList(),
+    )
 
     init {
         viewModelScope.launch {
@@ -86,6 +101,31 @@ class TranslateViewModel(app: Application) : AndroidViewModel(app) {
     suspend fun translate(text: String): String? {
         val from = _sourceLang.value.takeIf { it != Languages.AUTO.code }
         return translator.translate(text, from, _targetLang.value)
+    }
+
+    /**
+     * Save a completed translation to history. Called by the page once the debounced
+     * translation lands; the repository dedupes re-translations of the same input.
+     *
+     * The pair rides along explicitly rather than being re-read here: the language
+     * can change between the translate call and this write, and the record must
+     * name the pair that was actually translated.
+     */
+    fun recordHistory(source: String, translated: String, src: String, tgt: String) {
+        viewModelScope.launch { historyRepo.record(source, translated, src, tgt) }
+    }
+
+    fun setFavorite(id: Long, favorite: Boolean) {
+        viewModelScope.launch { historyRepo.setFavorite(id, favorite) }
+    }
+
+    fun deleteHistory(record: TranslationRecord) {
+        viewModelScope.launch { historyRepo.delete(record) }
+    }
+
+    /** Removes every non-favorite row. Favorites are kept. */
+    fun clearHistory() {
+        viewModelScope.launch { historyRepo.clearHistory() }
     }
 
     /**

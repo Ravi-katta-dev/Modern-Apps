@@ -21,6 +21,7 @@ import androidx.compose.ui.res.stringResource
 import com.vayunmathur.library.ui.rememberMessenger
 import com.vayunmathur.library.ui.rememberPermissionRequest
 import com.vayunmathur.translate.R
+import com.vayunmathur.translate.data.TranslationRecord
 import com.vayunmathur.translate.domain.Languages
 import com.vayunmathur.translate.platform.AndroidSpeechRecognizer
 import com.vayunmathur.translate.platform.MicState
@@ -48,7 +49,10 @@ private const val TRANSLATE_DEBOUNCE_MS = 400L
 fun TextTranslatePage(
     viewModel: TranslateViewModel,
     initialText: String,
+    reuseRequest: TranslationRecord?,
+    onReuseConsumed: () -> Unit,
     onOpenCamera: () -> Unit,
+    onOpenHistory: () -> Unit,
     onOpenLanguagePicker: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -57,10 +61,21 @@ fun TextTranslatePage(
     val sourceLang by viewModel.sourceLang.collectAsState()
     val targetLang by viewModel.targetLang.collectAsState()
     val translationAvailable by viewModel.translationAvailable.collectAsState()
+    val history by viewModel.history.collectAsState()
 
     var inputText by remember { mutableStateOf(initialText) }
     var outputText by remember { mutableStateOf("") }
     var isTranslating by remember { mutableStateOf(false) }
+
+    // A history row tapped for reuse: load its text + pair once, then clear the request.
+    LaunchedEffect(reuseRequest) {
+        val record = reuseRequest ?: return@LaunchedEffect
+        viewModel.setSource(record.sourceLang)
+        viewModel.setTarget(record.targetLang)
+        inputText = record.sourceText
+        outputText = record.translatedText
+        onReuseConsumed()
+    }
 
     // --- Live speech-to-text engine ---
     // The platform SpeechRecognizer, which routes to whichever RecognitionService the user
@@ -108,8 +123,18 @@ fun TextTranslatePage(
         if (!translationAvailable) return@LaunchedEffect
         delay(TRANSLATE_DEBOUNCE_MS)
         isTranslating = true
-        outputText = viewModel.translate(inputText).orEmpty()
+        val translated = viewModel.translate(inputText).orEmpty()
+        outputText = translated
         isTranslating = false
+        // Save every completed translation; the repository dedupes re-translations.
+        // The effect's own captured pair, not a fresh read: the language can change
+        // between the translate call and this write.
+        if (translated.isNotBlank()) viewModel.recordHistory(inputText, translated, sourceLang, targetLang)
+    }
+
+    // Whether the current input + pair is already a favorite (for the star toggle).
+    val favoriteRecord = history.firstOrNull {
+        it.sourceText == inputText && it.sourceLang == sourceLang && it.targetLang == targetLang
     }
 
     // Read here, not in the callback below: stringResource is @Composable.
@@ -127,6 +152,8 @@ fun TextTranslatePage(
             inputText = inputText,
             outputText = outputText,
             isTranslating = isTranslating,
+            isFavorite = favoriteRecord?.isFavorite == true,
+            canSave = !isTranslating && favoriteRecord?.translatedText == outputText,
             micState = micState,
             speechError = speechError,
         ),
@@ -158,6 +185,15 @@ fun TextTranslatePage(
 
             override fun copyOutput() = copyToClipboard(context, outputText)
 
+            // Star the current translation: if it is already saved, flip its flag;
+            // if the translation has not completed yet there is nothing to save.
+            override fun toggleFavorite() {
+                val record = favoriteRecord
+                if (record != null) {
+                    viewModel.setFavorite(record.id, !record.isFavorite)
+                }
+            }
+
             // Say so rather than let the engine read the translation out in the device's
             // language, and offer the engine's own voice-download screen as the fix.
             override fun speakOutput() {
@@ -171,6 +207,8 @@ fun TextTranslatePage(
             }
 
             override fun openCamera() = onOpenCamera()
+
+            override fun openHistory() = onOpenHistory()
 
             override fun openLanguagePicker(forSource: Boolean) =
                 onOpenLanguagePicker(forSource)

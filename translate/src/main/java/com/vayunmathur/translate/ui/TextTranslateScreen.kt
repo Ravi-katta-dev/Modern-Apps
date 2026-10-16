@@ -27,6 +27,8 @@ import com.vayunmathur.library.ui.FloatingActionButton
 import com.vayunmathur.library.ui.IconButton
 import com.vayunmathur.library.ui.IconCamera
 import com.vayunmathur.library.ui.IconCopy
+import com.vayunmathur.library.ui.IconFavorite
+import com.vayunmathur.library.ui.IconHistory
 import com.vayunmathur.library.ui.IconMic
 import com.vayunmathur.library.ui.IconSpeak
 import com.vayunmathur.library.ui.IconStop
@@ -52,6 +54,9 @@ fun TextTranslateScreen(state: TextTranslateUiState, actions: TextTranslateActio
     AppScaffold(
         title = stringResource(R.string.app_name),
         actions = {
+            IconButton(onClick = actions::openHistory) {
+                IconHistory()
+            }
             IconButton(onClick = actions::openCamera) {
                 IconCamera()
             }
@@ -123,8 +128,11 @@ fun TextTranslateScreen(state: TextTranslateUiState, actions: TextTranslateActio
                             translationAvailable = state.translationAvailable,
                             isTranslating = state.isTranslating,
                             outputText = state.outputText,
+                            isFavorite = state.isFavorite,
+                            canSave = state.canSave,
                             onCopy = actions::copyOutput,
                             onSpeak = actions::speakOutput,
+                            onToggleFavorite = actions::toggleFavorite,
                         )
                     }
                 }
@@ -140,8 +148,11 @@ fun TextTranslateScreen(state: TextTranslateUiState, actions: TextTranslateActio
                     translationAvailable = state.translationAvailable,
                     isTranslating = state.isTranslating,
                     outputText = state.outputText,
+                    isFavorite = state.isFavorite,
+                    canSave = state.canSave,
                     onCopy = actions::copyOutput,
                     onSpeak = actions::speakOutput,
+                    onToggleFavorite = actions::toggleFavorite,
                 )
             }
         }
@@ -224,8 +235,11 @@ private fun OutputCard(
     translationAvailable: Boolean,
     isTranslating: Boolean,
     outputText: String,
+    isFavorite: Boolean,
+    canSave: Boolean,
     onCopy: () -> Unit,
     onSpeak: () -> Unit,
+    onToggleFavorite: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -278,6 +292,22 @@ private fun OutputCard(
                     IconSpeak(Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(stringResource(R.string.speak))
+                }
+                TextButton(onClick = onToggleFavorite, enabled = canSave) {
+                    IconFavorite(
+                        Modifier.size(18.dp),
+                        tint = if (isFavorite) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        stringResource(
+                            if (isFavorite) R.string.saved else R.string.save,
+                        ),
+                    )
                 }
             }
         }
