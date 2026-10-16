@@ -335,11 +335,9 @@ fn derive_build_id(
             h = h.wrapping_mul(0x100_0000_01b3);
         }
     };
-    // Revision 16: the v8 landtype merge. The four wash layers become one `landtype`
-    // capped at z14, every other layer id shifts, and three kinds are appended — so a warm
-    // cache from a v7 build must miss. (Revision 15 was the region filter, 14 the v7-only
-    // purge.)
-    eat(b"mamaps_build/16");
+    // Revision 17 fixes the missing lane byte in mixed landtype Road records (#821).
+    // The corrected rebuild must invalidate cached ranges from the malformed archive.
+    eat(b"mamaps_build/17");
     eat(region.as_bytes());
     eat(input.to_string_lossy().as_bytes());
     if let Ok(meta) = std::fs::metadata(input) {
