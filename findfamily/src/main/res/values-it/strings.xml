@@ -26,7 +26,7 @@
     <string name="users_are_here"><xliff:g id="person_names" example="Alice, Bob">%1$s</xliff:g> sono qui in questo momento</string>
     <string name="since_just_now">Da adesso</string>
     <string name="since_minutes_ago">Da <xliff:g id="minutes" example="5">%1$d</xliff:g> minuti fa</string>
-    <string name="since_time_date">Da %1$s%2$s</string>
+    <string name="since_time_date">Da %1$s %2$s</string>
     <string name="today">oggi</string>
     <string name="yesterday">ieri</string>
     <string name="user_card_status">Aggiornato <xliff:g id="last_updated" example="5 minutes ago">%1$s</xliff:g>\nA <xliff:g id="location_name" example="Home">%2$s</xliff:g>\n<xliff:g id="since_text" example="Since today">%3$s</xliff:g></string>
