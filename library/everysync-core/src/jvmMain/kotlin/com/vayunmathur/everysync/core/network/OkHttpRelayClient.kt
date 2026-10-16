@@ -129,10 +129,10 @@ object FirstPartyPins {
     }
 }
 
-/** Desktop JVM entry point: pinned transport over the caller's store + crypto. */
+/** Desktop JVM entry point: pinned transport over the caller's store + production PQC. */
 class JvmRelayTransport(
     store: SecureStore,
-    crypto: PqcCrypto,
+    crypto: PqcCrypto = JvmPqcCrypto(),
     private val http: RelayHttpClient = OkHttpRelayClient.pinned(),
 ) : SharedRelayTransport(store, crypto) {
     override fun client(): RelayHttpClient = http

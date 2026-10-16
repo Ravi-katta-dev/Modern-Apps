@@ -129,10 +129,10 @@ object FirstPartyPins {
     }
 }
 
-/** Android entry point: pinned transport over the caller's store + crypto. */
+/** Android entry point: pinned transport over the caller's store + production PQC. */
 class AndroidRelayTransport(
     store: SecureStore,
-    crypto: PqcCrypto,
+    crypto: PqcCrypto = AndroidPqcCrypto(),
     private val http: RelayHttpClient = OkHttpRelayClient.pinned(),
 ) : SharedRelayTransport(store, crypto) {
     override fun client(): RelayHttpClient = http
