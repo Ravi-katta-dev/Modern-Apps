@@ -3,40 +3,52 @@
 > Scoped supplement. Global rules in root `AGENTS.md` apply. Stay inside `screentime/` + allowed shared modules. Do not root-scan.
 
 _Install: ./install screentime (dev by default)._
-
+<!-- last-reviewed: 2026-10-16 -->
 - Gradle: :screentime / dir: screentime/
 - Package roots present: ui, data, domain, platform, service, widget, notifications
-- Entry files: 
+- Entry files: ui/DashboardActivity.kt (activity-entry OS module; no MainActivity/Route)
 - Deps: :library:room, :library:widgets
 - Metadata: metadata_data/screentime.md (present)
 - Rust: no / screenshotTest: no
 
-## Key files
+## Overview
+**Purpose:** On-device screen-time dashboard — per-app usage, app timers + instant pauses, Wind Down (grayscale + DND), friction nudges, Glance widget. Sibling of `parentalcontrols/` (self-control vs supervised control). No account, nothing uploaded.
+**Key features:** `platform/UsageHistory` + `domain/HourBuckets` feed dashboard/charts; `AppTimers`/`Suspender`/`Coordinator` enforce limits; `WindDownApplier` + `WindowScheduler` run bedtime; widget mirrors the dashboard.
+**Entry points:** `ui/DashboardActivity.kt` → `ui/DashboardScreen.kt` → `platform/ScreenTimeViewModel.kt` → `platform/Coordinator.kt` → `data/Rules.kt`.
+**Gotchas:**
+- `receiver/` is NOT a closed package root — pending migration; don't add more files there
+- Usage access is a special grant — behavior without it is an empty dashboard, not an error; handle gracefully
+- Screenshot tests are off (`screenshotTest: no`) — verify timers/pause flows on device
 
-- com/vayunmathur/screentime/data/Migrations.kt
-- com/vayunmathur/screentime/data/Rules.kt
+## Key files
+### data/ + domain/ — rules + buckets
 - com/vayunmathur/screentime/data/ScreenTimeDatabase.kt
+- com/vayunmathur/screentime/data/Rules.kt
+- com/vayunmathur/screentime/data/Migrations.kt
 - com/vayunmathur/screentime/domain/HourBuckets.kt
-- com/vayunmathur/screentime/platform/AppTimers.kt
+### platform/ — coordination + enforcement
 - com/vayunmathur/screentime/platform/Coordinator.kt
-- com/vayunmathur/screentime/platform/DndState.kt
 - com/vayunmathur/screentime/platform/ScreenTimeViewModel.kt
+- com/vayunmathur/screentime/platform/AppTimers.kt
 - com/vayunmathur/screentime/platform/Suspender.kt
 - com/vayunmathur/screentime/platform/UsageAccess.kt
 - com/vayunmathur/screentime/platform/UsageHistory.kt
 - com/vayunmathur/screentime/platform/WindDownApplier.kt
 - com/vayunmathur/screentime/platform/WindowScheduler.kt
+- com/vayunmathur/screentime/platform/DndState.kt
+### receiver/ + service/ — system bridges
 - com/vayunmathur/screentime/receiver/Receivers.kt
 - com/vayunmathur/screentime/service/Services.kt
-- com/vayunmathur/screentime/ui/AppDetailsScreen.kt
-- com/vayunmathur/screentime/ui/AppIconImage.kt
+### ui/ + widget/ — dashboard + widget (the entries)
 - com/vayunmathur/screentime/ui/DashboardActivity.kt
 - com/vayunmathur/screentime/ui/DashboardScreen.kt
+- com/vayunmathur/screentime/ui/AppDetailsScreen.kt
 - com/vayunmathur/screentime/ui/FocusScreen.kt
 - com/vayunmathur/screentime/ui/FrictionScreen.kt
+- com/vayunmathur/screentime/ui/WindDownScreen.kt
 - com/vayunmathur/screentime/ui/UsageBarChart.kt
 - com/vayunmathur/screentime/ui/UsageFormat.kt
-- com/vayunmathur/screentime/ui/WindDownScreen.kt
+- com/vayunmathur/screentime/ui/AppIconImage.kt
 - com/vayunmathur/screentime/widget/ScreenTimeGlanceWidget.kt
 - com/vayunmathur/screentime/widget/ScreenTimeWidgetReceiver.kt
 
@@ -46,5 +58,3 @@ _Install: ./install screentime (dev by default)._
 ./gradlew :screentime:lint
 ./gradlew :screentime:checkMetadata
 ```
-
-
