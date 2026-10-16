@@ -68,7 +68,10 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
 
     namespace = "com.vayunmathur${path.replace(":", ".")}"
     compileSdk {
-        version = release(37)
+        // compose 1.13.0-beta01 (BOM 2026.09.00) needs platform 37.1+.
+        version = release(37) {
+            minorApiLevel = 1
+        }
     }
 
     androidResources {

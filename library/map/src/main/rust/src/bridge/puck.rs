@@ -4,8 +4,8 @@
 use super::handle::handle_mut;
 use crate::vulkan::renderer::UserPuck;
 use jni::objects::JClass;
-use jni::sys::{jboolean, jfloat, jlong};
-use jni::JNIEnv;
+use jni::sys::{jfloat, jlong};
+use jni::EnvUnowned;
 /// Show the user-location puck at `lon`/`lat`, drawn inside the renderer's own frame.
 ///
 /// Free in the same sense as
@@ -18,19 +18,19 @@ use jni::JNIEnv;
 /// should look like rather than one pointing north.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setUserPuck<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     lon: jfloat,
     lat: jfloat,
     bearing: jfloat,
-    has_bearing: jboolean,
+    has_bearing: bool,
 ) {
     if let Some(map) = handle_mut(handle) {
         map.renderer.set_user_puck(Some(UserPuck {
             lon: lon as f64,
             lat: lat as f64,
-            bearing: (has_bearing != 0).then_some(bearing),
+            bearing: has_bearing.then_some(bearing),
         }));
     }
 }
@@ -38,7 +38,7 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setUserPuck<'l
 /// Take the puck away: no fix, or a host that stopped asking for one.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_clearUserPuck<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
 ) {

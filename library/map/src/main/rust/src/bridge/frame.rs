@@ -9,13 +9,13 @@ use crate::tile::select;
 use crate::tile::source::retry_delay_ms;
 use crate::timing::{nanos_since, Step};
 use jni::objects::JClass;
-use jni::sys::{jboolean, jfloat, jlong};
-use jni::JNIEnv;
+use jni::sys::{jfloat, jlong};
+use jni::EnvUnowned;
 /// Draw one frame from a camera snapshot. Returns false if the frame was skipped.
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_render<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     center_lon: jfloat,
@@ -27,11 +27,11 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_render<'l>(
     height_dp: jfloat,
     density: jfloat,
     frame_time_nanos: jlong,
-    globe: jboolean,
-    moon: jboolean,
-) -> jboolean {
+    globe: bool,
+    moon: bool,
+) -> bool {
     let Some(map) = handle_mut(handle) else {
-        return 0;
+        return false;
     };
     // Per-step timing for the per-frame report: `Instant` deltas only, never the camera clock
     // (which wraps hourly). The render thread is the only writer.
@@ -63,8 +63,8 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_render<'l>(
         density,
         bearing_deg: bearing as f64,
         pitch_deg: (pitch as f64).clamp(0.0, crate::camera::PITCH_MAX_DEG),
-        globe: globe != 0,
-        moon: moon != 0,
+        globe,
+        moon,
         time_seconds: ((frame_time_nanos.rem_euclid(crate::camera::CLOCK_WRAP_NANOS)) as f64
             / 1_000_000_000.0) as f32,
     };
@@ -361,10 +361,10 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_render<'l>(
         ));
     }
     match outcome {
-        Ok(drawn) => jboolean::from(drawn),
+        Ok(drawn) => drawn,
         Err(e) => {
             log(&format!("frame failed: {e}"));
-            0
+            false
         }
     }
 }
@@ -400,25 +400,28 @@ fn center_first(visible: &[select::TileId]) -> Vec<select::TileId> {
 /// reads that as "no data yet". Must never drive `needs_frame` or alter the frame loop.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_lastFrameStepTimesNanos<'l>(
-    env: JNIEnv<'l>,
+    mut env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
 ) -> jni::sys::jlongArray {
-    let empty = env.new_long_array(0).expect("step-times empty array");
-    let Some(map) = handle_mut(handle) else {
-        return empty.into_raw();
-    };
-    let last = map.renderer.step_times.borrow();
-    let nanos = last.last_nanos();
-    let out = match env.new_long_array(nanos.len() as i32) {
-        Ok(a) => a,
-        Err(_) => return empty.into_raw(),
-    };
-    // `i64` is only the JNI carrier: the samples are `u64` nanos, and no step of a frame can
-    // reach the sign bit, so the cast is exact.
-    let wide: Vec<i64> = nanos.iter().map(|&n| n as i64).collect();
-    if env.set_long_array_region(&out, 0, &wide).is_err() {
-        return empty.into_raw();
-    }
-    out.into_raw()
+    env.with_env(|env| -> jni::errors::Result<jni::sys::jlongArray> {
+        let empty = env.new_long_array(0)?;
+        let Some(map) = handle_mut(handle) else {
+            return Ok(empty.into_raw());
+        };
+        let last = map.renderer.step_times.borrow();
+        let nanos = last.last_nanos();
+        let out = match env.new_long_array(nanos.len()) {
+            Ok(a) => a,
+            Err(_) => return Ok(empty.into_raw()),
+        };
+        // `i64` is only the JNI carrier: the samples are `u64` nanos, and no step of a frame can
+        // reach the sign bit, so the cast is exact.
+        let wide: Vec<i64> = nanos.iter().map(|&n| n as i64).collect();
+        if env.set_long_array_region(&out, 0, &wide).is_err() {
+            return Ok(empty.into_raw());
+        }
+        Ok(out.into_raw())
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }

@@ -1,0 +1,245 @@
+//! Tests for the disk range cache: roundtrip, freshness vs LRU separation,
+//! corruption refusal, origin invalidation, and the batched size cap.
+
+use super::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
+struct Fixture {
+    dir: PathBuf,
+}
+
+impl Fixture {
+    fn new(name: &str) -> Fixture {
+        let dir =
+            std::env::temp_dir().join(format!("rangecache-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("temp dir");
+        Fixture { dir }
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.dir);
+    }
+}
+
+const URL: &str = "https://data.vayunmathur.com/planet.mamaps";
+const ORIGIN: &str = "v1|https://data.vayunmathur.com/planet.mamaps";
+
+fn cache_with(dir: &Path, clock: Arc<AtomicU64>, max_bytes: u64) -> RangeCache {
+    let c = clock.clone();
+    RangeCache::with_clock(
+        dir,
+        ORIGIN,
+        max_bytes,
+        Box::new(move || c.load(Ordering::SeqCst)),
+    )
+}
+
+fn data_files(dir: &Path) -> Vec<PathBuf> {
+    fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|e| e == "data"))
+        .collect()
+}
+
+#[test]
+fn a_written_entry_reads_back() {
+    let f = Fixture::new("roundtrip");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+    let key = RangeCache::key(URL, "bytes=0-126");
+    cache.write(&key, &[7u8; 127]);
+    let entry = cache.read(&key).expect("cached");
+    assert_eq!(entry.body, vec![7u8; 127]);
+    assert_eq!(entry.fetched_at_ms, 1_000_000);
+    assert!(cache.is_fresh(&entry));
+}
+
+#[test]
+fn ranges_of_the_same_url_do_not_collide() {
+    assert_ne!(
+        RangeCache::key(URL, "bytes=0-3"),
+        RangeCache::key(URL, "bytes=4-7")
+    );
+    // And a different archive under the same range is a different entry.
+    assert_ne!(
+        RangeCache::key(URL, "bytes=0-3"),
+        RangeCache::key("https://other", "bytes=0-3")
+    );
+}
+
+#[test]
+fn an_entry_goes_stale_after_the_refresh_interval() {
+    let f = Fixture::new("stale");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+    let key = RangeCache::key(URL, "bytes=0-3");
+    cache.write(&key, &[1, 2, 3, 4]);
+
+    clock.store(1_000_000 + REFRESH_INTERVAL_MS / 2, Ordering::SeqCst);
+    assert!(
+        cache.is_fresh(&cache.read(&key).unwrap()),
+        "half an interval is still fresh"
+    );
+
+    clock.store(1_000_000 + REFRESH_INTERVAL_MS + 1, Ordering::SeqCst);
+    assert!(
+        !cache.is_fresh(&cache.read(&key).unwrap()),
+        "past the interval it is stale"
+    );
+}
+
+#[test]
+fn reading_an_entry_does_not_reset_its_freshness() {
+    // Freshness comes from the meta file's fetch time precisely so that touching the
+    // data file for LRU cannot make a stale entry look new.
+    let f = Fixture::new("freshness");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+    let key = RangeCache::key(URL, "bytes=0-3");
+    cache.write(&key, &[1, 2, 3, 4]);
+
+    clock.store(1_000_000 + REFRESH_INTERVAL_MS / 2, Ordering::SeqCst);
+    let _ = cache.read(&key);
+    clock.store(1_000_000 + REFRESH_INTERVAL_MS + 1, Ordering::SeqCst);
+    assert!(
+        !cache.is_fresh(&cache.read(&key).unwrap()),
+        "the earlier read did not extend it"
+    );
+}
+
+#[test]
+fn a_stale_entry_is_still_readable_so_it_can_be_served_offline() {
+    // Never dropped for being stale — only overwritten by a successful refetch. This
+    // is what makes a previously-viewed area render with no network.
+    let f = Fixture::new("offline");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+    let key = RangeCache::key(URL, "bytes=0-3");
+    cache.write(&key, &[1, 2, 3, 4]);
+    clock.store(1_000_000 + REFRESH_INTERVAL_MS * 100, Ordering::SeqCst);
+    assert_eq!(
+        cache.read(&key).expect("still there").body,
+        vec![1, 2, 3, 4]
+    );
+}
+
+#[test]
+fn an_entry_whose_body_disagrees_with_its_meta_is_dropped() {
+    let f = Fixture::new("truncated");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+    let key = RangeCache::key(URL, "bytes=0-99");
+    cache.write(&key, &[5u8; 100]);
+    // Truncated on disk, e.g. by a failed write we did not see.
+    fs::write(f.dir.join(format!("{key}.data")), [0u8; 40]).unwrap();
+    assert!(
+        cache.read(&key).is_none(),
+        "a short body must not be served"
+    );
+    assert!(
+        !f.dir.join(format!("{key}.data")).exists(),
+        "and it is dropped"
+    );
+}
+
+#[test]
+fn a_data_file_with_no_meta_is_not_served() {
+    let f = Fixture::new("nometa");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+    let key = RangeCache::key(URL, "bytes=0-3");
+    fs::write(f.dir.join(format!("{key}.data")), [1, 2, 3, 4]).unwrap();
+    assert!(cache.read(&key).is_none());
+}
+
+#[test]
+fn changing_the_origin_marker_drops_every_entry() {
+    // The archive is republished under the same name, so a cached directory chunk
+    // addresses the previous build's byte offsets. This marker is the only thing
+    // standing between that and a map made of mismatched tiles.
+    let f = Fixture::new("origin");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    {
+        let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+        cache.write(&RangeCache::key(URL, "bytes=0-3"), &[1, 2, 3, 4]);
+        assert_eq!(data_files(&f.dir).len(), 1);
+    }
+    let c = clock.clone();
+    RangeCache::with_clock(
+        &f.dir,
+        "v2|different",
+        DEFAULT_MAX_BYTES,
+        Box::new(move || c.load(Ordering::SeqCst)),
+    );
+    assert_eq!(
+        data_files(&f.dir).len(),
+        0,
+        "entries from the previous origin are dropped"
+    );
+    assert_eq!(
+        fs::read_to_string(f.dir.join(ORIGIN_FILE)).unwrap(),
+        "v2|different"
+    );
+}
+
+#[test]
+fn an_unchanged_origin_marker_keeps_the_cache() {
+    let f = Fixture::new("sameorigin");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    {
+        let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+        cache.write(&RangeCache::key(URL, "bytes=0-3"), &[1, 2, 3, 4]);
+    }
+    let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+    assert_eq!(data_files(&f.dir).len(), 1);
+    assert!(cache.read(&RangeCache::key(URL, "bytes=0-3")).is_some());
+}
+
+#[test]
+fn the_cache_evicts_over_its_cap() {
+    // The size cap is the one thing added to the ported policy: the original grew
+    // without bound, tolerable for one map app and not for five.
+    let f = Fixture::new("evict");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let cache = cache_with(&f.dir, clock.clone(), 1000);
+    // A multiple of the eviction batch threshold (issue 815: the scan runs every 32 writes,
+    // not per write), so the scan runs on the last write and the cap holds at the end.
+    for i in 0..64 {
+        cache.write(&RangeCache::key(URL, &format!("bytes={i}")), &[0u8; 200]);
+        // Distinct mtimes, so eviction order is well defined.
+        std::thread::sleep(std::time::Duration::from_millis(12));
+    }
+    let total: u64 = data_files(&f.dir)
+        .iter()
+        .map(|p| fs::metadata(p).unwrap().len())
+        .sum();
+    assert!(total <= 1000, "cache is {total} bytes, cap is 1000");
+    // Evicts to a margin below the cap, not exactly to it.
+    assert!(total <= 800, "evicts with headroom: {total}");
+    // The most recent write survives; the oldest does not.
+    assert!(cache.read(&RangeCache::key(URL, "bytes=63")).is_some());
+    assert!(cache.read(&RangeCache::key(URL, "bytes=0")).is_none());
+}
+
+#[test]
+fn eviction_waits_for_a_batch_of_writes() {
+    // The scan stats the whole directory, so it runs every 32 writes rather than per write
+    // (issue 815). Below the threshold nothing is evicted even over the cap.
+    let f = Fixture::new("evict_batch");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let cache = cache_with(&f.dir, clock.clone(), 100);
+    for i in 0..10 {
+        cache.write(&RangeCache::key(URL, &format!("bytes={i}")), &[0u8; 200]);
+    }
+    let total: u64 = data_files(&f.dir)
+        .iter()
+        .map(|p| fs::metadata(p).unwrap().len())
+        .sum();
+    assert_eq!(total, 2000, "under the batch threshold no scan runs yet");
+}

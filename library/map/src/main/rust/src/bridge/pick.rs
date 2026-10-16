@@ -3,8 +3,8 @@
 //! Pure move out of `bridge.rs`; no logic changes.
 use super::handle::handle_mut;
 use jni::objects::{JClass, JObject};
-use jni::sys::{jfloat, jlong};
-use jni::JNIEnv;
+use jni::sys::{jfloat, jlong, jobjectArray};
+use jni::{jni_str, EnvUnowned};
 /// Task-17 pick: placed labels intersecting the query box (Dp from the
 /// viewport top-left). Returns `\u{1}`-joined `layerId/name/kind/lon/lat/featureId/regionId`
 /// strings in placement order (topmost first); empty when nothing hits. Dp→device-px via the
@@ -17,45 +17,51 @@ use jni::JNIEnv;
 /// names from the tile's `region_links` table, or `0` (`REGION_NONE`) when linked to nothing.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_pickLabels<'l>(
-    mut env: JNIEnv<'l>,
+    mut env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     x0_dp: jfloat,
     y0_dp: jfloat,
     x1_dp: jfloat,
     y1_dp: jfloat,
-) -> jni::objects::JObjectArray<'l> {
-    let empty = env
-        .new_object_array(0, "java/lang/String", JObject::null())
-        .expect("pickLabels empty array");
-    let Some(map) = handle_mut(handle) else {
-        return empty;
-    };
-    let density = map.density;
-    let hits = map.renderer.pick_labels((
-        x0_dp as f32 * density,
-        y0_dp as f32 * density,
-        x1_dp as f32 * density,
-        y1_dp as f32 * density,
-    ));
-    let layers = &map.layers;
-    let out = match env.new_object_array(hits.len() as i32, "java/lang/String", JObject::null()) {
-        Ok(a) => a,
-        Err(_) => return empty,
-    };
-    for (i, h) in hits.iter().enumerate() {
-        let layer_id = layers
-            .get(h.layer_index)
-            .map(|l| l.id.as_str())
-            .unwrap_or("");
-        let s = format!(
-            "{}\u{1}{}\u{1}{}\u{1}{}\u{1}{}\u{1}{}\u{1}{}",
-            layer_id, h.name, h.kind, h.lon, h.lat, h.feature_id, h.region_id,
-        );
-        let Ok(js) = env.new_string(s) else { continue };
-        let _ = env.set_object_array_element(&out, i as i32, js);
-    }
-    out
+) -> jobjectArray {
+    env.with_env(|env| -> jni::errors::Result<jobjectArray> {
+        let empty = env.new_object_array(0, jni_str!("java/lang/String"), JObject::null())?;
+        let Some(map) = handle_mut(handle) else {
+            return Ok(empty.into_raw());
+        };
+        let density = map.density;
+        let hits = map.renderer.pick_labels((
+            x0_dp as f32 * density,
+            y0_dp as f32 * density,
+            x1_dp as f32 * density,
+            y1_dp as f32 * density,
+        ));
+        let layers = &map.layers;
+        let out = match env.new_object_array(
+            hits.len() as i32,
+            jni_str!("java/lang/String"),
+            JObject::null(),
+        )
+        {
+            Ok(a) => a,
+            Err(_) => return Ok(empty.into_raw()),
+        };
+        for (i, h) in hits.iter().enumerate() {
+            let layer_id = layers
+                .get(h.layer_index)
+                .map(|l| l.id.as_str())
+                .unwrap_or("");
+            let s = format!(
+                "{}\u{1}{}\u{1}{}\u{1}{}\u{1}{}\u{1}{}\u{1}{}",
+                layer_id, h.name, h.kind, h.lon, h.lat, h.feature_id, h.region_id,
+            );
+            let Ok(js) = env.new_string(s) else { continue };
+            let _ = env.set_object_array_element(&out, i, js);
+        }
+        Ok(out.into_raw())
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
 /// Pick the renderer-drawn marker under a tap: the id-buffer readback path.
@@ -69,7 +75,7 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_pickLabels<'l>
 /// place a pin's box under tilt at all.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_pickAt<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     x_dp: jfloat,

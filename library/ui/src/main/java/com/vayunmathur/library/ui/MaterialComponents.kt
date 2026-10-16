@@ -1182,10 +1182,11 @@ fun SwipeToDismissBox(
 @Composable
 fun Slider(
     state: SliderState,
+    onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     colors: SliderColors = SliderDefaults.colors(),
-) = androidx.compose.material3.Slider(state = state, modifier = modifier, enabled = enabled, colors = colors)
+) = androidx.compose.material3.Slider(state = state, onValueChange = onValueChange, modifier = modifier, enabled = enabled, colors = colors)
 
 // --- Search bar (inputField overload) ---
 @Composable

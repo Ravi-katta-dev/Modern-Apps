@@ -6,7 +6,7 @@ use super::log::log;
 use crate::marker::Marker;
 use jni::objects::{JClass, JFloatArray, JIntArray, JLongArray, JObjectArray, JString};
 use jni::sys::jlong;
-use jni::JNIEnv;
+use jni::{Env, EnvUnowned};
 /// Replace the app's pins with a marker set, drawn by the renderer as billboarded sprites.
 ///
 /// Four parallel bulk arrays, the same convention as
@@ -30,7 +30,7 @@ use jni::JNIEnv;
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setMarkers<'l>(
-    mut env: JNIEnv<'l>,
+    mut env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     ids: JLongArray<'l>,
@@ -38,56 +38,58 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setMarkers<'l>
     icons: JIntArray<'l>,
     labels: JObjectArray<'l>,
 ) {
-    let Some(map) = handle_mut(handle) else {
-        return;
-    };
-    let id_len = env.get_array_length(&ids).unwrap_or(0).max(0) as usize;
-    let icon_len = env.get_array_length(&icons).unwrap_or(0).max(0) as usize;
-    let coord_len = env.get_array_length(&lon_lat).unwrap_or(0).max(0) as usize;
-    let label_len = env.get_array_length(&labels).unwrap_or(0).max(0) as usize;
-    // Each marker consumes two floats (lon, lat), so the coordinate array bounds the count too.
-    let n = id_len.min(icon_len).min(coord_len / 2).min(label_len);
-    if n == 0 {
-        map.renderer.set_markers(Vec::new(), Vec::new());
-        return;
-    }
-    let mut id_buf = vec![0i64; n];
-    let mut icon_buf = vec![0i32; n];
-    let mut coord_buf = vec![0f32; n * 2];
-    if env.get_long_array_region(&ids, 0, &mut id_buf).is_err()
-        || env.get_int_array_region(&icons, 0, &mut icon_buf).is_err()
-        || env
-            .get_float_array_region(&lon_lat, 0, &mut coord_buf)
-            .is_err()
-    {
-        log("the marker arrays could not be read; leaving the markers unchanged");
-        return;
-    }
-    let markers: Vec<Marker> = (0..n)
-        .map(|i| Marker {
-            // A Kotlin id is a signed `long` and an icon a signed `int`; the bit pattern is what
-            // matters and the cast keeps it.
-            id: id_buf[i] as u64,
-            lon: coord_buf[i * 2] as f64,
-            lat: coord_buf[i * 2 + 1] as f64,
-            icon: icon_buf[i] as u32,
-            // App pins carry no route colour; vehicles arrive through
-            // `setVehicles`, which has its own colours array.
-            colour: 0,
-        })
-        .collect();
-    let marker_labels: Vec<String> = (0..n)
-        .map(|i| {
-            read_marker_label(&mut env, &labels, i as i32)
-        })
-        .collect();
-    map.renderer.set_markers(markers, marker_labels);
+    env.with_env(|env| -> jni::errors::Result<()> {
+        let Some(map) = handle_mut(handle) else {
+            return Ok(());
+        };
+        let id_len = env.get_array_length(&ids).unwrap_or(0).max(0) as usize;
+        let icon_len = env.get_array_length(&icons).unwrap_or(0).max(0) as usize;
+        let coord_len = env.get_array_length(&lon_lat).unwrap_or(0).max(0) as usize;
+        let label_len = env.get_array_length(&labels).unwrap_or(0).max(0) as usize;
+        // Each marker consumes two floats (lon, lat), so the coordinate array bounds the count too.
+        let n = id_len.min(icon_len).min(coord_len / 2).min(label_len);
+        if n == 0 {
+            map.renderer.set_markers(Vec::new(), Vec::new());
+            return Ok(());
+        }
+        let mut id_buf = vec![0i64; n];
+        let mut icon_buf = vec![0i32; n];
+        let mut coord_buf = vec![0f32; n * 2];
+        if env.get_long_array_region(&ids, 0, &mut id_buf).is_err()
+            || env.get_int_array_region(&icons, 0, &mut icon_buf).is_err()
+            || env
+                .get_float_array_region(&lon_lat, 0, &mut coord_buf)
+                .is_err()
+        {
+            log("the marker arrays could not be read; leaving the markers unchanged");
+            return Ok(());
+        }
+        let markers: Vec<Marker> = (0..n)
+            .map(|i| Marker {
+                // A Kotlin id is a signed `long` and an icon a signed `int`; the bit pattern is what
+                // matters and the cast keeps it.
+                id: id_buf[i] as u64,
+                lon: coord_buf[i * 2] as f64,
+                lat: coord_buf[i * 2 + 1] as f64,
+                icon: icon_buf[i] as u32,
+                // App pins carry no route colour; vehicles arrive through
+                // `setVehicles`, which has its own colours array.
+                colour: 0,
+            })
+            .collect();
+        let marker_labels: Vec<String> = (0..n)
+            .map(|i| read_marker_label(env, &labels, i as i32))
+            .collect();
+        map.renderer.set_markers(markers, marker_labels);
+        Ok(())
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
 /// Take every marker away: the host cleared its pins.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_clearMarkers<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
 ) {
@@ -101,17 +103,17 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_clearMarkers<'
 /// Any failure — a null element, an object that is not a string, an undecodable
 /// string — degrades to the empty string (icon alone) rather than failing the
 /// whole push: a label is decoration, and a malformed one must not blank pins.
-fn read_marker_label(env: &mut JNIEnv<'_>, labels: &JObjectArray<'_>, index: i32) -> String {
-    let Ok(obj) = env.get_object_array_element(labels, index) else {
+fn read_marker_label(env: &mut Env<'_>, labels: &JObjectArray<'_>, index: i32) -> String {
+    let Ok(obj) = env.get_object_array_element(labels, index as usize) else {
         return String::new();
     };
     if obj.is_null() {
         return String::new();
     }
-    let string = JString::from(obj);
-    env.get_string(&string)
-        .map(Into::into)
-        .unwrap_or_default()
+    let Ok(string) = env.cast_local::<JString>(obj) else {
+        return String::new();
+    };
+    string.try_to_string(env).unwrap_or_default()
 }
 
 /// Replace the simulated transit vehicles with a set the renderer draws as billboarded sprites.
@@ -134,7 +136,7 @@ fn read_marker_label(env: &mut JNIEnv<'_>, labels: &JObjectArray<'_>, index: i32
 /// cannot be read leave the vehicles **unchanged** rather than blanking them.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setVehicles<'l>(
-    env: JNIEnv<'l>,
+    mut env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     ids: JLongArray<'l>,
@@ -142,53 +144,57 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setVehicles<'l
     icons: JIntArray<'l>,
     colors: JIntArray<'l>,
 ) {
-    let Some(map) = handle_mut(handle) else {
-        return;
-    };
-    let id_len = env.get_array_length(&ids).unwrap_or(0).max(0) as usize;
-    let icon_len = env.get_array_length(&icons).unwrap_or(0).max(0) as usize;
-    let coord_len = env.get_array_length(&lon_lat).unwrap_or(0).max(0) as usize;
-    let color_len = env.get_array_length(&colors).unwrap_or(0).max(0) as usize;
-    // Each vehicle consumes two floats (lon, lat), so the coordinate array bounds the count too.
-    // Colours ride along when present; a short/empty array means "no rings" rather than a failure.
-    let n = id_len.min(icon_len).min(coord_len / 2);
-    if n == 0 {
-        map.renderer.set_vehicles(Vec::new());
-        return;
-    }
-    let mut id_buf = vec![0i64; n];
-    let mut icon_buf = vec![0i32; n];
-    let mut coord_buf = vec![0f32; n * 2];
-    let mut color_buf = vec![0i32; n.min(color_len)];
-    if env.get_long_array_region(&ids, 0, &mut id_buf).is_err()
-        || env.get_int_array_region(&icons, 0, &mut icon_buf).is_err()
-        || env
-            .get_float_array_region(&lon_lat, 0, &mut coord_buf)
-            .is_err()
-        || (!color_buf.is_empty()
-            && env
-                .get_int_array_region(&colors, 0, &mut color_buf)
-                .is_err())
-    {
-        log("the vehicle arrays could not be read; leaving the vehicles unchanged");
-        return;
-    }
-    let vehicles: Vec<Marker> = (0..n)
-        .map(|i| Marker {
-            id: id_buf[i] as u64,
-            lon: coord_buf[i * 2] as f64,
-            lat: coord_buf[i * 2 + 1] as f64,
-            icon: icon_buf[i] as u32,
-            colour: color_buf.get(i).copied().unwrap_or(0) as u32 & 0x00FF_FFFF,
-        })
-        .collect();
-    map.renderer.set_vehicles(vehicles);
+    env.with_env(|env| -> jni::errors::Result<()> {
+        let Some(map) = handle_mut(handle) else {
+            return Ok(());
+        };
+        let id_len = env.get_array_length(&ids).unwrap_or(0).max(0) as usize;
+        let icon_len = env.get_array_length(&icons).unwrap_or(0).max(0) as usize;
+        let coord_len = env.get_array_length(&lon_lat).unwrap_or(0).max(0) as usize;
+        let color_len = env.get_array_length(&colors).unwrap_or(0).max(0) as usize;
+        // Each vehicle consumes two floats (lon, lat), so the coordinate array bounds the count too.
+        // Colours ride along when present; a short/empty array means "no rings" rather than a failure.
+        let n = id_len.min(icon_len).min(coord_len / 2);
+        if n == 0 {
+            map.renderer.set_vehicles(Vec::new());
+            return Ok(());
+        }
+        let mut id_buf = vec![0i64; n];
+        let mut icon_buf = vec![0i32; n];
+        let mut coord_buf = vec![0f32; n * 2];
+        let mut color_buf = vec![0i32; n.min(color_len)];
+        if env.get_long_array_region(&ids, 0, &mut id_buf).is_err()
+            || env.get_int_array_region(&icons, 0, &mut icon_buf).is_err()
+            || env
+                .get_float_array_region(&lon_lat, 0, &mut coord_buf)
+                .is_err()
+            || (!color_buf.is_empty()
+                && env
+                    .get_int_array_region(&colors, 0, &mut color_buf)
+                    .is_err())
+        {
+            log("the vehicle arrays could not be read; leaving the vehicles unchanged");
+            return Ok(());
+        }
+        let vehicles: Vec<Marker> = (0..n)
+            .map(|i| Marker {
+                id: id_buf[i] as u64,
+                lon: coord_buf[i * 2] as f64,
+                lat: coord_buf[i * 2 + 1] as f64,
+                icon: icon_buf[i] as u32,
+                colour: color_buf.get(i).copied().unwrap_or(0) as u32 & 0x00FF_FFFF,
+            })
+            .collect();
+        map.renderer.set_vehicles(vehicles);
+        Ok(())
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
 /// Take every simulated vehicle away: the transit toggle went off, or the surface was hidden.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_clearVehicles<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
 ) {

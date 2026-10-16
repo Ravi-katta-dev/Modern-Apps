@@ -5,8 +5,8 @@ use super::handle::handle_mut;
 use super::log::{log, log_info};
 use crate::style::{self, LayerToggles};
 use jni::objects::{JClass, JIntArray, JLongArray, JString};
-use jni::sys::{jboolean, jlong};
-use jni::JNIEnv;
+use jni::sys::jlong;
+use jni::EnvUnowned;
 /// Turn the optional layers on or off, and narrow POI to a set of kinds.
 ///
 /// Not free, unlike [`setPalette`](Java_com_vayunmathur_library_map_MapNative_setPalette):
@@ -29,37 +29,41 @@ use jni::JNIEnv;
 /// from a Compose effect that may re-run for unrelated reasons.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setLayers<'l>(
-    mut env: JNIEnv<'l>,
+    mut env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
-    poi: jboolean,
-    transit: jboolean,
+    poi: bool,
+    transit: bool,
     kinds: JString<'l>,
 ) {
-    let names: String = env.get_string(&kinds).map(Into::into).unwrap_or_default();
-    let filter = style::KindFilter::new(
-        names
-            .split(',')
-            .map(str::trim)
-            .filter(|name| !name.is_empty())
-            .filter_map(style::kind_id)
-            .collect(),
-    );
-    if let Some(map) = handle_mut(handle) {
-        // Traffic is carried through its own setter, so preserve whatever it was set to.
-        let traffic = map.toggles.get().0.traffic;
-        let wanted = LayerToggles {
-            poi: poi != 0,
-            transit: transit != 0,
-            traffic,
-        };
-        if map.toggles.set(wanted, filter) {
-            log_info(&format!(
-                "layers changed: poi={} transit={} kinds=[{names}]",
-                wanted.poi, wanted.transit,
-            ));
+    env.with_env(|env| -> jni::errors::Result<()> {
+        let names: String = kinds.try_to_string(env).unwrap_or_default();
+        let filter = style::KindFilter::new(
+            names
+                .split(',')
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .filter_map(style::kind_id)
+                .collect(),
+        );
+        if let Some(map) = handle_mut(handle) {
+            // Traffic is carried through its own setter, so preserve whatever it was set to.
+            let traffic = map.toggles.get().0.traffic;
+            let wanted = LayerToggles {
+                poi,
+                transit,
+                traffic,
+            };
+            if map.toggles.set(wanted, filter) {
+                log_info(&format!(
+                    "layers changed: poi={} transit={} kinds=[{names}]",
+                    wanted.poi, wanted.transit,
+                ));
+            }
         }
-    }
+        Ok(())
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
 /// Turn the live-traffic overlay on or off.
@@ -76,13 +80,13 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setLayers<'l>(
 /// so the existing layer call keeps its shape.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setTrafficEnabled<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
-    enabled: jboolean,
+    enabled: bool,
 ) {
     if let Some(map) = handle_mut(handle) {
-        let on = enabled != 0;
+        let on = enabled;
         // The renderer's per-frame draw guard, set every call so it tracks the toggle even
         // when the tessellation state is otherwise unchanged.
         map.renderer.set_traffic_enabled(on);
@@ -115,38 +119,42 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setTrafficEnab
 /// state swap — no tessellation and no upload — so it is the recolour hot path and is cheap.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setTrafficSpeeds<'l>(
-    env: JNIEnv<'l>,
+    mut env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     ids: JLongArray<'l>,
     colors: JIntArray<'l>,
 ) {
-    let Some(map) = handle_mut(handle) else {
-        return;
-    };
-    let id_len = env.get_array_length(&ids).unwrap_or(0).max(0) as usize;
-    let color_len = env.get_array_length(&colors).unwrap_or(0).max(0) as usize;
-    let n = id_len.min(color_len);
-    if n == 0 {
-        // An empty push is a clear: the host has no readings for the current viewport.
-        map.renderer.clear_traffic();
-        return;
-    }
-    let mut id_buf = vec![0i64; n];
-    let mut color_buf = vec![0i32; n];
-    if env.get_long_array_region(&ids, 0, &mut id_buf).is_err()
-        || env
-            .get_int_array_region(&colors, 0, &mut color_buf)
-            .is_err()
-    {
-        log("the traffic arrays could not be read; leaving the colours unchanged");
-        return;
-    }
-    // The bit pattern is what matters: a Kotlin colour is a signed `int` and an id is a signed
-    // `long`, and both reinterpret to the unsigned the renderer keys and paints with.
-    let ids_u64: Vec<u64> = id_buf.into_iter().map(|v| v as u64).collect();
-    let colors_u32: Vec<u32> = color_buf.into_iter().map(|v| v as u32).collect();
-    map.renderer.set_traffic_speeds(&ids_u64, &colors_u32);
+    env.with_env(|env| -> jni::errors::Result<()> {
+        let Some(map) = handle_mut(handle) else {
+            return Ok(());
+        };
+        let id_len = env.get_array_length(&ids).unwrap_or(0).max(0) as usize;
+        let color_len = env.get_array_length(&colors).unwrap_or(0).max(0) as usize;
+        let n = id_len.min(color_len);
+        if n == 0 {
+            // An empty push is a clear: the host has no readings for the current viewport.
+            map.renderer.clear_traffic();
+            return Ok(());
+        }
+        let mut id_buf = vec![0i64; n];
+        let mut color_buf = vec![0i32; n];
+        if env.get_long_array_region(&ids, 0, &mut id_buf).is_err()
+            || env
+                .get_int_array_region(&colors, 0, &mut color_buf)
+                .is_err()
+        {
+            log("the traffic arrays could not be read; leaving the colours unchanged");
+            return Ok(());
+        }
+        // The bit pattern is what matters: a Kotlin colour is a signed `int` and an id is a signed
+        // `long`, and both reinterpret to the unsigned the renderer keys and paints with.
+        let ids_u64: Vec<u64> = id_buf.into_iter().map(|v| v as u64).collect();
+        let colors_u32: Vec<u32> = color_buf.into_iter().map(|v| v as u32).collect();
+        map.renderer.set_traffic_speeds(&ids_u64, &colors_u32);
+        Ok(())
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
 /// Take the live-traffic overlay away: the toggle went off, or the viewport moved off the
@@ -157,7 +165,7 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setTrafficSpee
 /// like [`clearRegionMask`](Java_com_vayunmathur_library_map_MapNative_clearRegionMask).
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_clearTraffic<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
 ) {

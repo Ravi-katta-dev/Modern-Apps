@@ -6,7 +6,7 @@ use super::handle::handle_mut;
 use super::log::log;
 use jni::objects::{JByteArray, JClass};
 use jni::sys::{jint, jlong};
-use jni::JNIEnv;
+use jni::EnvUnowned;
 /// Upload the Moon raster pair: the converted LROC color (RGBA8) and the
 /// converted LDEM (RG8 packed uint16, see `analysis/convert_moon.py`).
 ///
@@ -17,7 +17,7 @@ use jni::JNIEnv;
 /// previous pair unchanged rather than blanking the Moon.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setMoonTextures<'l>(
-    env: JNIEnv<'l>,
+    mut env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     color_rgba: JByteArray<'l>,
@@ -59,13 +59,18 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setMoonTexture
     }
     let mut color_buf = vec![0u8; color_len];
     let mut dem_buf = vec![0u8; dem_len];
-    if env
-        .get_byte_array_region(&color_rgba, 0, bytemuck_cast(&mut color_buf))
-        .is_err()
-        || env
-            .get_byte_array_region(&dem_rg, 0, bytemuck_cast(&mut dem_buf))
-            .is_err()
-    {
+    let read_ok: bool = env
+        .with_env(|env| {
+            Ok::<bool, jni::errors::Error>(
+                env.get_byte_array_region(&color_rgba, 0, bytemuck_cast(&mut color_buf))
+                    .is_ok()
+                    && env
+                        .get_byte_array_region(&dem_rg, 0, bytemuck_cast(&mut dem_buf))
+                        .is_ok(),
+            )
+        })
+        .resolve::<jni::errors::LogErrorAndDefault>();
+    if !read_ok {
         log("moon textures: arrays could not be read; leaving the Moon unchanged");
         return;
     }

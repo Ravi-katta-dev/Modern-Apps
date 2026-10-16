@@ -4,8 +4,8 @@
 use super::handle::handle_mut;
 use crate::style::Palette;
 use jni::objects::JClass;
-use jni::sys::{jboolean, jfloat, jint, jlong};
-use jni::JNIEnv;
+use jni::sys::{jfloat, jint, jlong};
+use jni::EnvUnowned;
 /// Mask everything outside the region with this id, or clear the mask when it is zero.
 ///
 /// The id is the tagged OSM relation id of an admin boundary, baked onto the tapped place label at
@@ -16,7 +16,7 @@ use jni::JNIEnv;
 /// filters on, so once a piece is resident the mask draws.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setRegionMask<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     region_id: jlong,
@@ -42,7 +42,7 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setRegionMask<
 /// Take the region mask away: the details sheet closed, or the selection moved on.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_clearRegionMask<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
 ) {

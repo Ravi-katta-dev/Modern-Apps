@@ -9,7 +9,7 @@ use crate::tile::geometry;
 use crate::tile::select::TileId;
 use crate::tile::source::BASEMAP_ARCHIVE_URL;
 use crate::tile::source::{
-    basemap_origin, CachingRangeReader, FileRangeReader, JniRangeFetcher, RangeFetcher,
+    basemap_origin, CachingRangeReader, FileRangeReader, JniRangeFetcher,
 };
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};

@@ -10,8 +10,8 @@ use crate::tile::source::BASEMAP_ARCHIVE_URL;
 use crate::vulkan::context::{ANativeWindow_acquire, ANativeWindow_fromSurface};
 use crate::vulkan::renderer::Renderer;
 use jni::objects::{JClass, JObject, JString};
-use jni::sys::{jboolean, jint, jlong};
-use jni::JNIEnv;
+use jni::sys::{jint, jlong};
+use jni::EnvUnowned;
 use std::collections::HashSet;
 use std::os::raw::c_void;
 use std::sync::{Arc, Mutex};
@@ -22,27 +22,30 @@ use std::sync::{Arc, Mutex};
 /// Called from the JVM with a live `Surface`.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_create<'l>(
-    mut env: JNIEnv<'l>,
+    mut env: EnvUnowned<'l>,
     _class: JClass<'l>,
     surface: JObject<'l>,
     cache_dir: JString<'l>,
     local_path: JString<'l>,
     width: jint,
     height: jint,
-    dark: jboolean,
-    muted: jboolean,
+    dark: bool,
+    muted: bool,
 ) -> jlong {
     // The bridge back to `:library:network` has to be resolved before any worker thread
     // needs it; doing it here means the failure is visible at startup rather than as a
     // silently blank map.
-    if !jni_http::init(&mut env) {
+    let net_ok: bool = env
+        .with_env(|env| Ok::<bool, jni::errors::Error>(jni_http::init(env)))
+        .resolve::<jni::errors::LogErrorAndDefault>();
+    if !net_ok {
         log("library:network is missing, so remote tiles cannot be fetched");
         return 0;
     }
 
-    let cache_dir: String = match env.get_string(&cache_dir) {
-        Ok(s) => s.into(),
-        Err(_) => return 0,
+    let cache_dir: String = match env.with_env(|env| cache_dir.try_to_string(env)).into_outcome() {
+        jni::Outcome::Ok(s) => s,
+        _ => return 0,
     };
 
     // A pushed on-device archive, or `None` when the path is null/empty: the worker then
@@ -51,21 +54,20 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_create<'l>(
     let local_path: Option<String> = if local_path.is_null() {
         None
     } else {
-        match env.get_string(&local_path) {
-            Ok(s) => {
-                let s: String = s.into();
+        match env.with_env(|env| local_path.try_to_string(env)).into_outcome() {
+            jni::Outcome::Ok(s) => {
                 if s.is_empty() {
                     None
                 } else {
                     Some(s)
                 }
             }
-            Err(_) => None,
+            _ => None,
         }
     };
 
     let window = unsafe {
-        let raw_env = env.get_raw() as *mut c_void;
+        let raw_env = env.as_raw() as *mut c_void;
         let raw_surface = surface.as_raw() as *mut c_void;
         ANativeWindow_fromSurface(raw_env, raw_surface)
     };
@@ -139,7 +141,7 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_create<'l>(
         absent: AbsentSet::new(),
         retry: RetryMap::new(),
         online,
-        palette: Palette::new(dark != 0, muted != 0),
+        palette: Palette::new(dark, muted),
         toggles,
         zoom_range,
         density: 1.0,
@@ -174,7 +176,7 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_create<'l>(
 /// map until the user touches it.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_nextFrameDelayMillis<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
 ) -> jlong {
@@ -198,7 +200,7 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_nextFrameDelay
 
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_resize<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
     width: jint,
@@ -214,33 +216,33 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_resize<'l>(
 /// nothing is re-tessellated or re-uploaded.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setPalette<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
-    dark: jboolean,
-    muted: jboolean,
+    dark: bool,
+    muted: bool,
 ) {
     if let Some(map) = handle_mut(handle) {
-        map.palette = Palette::new(dark != 0, muted != 0);
+        map.palette = Palette::new(dark, muted);
     }
 }
 
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setOnline<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
-    online: jboolean,
+    online: bool,
 ) {
     if let Some(map) = handle_mut(handle) {
-        map.online.set(online != 0);
+        map.online.set(online);
     }
 }
 
 /// Destroy the renderer and release its window.
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_destroy<'l>(
-    _env: JNIEnv<'l>,
+    _env: EnvUnowned<'l>,
     _class: JClass<'l>,
     handle: jlong,
 ) {

@@ -114,11 +114,8 @@ fun rememberBottomSheetScaffoldState(bottomSheetState: SheetState) =
 fun rememberSliderState(
     value: Float = 0f,
     steps: Int = 0,
-    onValueChangeFinished: (() -> Unit)? = null,
     valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
-) = androidx.compose.material3.rememberSliderState(
-    value = value, steps = steps, onValueChangeFinished = onValueChangeFinished, valueRange = valueRange,
-)
+) = androidx.compose.material3.rememberSliderState(value, steps, valueRange)
 
 // --- Adaptive ---
 @Composable
