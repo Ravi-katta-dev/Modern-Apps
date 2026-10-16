@@ -2,31 +2,40 @@
 
 > Scoped supplement. Global rules in root `AGENTS.md` apply. Stay inside `lint-rules/` + allowed shared modules. Do not root-scan.
 
+<!-- last-reviewed: 2026-10-16 -->
 - Gradle: :lint-rules / dir: lint-rules/
-- Package roots present: 
-- Entry files: 
-- Deps: 
-- Metadata: metadata_data/lint-rules.md (MISSING)
+- Package roots present: (custom lint detectors — `com.vayunmathur.lint` package)
+- Entry files: ModernAppsIssueRegistry.kt (no MainActivity/Route — lint registry)
+- Deps: (lint APIs only)
+- Metadata: metadata_data/lint-rules.md (absent — infra has none by design)
 - Rust: no / screenshotTest: no
 
-## Key files
+## Overview
+**Purpose:** Custom Android-lint detectors enforcing repo conventions at build time — the executable form of root `AGENTS.md` §2. Fatal detectors break the build; advisory ones warn.
+**Fatal:** `ToastUsage` (no `Toast` — use messenger), `DirectComposeAnimation` (no raw animation at call sites), `FileLength`, `DirectAndroidLog` (no `androidx.room.`/`android.util.Log` literals), plus comment-hygiene detectors (`CommentedOutCode`, `ExceptionMarkerFormat`, `TodoEvasion` with `CommentOnlyMatcher`).
+**Advisory:** `DirectBuildDatabase` (subclass `RoomRepository`), `OneComposablePerFile`, `PackageStructure` (closed roots), `RawScaffoldInApp` (use `AppScaffold`), `Room2Usage` (Room 3 only), `WindowInsetsInReusableComponent` (no padding in `library.ui`).
+**Entry points:** `ModernAppsIssueRegistry.kt` → the detector for your rule → `LintPackageExclusions.kt` for scope.
+**Gotchas:** New detectors need registry entries + severity decisions (fatal vs advisory is a deliberate call). Fix code to green modules, never relax config (`detekt.yml` rationale is inline per the root card).
 
-- com/vayunmathur/lint/DirectBuildDatabaseDetector.kt
-- com/vayunmathur/lint/DirectComposeAnimationDetector.kt
-- com/vayunmathur/lint/FileLengthDetector.kt
-- com/vayunmathur/lint/LintPackageExclusions.kt
-- com/vayunmathur/lint/ModernAppsIssueRegistry.kt
+## Key files
+- com/vayunmathur/lint/ModernAppsIssueRegistry.kt — registry (all detectors listed here)
+- com/vayunmathur/lint/ToastDetector.kt — fatal Toast ban
+- com/vayunmathur/lint/DirectComposeAnimationDetector.kt — fatal raw-animation ban
+- com/vayunmathur/lint/FileLengthDetector.kt — fatal file length
+- com/vayunmathur/lint/DirectBuildDatabaseDetector.kt — RoomRepository rule
+- com/vayunmathur/lint/Room2UsageDetector.kt — Room 3 rule
+- com/vayunmathur/lint/RawScaffoldInAppDetector.kt — AppScaffold rule
+- com/vayunmathur/lint/PackageStructureDetector.kt — closed-roots rule
 - com/vayunmathur/lint/OneComposablePerFileDetector.kt
-- com/vayunmathur/lint/PackageStructureDetector.kt
-- com/vayunmathur/lint/RawScaffoldInAppDetector.kt
-- com/vayunmathur/lint/Room2UsageDetector.kt
-- com/vayunmathur/lint/ToastDetector.kt
 - com/vayunmathur/lint/WindowInsetsInReusableComponentDetector.kt
+- com/vayunmathur/lint/CommentedOutCodeDetector.kt — comment hygiene
+- com/vayunmathur/lint/ExceptionMarkerFormatDetector.kt — escape-hatch marker format
+- com/vayunmathur/lint/TodoEvasionDetector.kt — TODO discipline
+- com/vayunmathur/lint/CommentOnlyMatcher.kt — shared matcher for comment detectors
+- com/vayunmathur/lint/LintPackageExclusions.kt — detector scoping
 
 ## Verify (this module only)
 ```
 ./gradlew :lint-rules:compileDevKotlin
 ./gradlew :lint-rules:lint
 ```
-
-
