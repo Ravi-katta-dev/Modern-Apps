@@ -131,3 +131,7 @@ if (file("personal/amazon").exists()) {
 if (file("personal/kaiser").exists()) {
     include(":personal:kaiser")
 }
+
+// Desktop JVM shells (Phase 2): host-side sync over the shared core.
+include(":desktop:notes")
+include(":desktop:passwords")

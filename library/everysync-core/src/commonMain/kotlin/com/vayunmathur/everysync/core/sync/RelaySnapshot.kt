@@ -1,5 +1,6 @@
 package com.vayunmathur.everysync.core.sync
 
+import kotlinx.serialization.Serializable
 import kotlin.uuid.Uuid
 
 /**
@@ -10,6 +11,7 @@ import kotlin.uuid.Uuid
  * could never propagate. [deleted] marks a retained tombstone alongside the
  * snapshot rows so a delete survives until both sides have acknowledged it.
  */
+@Serializable
 data class RelaySnapshot(
     val syncId: String,
     val kind: String,

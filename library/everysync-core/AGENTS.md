@@ -20,3 +20,6 @@
 ./gradlew :library:everysync-core:compileKotlinJvm
 ./gradlew :library:everysync-core:lint
 ```
+
+## Cross-platform
+Program status: root `CROSS_PLATFORM_STATUS.md`. System-sink interfaces: `src/commonMain/kotlin/com/vayunmathur/everysync/core/sinks/SystemSinks.kt`. Shells: `desktop/` (EDS/Windows), `apple/` (EventKit/CNContactStore).
