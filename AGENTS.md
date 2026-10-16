@@ -119,5 +119,5 @@ Findings fail the task. Only `notes/`, `backup/`, `library/ui/`, `games/voxels/`
 
 ## 5. Git / safety
 - Other agents share the tree. Prohibited except reading state: `stash/revert/reset/checkout . /clean` etc. Only `add` + `commit` allowed, and only paths you changed — check `git status` first, never `add -A/.`, never stage without committing instantly.
-- Commit: one line ≤80 chars: `appname: short description (#iss)`.
+- Commit: one line ≤80 chars always following the format: `appname: short description (#iss)`.
 - LF only; never commit line-ending churn. `FAIL_ON_PROJECT_REPOS` — never add repos in modules. Read `SUPPLY_CHAIN_RISKS.md` before new third-party dep.
