@@ -342,9 +342,11 @@ internal data class RelayTodoJson(
 internal fun Todo.toRelayJson(): RelayTodoJson = RelayTodoJson(
     uid = syncId,
     title = title,
+    notes = notes,
     done = done,
     dueAt = dueAt,
     position = position,
+    createdAt = createdAt,
     deleted = deleted,
     updatedAt = updatedAt,
 )
@@ -352,9 +354,11 @@ internal fun Todo.toRelayJson(): RelayTodoJson = RelayTodoJson(
 internal fun RelayTodoJson.toTodo(id: Long): Todo = Todo(
     id = id,
     title = title,
+    notes = notes,
     done = done,
     position = position,
     dueAt = dueAt,
+    createdAt = createdAt,
     syncId = uid,
     updatedAt = updatedAt,
     deleted = deleted,

@@ -18,6 +18,7 @@ fun TodoDetailPage(backStack: NavBackStack<Route>, viewModel: TodoViewModel, id:
         object : TodoActions {
             override fun back() { backStack.pop() }
             override fun setTitle(title: String) { todoState.value = todoState.value.copy(title = title) }
+            override fun setNotes(notes: String) { todoState.value = todoState.value.copy(notes = notes) }
             override fun setDone(done: Boolean) { todoState.value = todoState.value.copy(done = done) }
             override fun setDueAt(dueAt: Long?) { todoState.value = todoState.value.copy(dueAt = dueAt) }
             override fun deleteTodo() { viewModel.deleteById(id) { backStack.pop() } }
@@ -26,7 +27,7 @@ fun TodoDetailPage(backStack: NavBackStack<Route>, viewModel: TodoViewModel, id:
 
     val todo = todoState.value
     TodoDetailScreen(
-        state = TodoUiState(title = todo.title, done = todo.done, dueAt = todo.dueAt),
+        state = TodoUiState(title = todo.title, notes = todo.notes, done = todo.done, dueAt = todo.dueAt),
         actions = actions,
     )
 }

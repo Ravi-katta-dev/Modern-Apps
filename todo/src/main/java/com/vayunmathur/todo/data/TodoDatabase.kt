@@ -10,6 +10,7 @@ import androidx.room3.Upsert
 import com.vayunmathur.library.util.DatabaseHelper
 import com.vayunmathur.library.util.DatabaseMigrations
 import androidx.room3.migration.Migration
+import androidx.sqlite.execSQL
 import kotlinx.coroutines.flow.Flow
 
 const val DB_NAME = "todo-db"
@@ -78,14 +79,21 @@ interface TodoSyncSnapshotDao {
     suspend fun deleteAll()
 }
 
-@Database(entities = [Todo::class, SyncSnapshot::class], version = 1, exportSchema = false)
+@Database(entities = [Todo::class, SyncSnapshot::class], version = 2, exportSchema = false)
 abstract class TodoDatabase : RoomDatabase() {
     abstract fun todoDao(): TodoDao
     abstract fun syncSnapshotDao(): TodoSyncSnapshotDao
 
     companion object : DatabaseMigrations {
-        // v1 ships sync-ready from day one: syncId / updatedAt / deleted on Todo
-        // plus the SyncSnapshot relay baseline table, so no migration is needed.
-        override val migrations: List<Migration> = emptyList()
+        // v2 adds the relay-carried `notes` + `createdAt` columns (drift fix):
+        // the relay envelope always carried both, but the native model dropped
+        // them on persist, so LWW on those fields never converged locally.
+        override val migrations: List<Migration> = listOf(
+            Migration(1, 2) {
+                it.execSQL("ALTER TABLE `Todo` ADD COLUMN `notes` TEXT NOT NULL DEFAULT ''")
+                it.execSQL("ALTER TABLE `Todo` ADD COLUMN `createdAt` INTEGER NOT NULL DEFAULT 0")
+                it.execSQL("UPDATE `Todo` SET `createdAt` = `updatedAt` WHERE `createdAt` = 0")
+            },
+        )
     }
 }

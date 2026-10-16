@@ -1,0 +1,143 @@
+package com.vayunmathur.everysync.core.data
+
+import kotlinx.serialization.Serializable
+
+/** A contact resolved from a relay vault record. */
+@Serializable
+data class RemoteContact(
+    /** Stable relay sync identity (opaque 32-char id). */
+    val uid: String,
+    /** Relay updatedAt stamp as a string, for change detection; null when unknown. */
+    val etag: String? = null,
+    val displayName: String = "",
+    val prefix: String = "",
+    val firstName: String = "",
+    val middleName: String = "",
+    val lastName: String = "",
+    val suffix: String = "",
+    val organization: String = "",
+    val note: String = "",
+    /** number -> platform type code (mirrors ContactsContract ints; see VCard kinds). */
+    val phones: List<TypedValue> = emptyList(),
+    val emails: List<TypedValue> = emptyList(),
+    val addresses: List<TypedValue> = emptyList(),
+    /** ISO-8601 birthday (yyyy-MM-dd) or null. */
+    val birthday: String? = null,
+    /** Relay sync identity of the vault this record belongs to. */
+    val href: String? = null,
+    val deleted: Boolean = false,
+    /** Last local-or-remote modification (epoch ms); drives relay LWW. */
+    val updatedAt: Long = 0L,
+)
+
+@Serializable
+data class TypedValue(val value: String, val type: Int)
+
+/** A calendar event resolved from a relay vault record. */
+@Serializable
+data class RemoteEvent(
+    val uid: String,
+    /** Relay updatedAt stamp as a string, for change detection; null when unknown. */
+    val etag: String? = null,
+    val calendarId: String,
+    val summary: String = "",
+    val description: String = "",
+    val location: String = "",
+    val startMillis: Long = 0L,
+    val endMillis: Long = 0L,
+    val allDay: Boolean = false,
+    val timezone: String = "UTC",
+    /** Raw RRULE line (without the "RRULE:" prefix), or null. */
+    val rrule: String? = null,
+    /** RECURRENCE-ID of an overridden instance; null for the master. */
+    val recurrenceId: String? = null,
+    /** Relay sync identity of the vault this record belongs to. */
+    val href: String? = null,
+    val deleted: Boolean = false,
+    /** Last local-or-remote modification (epoch ms); drives relay LWW. */
+    val updatedAt: Long = 0L,
+)
+
+/**
+ * A password or passkey record for the encrypted relay. Mirrors the native
+ * vault fields so no KDBX mapping is needed: passwords use the name/username/
+ * email/password/note/totp/websites half, passkeys ([isPasskey]) use the
+ * rp/credential half. The relay envelope is the JSON of this class.
+ */
+@Serializable
+data class RemotePassword(
+    /** Relay sync identity (opaque 32-char id). */
+    val uid: String,
+    /** True for a passkey record, false for a password record. */
+    val isPasskey: Boolean = false,
+    val name: String = "",
+    val username: String = "",
+    val email: String = "",
+    val password: String = "",
+    val note: String = "",
+    val totpSecret: String? = null,
+    val websites: List<String> = emptyList(),
+    // Passkey half (empty for passwords).
+    val rpId: String = "",
+    val rpName: String = "",
+    val credentialId: String = "",
+    val userId: String = "",
+    val userName: String = "",
+    val userDisplayName: String = "",
+    /** Base64 of the private-key bytes. */
+    val privateKeyB64: String = "",
+    val creationTime: Long = 0L,
+    val lastUsedTime: Long = 0L,
+    val signCount: Int = 0,
+    val linkedPasswordSyncId: String? = null,
+    val deleted: Boolean = false,
+    /** Last local-or-remote modification (epoch ms); drives relay LWW. */
+    val updatedAt: Long = 0L,
+)
+
+/**
+ * A note record for the encrypted relay. [blocksJson] is the stored
+ * NoteBody JSON (text / image / ink blocks); image bytes themselves live in
+ * the blob channel and are referenced by file name.
+ * The relay envelope is the JSON of this class.
+ */
+@Serializable
+data class RemoteNote(
+    /** Relay sync identity (opaque 32-char id). */
+    val uid: String,
+    val title: String = "",
+    val content: String = "",
+    /** Serialized NoteBody, or null for legacy text-only notes. */
+    val blocksJson: String? = null,
+    val position: Double = 0.0,
+    val deleted: Boolean = false,
+    /** Last local-or-remote modification (epoch ms); drives relay LWW. */
+    val updatedAt: Long = 0L,
+)
+
+/**
+ * A todo task record for the encrypted relay. The relay envelope is the JSON
+ * of this class on the `todos:<vaultId>` channel.
+ *
+ * Phase 1 drift fix: [notes] and [createdAt] are part of the envelope AND the
+ * merge hash (see TodoKind.canonical). The Android native model previously
+ * dropped both on persist, so LWW on those fields never converged locally —
+ * native stores must persist them.
+ */
+@Serializable
+data class RemoteTodo(
+    /** Relay sync identity (opaque 32-char id). */
+    val uid: String,
+    val title: String = "",
+    val notes: String = "",
+    val done: Boolean = false,
+    /** Epoch ms the task is due, or null. */
+    val dueAt: Long? = null,
+    /** Sort position; excluded from the merge hash so reorder is not an edit. */
+    val position: Double = 0.0,
+    /** Epoch ms the task was created; part of the adoption content key. */
+    val createdAt: Long = 0L,
+    val deleted: Boolean = false,
+    /** Last local-or-remote modification (epoch ms); drives relay LWW. */
+    val updatedAt: Long = 0L,
+)

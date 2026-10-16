@@ -39,6 +39,7 @@ interface TodoListActions {
 /** Everything the todo editor draws. */
 data class TodoUiState(
     val title: String = "",
+    val notes: String = "",
     val done: Boolean = false,
     val dueAt: Long? = null,
 )
@@ -47,6 +48,7 @@ data class TodoUiState(
 interface TodoActions {
     fun back() {}
     fun setTitle(title: String) {}
+    fun setNotes(notes: String) {}
     fun setDone(done: Boolean) {}
     fun setDueAt(dueAt: Long?) {}
     fun deleteTodo() {}

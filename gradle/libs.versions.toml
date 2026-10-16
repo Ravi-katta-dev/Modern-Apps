@@ -26,6 +26,9 @@ kotlinxCoroutines = "1.11.0"
 kotlinxSerializationJson = "1.11.0"
 kotlinxDatetime = "0.8.0"
 
+# Kotlin Multiplatform shared core (:library:everysync-core) versions live with the
+# crypto section below (ktor, sqldelight, jna).
+
 # AndroidX – core & lifecycle
 coreKtx = "1.19.1"
 fragmentKtx = "1.9.1"
@@ -126,6 +129,11 @@ onnxruntimeAndroid = "1.31.0"
 
 # Crypto, security & credential storage
 sqlcipherAndroid = "4.19.1"
+sqldelight = "2.2.0"
+# Desktop JNA binding to the e2ee Rust C ABI (Phase 1D)
+jna = "5.18.1"
+# Ktor client for KMP RelayTransport actuals (Phase 1C)
+ktor = "3.3.0"
 # Pinned at 0.101.x: the CDSI enclave identity is compiled into the
 # native library, and 0.86.5/0.92.0 carry a retired MRENCLAVE, so contact discovery requests
 # /v1/{stale}/discovery and the server answers 404. 0.101.x also matches the checked-out libsignal source,
@@ -176,6 +184,7 @@ desugar-jdk-libs = { module = "com.android.tools:desugar_jdk_libs", version.ref 
 
 # Kotlin stdlib ecosystem (JetBrains)
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinxDatetime" }
 kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlin" }
@@ -326,6 +335,19 @@ onnxruntime-android = { module = "com.microsoft.onnxruntime:onnxruntime-android"
 
 # Crypto, security & credential storage
 sqlcipher-android = { module = "net.zetetic:sqlcipher-android", version.ref = "sqlcipherAndroid" }
+jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
+
+# Ktor client (KMP RelayTransport actuals, Phase 1C)
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-darwin = { module = "io.ktor:ktor-client-darwin", version.ref = "ktor" }
+ktor-client-websockets = { module = "io.ktor:ktor-client-websockets", version.ref = "ktor" }
+ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
+
+# SQLDelight (KMP caches; Room stays Android-only)
+sqldelight-driver-sqlcipher = { module = "app.cash.sqldelight:sqlcipher-driver", version.ref = "sqldelight" }
+sqldelight-coroutines = { module = "app.cash.sqldelight:coroutines-extensions", version.ref = "sqldelight" }
 libsignal-android = { module = "org.signal:libsignal-android", version.ref = "libsignalAndroid" }
 ringrtc-android = { module = "org.signal:ringrtc-android", version.ref = "ringrtcAndroid" }
 
@@ -349,6 +371,7 @@ auroraoss-gplayapi = { module = "com.auroraoss:gplayapi", version.ref = "gplayap
 
 # Android & Kotlin
 android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlinGradlePlugin" }
 compose-screenshot = { id = "com.android.compose.screenshot", version.ref = "composeScreenshot" }
 android-library = { id = "com.android.library", version.ref = "agp" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

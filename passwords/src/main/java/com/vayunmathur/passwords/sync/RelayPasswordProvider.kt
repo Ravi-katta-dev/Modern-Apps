@@ -45,9 +45,9 @@ import kotlinx.serialization.json.Json
  *  - `querySince`: rows with `updatedAt` past the `since` query parameter
  *    (falling back to `selectionArgs[0]`).
  *  - `upsertRaw`: insert/update preserving the pulled `updatedAt`. Accepts
- *    the envelope shape (primary) and the native row shapes ([Password] /
- *    [PasswordPasskeyPayload], fallback for older sinks). A `deleted`
- *    envelope hard-deletes the row instead.
+ *    the envelope shape only ([RelayPasswordJson] — the exact relay-log
+ *    bytes, with `uid` identity). Non-envelope payloads are rejected (null).
+ *    A `deleted` envelope hard-deletes the row instead (snapshot retained).
  *  - single delete (`syncId = ?` selection): hard-deletes the row. The
  *    [SyncSnapshot] row is intentionally retained so the relay merge driver
  *    can tell "deleted since baseline" apart from "never seen" (baseline
@@ -279,12 +279,11 @@ class RelayPasswordProvider : ContentProvider() {
     }
 
     /**
-     * Applies one pulled record. Primary shape is the envelope
+     * Applies one pulled record. The only accepted shape is the envelope
      * ([RelayPasswordJson] — the exact relay-log bytes, with `uid` identity);
-     * native row shapes ([Password] / [PasswordPasskeyPayload], `syncId`
-     * identity) are accepted as fallback. A `deleted` envelope hard-deletes
-     * the row (snapshot retained — see [delete]). Rebinds onto the existing
-     * row id so a pull updates in place instead of duplicating.
+     * anything else is rejected as corrupt/foreign. A `deleted` envelope
+     * hard-deletes the row (snapshot retained — see [delete]). Rebinds onto
+     * the existing row id so a pull updates in place instead of duplicating.
      */
     private suspend fun applyRelayJson(v: ContentValues): String? {
         val payload = v.getAsString(COL_PAYLOAD_JSON) ?: return null

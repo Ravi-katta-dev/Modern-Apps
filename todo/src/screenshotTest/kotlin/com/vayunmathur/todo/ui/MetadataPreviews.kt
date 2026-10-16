@@ -73,6 +73,7 @@ class MetadataPreviews {
             TodoDetailScreen(
                 state = TodoUiState(
                     title = "Finish the book for Sunday",
+                    notes = "Chapters 8-10, bring notes to book club",
                     done = false,
                     dueAt = 1_791_907_200_000L,
                 ),

@@ -5,6 +5,8 @@
     <string name="todo_details">Task</string>
     <!-- TodoDetailScreen: Label for the task title field. Noun. -->
     <string name="todo_title">Task</string>
+    <!-- TodoDetailScreen: Label for the task notes field. Noun. -->
+    <string name="todo_notes">Notes</string>
     <!-- TodoDetailScreen: Checkbox label marking a task complete. Adjective. -->
     <string name="done">Done</string>
     <!-- TodoDetailScreen: Placeholder for the due-date row when no date is set. -->

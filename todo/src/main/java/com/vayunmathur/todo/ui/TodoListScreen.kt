@@ -94,10 +94,14 @@ fun TodoListScreen(
                     Text(todo.title.ifBlank { stringResource(R.string.untitled) })
                 },
                 modifier = Modifier.clickable { actions.openTodo(todo.id) },
-                supportingContent = todo.dueAt?.let { due ->
-                    {
-                        Text(DateString.dateShort(Instant.fromEpochMilliseconds(due)))
+                supportingContent = {
+                    val notesPreview = todo.notes.takeIf { it.isNotBlank() }
+                    val dueText = todo.dueAt?.let { due ->
+                        DateString.dateShort(Instant.fromEpochMilliseconds(due))
                     }
+                    val line = listOfNotNull(notesPreview?.take(120), dueText)
+                        .joinToString(" · ").ifBlank { null }
+                    line?.let { Text(it) }
                 },
                 leadingContent = {
                     Checkbox(

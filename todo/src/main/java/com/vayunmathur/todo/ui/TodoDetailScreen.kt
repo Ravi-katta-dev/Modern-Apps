@@ -63,6 +63,12 @@ fun TodoDetailScreen(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
+        OutlinedTextField(
+            value = state.notes,
+            onValueChange = { actions.setNotes(it) },
+            label = { Text(stringResource(R.string.todo_notes)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
         ListItem(
             headlineContent = { Text(stringResource(R.string.done)) },
             leadingContent = {

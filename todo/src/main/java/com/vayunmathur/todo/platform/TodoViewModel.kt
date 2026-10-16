@@ -44,11 +44,11 @@ class TodoViewModel(
         viewModelScope.launch(Dispatchers.IO) { repository.delete(todo) }
     }
 
-    fun create(title: String, dueAt: Long?, onCreated: (Long) -> Unit) {
+    fun create(title: String, notes: String, dueAt: Long?, onCreated: (Long) -> Unit) {
         if (title.isBlank()) return
         viewModelScope.launch {
             val id = withContext(Dispatchers.IO) {
-                repository.upsert(Todo(title = title.trim(), dueAt = dueAt))
+                repository.upsert(Todo(title = title.trim(), notes = notes.trim(), dueAt = dueAt))
             }
             onCreated(id)
         }
