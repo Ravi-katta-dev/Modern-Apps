@@ -41,4 +41,14 @@
     <string name="snapshot_take_now">Varunda kohe</string>
     <string name="snapshots_empty">Ühtegi hetktõmmist veel pole. Hetktõmmised tehakse kord päevas enne sünkroonimise väljalülitamist.</string>
     <string name="snapshot_restore_title">Kas taastad hetktõmmise?</string>
+    <string name="sync_error_undecryptable">Selle turvahoidla võtmega polnud võimalik serveri andmete lukustust avada. Mitte midagi pole muutunud - kontrolli turvahoidla võtme kellaaega.</string>
+    <string name="sync_error_local_read">Kohalike andmete lugemine ei õnnestunud (rakendus võib olla lukustatud). Mitte midagi ei muutunud - proovin automaatselt varsti uuesti.</string>
+    <string name="sync_error_relay_unavailable">Sünkroonimisserver pole saadaval. Mitte midagi ei muutunud - proovin automaatselt varsti uuesti.</string>
+    <string name="sync_error_hint">Sünkroonimine on ohutul viisil peatatud: mitte mingeid andmeid pole kustutatud. Töö jätkub järgmisel sünkroonimisel.</string>
+    <string name="snapshots_title">Hetktõmmised taastamiseks</string>
+    <string name="snapshots_description">Üks 30 päeva hoitav krüptitud hetktõmmis iga päeva kohta. Taastamine toimuks ka sünkroonimisel ja kui andmetes on vastuolu, siis kehtima jäävad uuemad andmed.</string>
+    <string name="snapshot_row">%1$s · <xliff:g id="count" example="42">%2$d</xliff:g> kirjet</string>
+    <string name="snapshot_restore_confirm">Kas kordad/taastad <xliff:g id="date" example="Oct 13, 2026">%1$s</xliff:g> (<xliff:g id="type" example="salasõnad">%2$s</xliff:g>) andmed sünkroonimise ajal? Kui andmetes on vastuolu, siis kehtima jäävad uuemad andmed.</string>
+    <string name="snapshot_restored"><xliff:g id="count" example="42">%1$d</xliff:g> kirjet on taastatud. Ühildan serveriga…</string>
+    <string name="snapshot_restore_failed">Hetktõmmise taastamine ei õnnestunud.</string>
 </resources>
