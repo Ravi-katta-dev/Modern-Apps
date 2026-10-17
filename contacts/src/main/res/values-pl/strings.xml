@@ -122,4 +122,34 @@
     <string name="name_affix_none">Brak</string>
     <string name="sim_name_or_phone_required">Wprowadź nazwę lub numer telefonu</string>
     <string name="sim_slot_label">SIM %1$d</string>
+    <string name="move_to_account">Przenieś do konta</string>
+    <string name="move">Przenieś</string>
+    <plurals name="move_to_account_subtitle">
+        <item quantity="one">Wybierz, dokąd przenieść <xliff:g id="count" example="1">%1$d</xliff:g> kontakt</item>
+        <item quantity="few">Wybierz, dokąd przenieść <xliff:g id="count" example="3">%1$d</xliff:g> kontakty</item>
+        <item quantity="many">Wybierz, dokąd przenieść <xliff:g id="count" example="5">%1$d</xliff:g> kontaktów</item>
+        <item quantity="other">Wybierz, dokąd przenieść <xliff:g id="count" example="5">%1$d</xliff:g> kontaktów</item>
+    </plurals>
+    <string name="move_to_sim_warning_title">Niektóre informacje nie zmieszczą się na karcie SIM</string>
+    <string name="move_to_sim_warning_body">Na karcie <xliff:g id="sim_label" example="SIM 1">%1$s</xliff:g> są zapisywane tylko nazwa, telefon i e-mail. Następujące dane zostaną utracone: <xliff:g id="dropped" example="photo, addresses">%2$s</xliff:g>.</string>
+    <string name="move_dropped_photo">zdjęcie</string>
+    <string name="move_dropped_extra_phones">dodatkowe numery telefonów</string>
+    <string name="move_dropped_extra_emails">dodatkowe adresy e-mail</string>
+    <string name="move_dropped_addresses">adresy</string>
+    <string name="move_dropped_dates">daty</string>
+    <string name="move_dropped_organization">organizacja</string>
+    <string name="move_dropped_note">notatka</string>
+    <string name="move_dropped_nickname">pseudonim</string>
+    <string name="move_dropped_groups">grupy</string>
+    <string name="move_dropped_ringtone">dzwonek</string>
+    <string name="move_dropped_favorite">ulubione</string>
+    <string name="move_anyway">Przenieś mimo to</string>
+    <plurals name="move_success">
+        <item quantity="one">Przeniesiono <xliff:g id="count" example="1">%1$d</xliff:g> kontakt</item>
+        <item quantity="few">Przeniesiono <xliff:g id="count" example="3">%1$d</xliff:g> kontakty</item>
+        <item quantity="many">Przeniesiono <xliff:g id="count" example="5">%1$d</xliff:g> kontaktów</item>
+        <item quantity="other">Przeniesiono <xliff:g id="count" example="5">%1$d</xliff:g> kontaktów</item>
+    </plurals>
+    <string name="move_partial_failure">Przeniesiono: <xliff:g id="moved" example="2">%1$d</xliff:g>, nie przeniesiono: <xliff:g id="failed" example="1">%2$d</xliff:g></string>
+    <string name="move_failed">Błąd przenoszenia</string>
 </resources>
