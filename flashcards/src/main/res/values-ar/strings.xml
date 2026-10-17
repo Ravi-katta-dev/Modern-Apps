@@ -2,4 +2,5 @@
 <resources>
     <string name="name">الاسم</string>
     <string name="speak">تحدث</string>
+    <string name="settings_reminders">التذكيرات</string>
 </resources>
