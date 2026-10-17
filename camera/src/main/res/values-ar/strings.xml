@@ -68,4 +68,5 @@
     <string name="motion_duration_ns">%1$d ثواني</string>
     <string name="settings_edge_sharpening">زيادة حدّة الحواف</string>
     <string name="settings_motion_duration">طول الصورة المتحركة</string>
+    <string name="settings_aspect_ratio">نسبة الأبعاد</string>
 </resources>
