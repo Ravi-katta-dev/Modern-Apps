@@ -106,6 +106,7 @@ Though some apps may have exceptions, generally a 64-bit device running at least
 | **Games Hub** | MA-G | [Homepage](https://ma.vayunmathur.com/apps/games-hub) | [![MA Repo](https://img.shields.io/badge/MA_Repo-Download-green?logo=f-droid&style=flat-square)](https://f-droid.org/packages/com.vayunmathur.games.hub/) | [![Obtainium](https://img.shields.io/badge/Obtainium-Download-purple?style=flat-square)](https://api.vayunmathur.com/obtainium-link?name=Games%20Hub&packageName=com.vayunmathur.games.hub&apk=hub-release.apk) |
 | **Arrows** | MA-G | [Homepage](https://ma.vayunmathur.com/apps/games-arrows) | In Progress | In Progress |
 | **Chess** | MA-G | [Homepage](https://ma.vayunmathur.com/apps/games-chess) | [![MA Repo](https://img.shields.io/badge/MA_Repo-Download-green?logo=f-droid&style=flat-square)](https://f-droid.org/packages/com.vayunmathur.games.chess/) | [![Obtainium](https://img.shields.io/badge/Obtainium-Download-purple?style=flat-square)](https://api.vayunmathur.com/obtainium-link?name=Chess&packageName=com.vayunmathur.games.chess&apk=chess-release.apk) |
+| **Kart** | MA-G | [Homepage](https://ma.vayunmathur.com/apps/games-kart) | In Progress | In Progress |
 | **Logic Gate** | MA-G | [Homepage](https://ma.vayunmathur.com/apps/games-logicgate) | In Progress | In Progress |
 | **Minesweeper** | MA-G | [Homepage](https://ma.vayunmathur.com/apps/games-minesweeper) | In Progress | In Progress |
 | **Nonogram** | MA-G | [Homepage](https://ma.vayunmathur.com/apps/games-nonogram) | In Progress | In Progress |
