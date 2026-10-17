@@ -53,7 +53,7 @@ import androidx.glance.LocalContext
 import kotlin.time.Clock
 
 /** Positioned events for the agenda widget, keyed by day. */
-internal data class CalendarWidgetData(
+data class CalendarWidgetData(
     val positionedEvents: Map<LocalDate, List<Instance>>,
 )
 

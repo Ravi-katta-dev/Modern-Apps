@@ -1,5 +1,6 @@
 package com.vayunmathur.calendar.ui
 
+import com.vayunmathur.calendar.util.RRule
 import kotlinx.datetime.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -103,5 +104,135 @@ class IcsImportTest {
         assertTrue(events[0].rdate.isEmpty())
         assertTrue(events[0].exdate.isEmpty())
         assertTrue(!events[0].isRecurring)
+    }
+
+    private fun parseAll(vararg blocks: List<String>) = parseICSFile(
+        (
+            listOf("BEGIN:VCALENDAR", "VERSION:2.0") +
+                blocks.flatMap { listOf("BEGIN:VEVENT") + it + listOf("END:VEVENT") } +
+                listOf("END:VCALENDAR")
+            ).joinToString("\r\n").byteInputStream()
+    )
+
+    @Test
+    fun aDeletedOccurrenceArrivesAsAnExdate() {
+        val events = parseAll(
+            listOf(
+                "UID:series-1",
+                "SUMMARY:Standup",
+                "DTSTART:20250707T090000Z",
+                "DTEND:20250707T093000Z",
+                "RRULE:FREQ=DAILY;INTERVAL=1",
+            ),
+            listOf(
+                "UID:series-1",
+                "SUMMARY:Standup",
+                "DTSTART:20250708T090000Z",
+                "DTEND:20250708T093000Z",
+                "RECURRENCE-ID:20250708T090000Z",
+                "STATUS:CANCELLED",
+            ),
+        )
+        assertEquals(1, events.size)
+        assertEquals(listOf(LocalDate(2025, 7, 8)), events[0].exdate)
+    }
+
+    @Test
+    fun aChangedOccurrenceIsCutOutAndReinserted() {
+        val events = parseAll(
+            listOf(
+                "UID:series-2",
+                "SUMMARY:Standup",
+                "DTSTART:20250707T090000Z",
+                "DTEND:20250707T093000Z",
+                "RRULE:FREQ=DAILY;INTERVAL=1",
+            ),
+            listOf(
+                "UID:series-2",
+                "SUMMARY:Standup moved",
+                "DTSTART:20250708T100000Z",
+                "DTEND:20250708T103000Z",
+                "RECURRENCE-ID:20250708T090000Z",
+            ),
+        )
+        assertEquals(2, events.size)
+        val series = events.first { it.isRecurring }
+        val moved = events.first { !it.isRecurring }
+        assertEquals(listOf(LocalDate(2025, 7, 8)), series.exdate)
+        assertEquals("Standup moved", moved.title)
+    }
+
+    @Test
+    fun aDeletedRdateIsDroppedFromTheDateList() {
+        val events = parseAll(
+            listOf(
+                "UID:series-3",
+                "SUMMARY:Custom repeats",
+                "DTSTART;VALUE=DATE:20250704",
+                "DTEND;VALUE=DATE:20250705",
+                "RDATE;VALUE=DATE:20250708,20250712",
+            ),
+            listOf(
+                "UID:series-3",
+                "SUMMARY:Custom repeats",
+                "DTSTART;VALUE=DATE:20250708",
+                "RECURRENCE-ID;VALUE=DATE:20250708",
+                "STATUS:CANCELLED",
+            ),
+        )
+        assertEquals(1, events.size)
+        assertEquals(listOf(LocalDate(2025, 7, 12)), events[0].rdate)
+        assertTrue(events[0].exdate.isEmpty())
+    }
+
+    @Test
+    fun anOverrideWithoutCancelStatusIsKeptStandalone() {
+        // No STATUS:CANCELLED: the override is kept as its own event (it may carry updated
+        // metadata), while the date is still cut from the series so it does not show twice.
+        val events = parseAll(
+            listOf(
+                "UID:series-3b",
+                "SUMMARY:Custom repeats",
+                "DTSTART;VALUE=DATE:20250704",
+                "DTEND;VALUE=DATE:20250705",
+                "RDATE;VALUE=DATE:20250708,20250712",
+            ),
+            listOf(
+                "UID:series-3b",
+                "SUMMARY:Custom repeats renamed",
+                "DTSTART;VALUE=DATE:20250708",
+                "RECURRENCE-ID;VALUE=DATE:20250708",
+            ),
+        )
+        assertEquals(2, events.size)
+        val series = events.first { it.isRecurring }
+        assertEquals(listOf(LocalDate(2025, 7, 12)), series.rdate)
+        assertEquals("Custom repeats renamed", events.first { !it.isRecurring }.title)
+    }
+
+    @Test
+    fun thisAndFutureTruncatesTheSeries() {
+        val events = parseAll(
+            listOf(
+                "UID:series-4",
+                "SUMMARY:Standup",
+                "DTSTART:20250707T090000Z",
+                "DTEND:20250707T093000Z",
+                "RRULE:FREQ=DAILY;INTERVAL=1",
+            ),
+            listOf(
+                "UID:series-4",
+                "SUMMARY:Standup moved",
+                "DTSTART:20250710T100000Z",
+                "DTEND:20250710T103000Z",
+                "RECURRENCE-ID;RANGE=THISANDFUTURE:20250710T090000Z",
+            ),
+        )
+        assertEquals(2, events.size)
+        val truncated = events.first { it.isRecurring }
+        val tail = events.first { !it.isRecurring }
+        val end = truncated.rrule?.endCondition as? RRule.EndCondition.Until
+        assertEquals(LocalDate(2025, 7, 9), end?.date)
+        assertEquals("Standup moved", tail.title)
     }
 }

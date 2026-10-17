@@ -35,6 +35,20 @@ internal fun Item(icon: @Composable () -> Unit = {}, left: @Composable () -> Uni
 /** Common reminder offsets, in minutes before the event start. */
 val REMINDER_PRESETS = listOf(0, 5, 10, 15, 30, 60, 120, 1440)
 
+/** Minute multipliers for the custom-reminder unit picker, in dropdown order. */
+val REMINDER_UNIT_MULTIPLIERS = listOf(1, 60, 24 * 60, 7 * 24 * 60)
+
+/**
+ * Minutes-before for a custom reminder of [amount] [unitMinutes]-minute units, or null when the
+ * amount is not positive or the total does not fit an Int.
+ */
+fun customReminderMinutes(amount: Long, unitMinutes: Int): Int? {
+    if (amount < 1 || unitMinutes < 1) return null
+    // Divide before multiplying: amount * unitMinutes can overflow Long for huge amounts.
+    if (amount > Int.MAX_VALUE / unitMinutes) return null
+    return (amount * unitMinutes).toInt()
+}
+
 fun reminderLabel(context: Context, minutes: Int): String = when {
     minutes <= 0 -> context.getString(R.string.reminder_at_time_of_event)
     minutes % 1440 == 0 -> context.resources.getQuantityString(R.plurals.reminder_days_before, minutes / 1440, minutes / 1440)

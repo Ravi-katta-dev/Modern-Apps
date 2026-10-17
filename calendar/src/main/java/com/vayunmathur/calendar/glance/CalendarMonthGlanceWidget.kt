@@ -59,7 +59,7 @@ import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
 
 /** Month-grid data for the month widget, real or sample. */
-internal data class MonthWidgetData(
+data class MonthWidgetData(
     val monthLabel: String,
     val weeks: List<List<LocalDate>>,
     val eventsByDay: Map<LocalDate, List<Instance>>,

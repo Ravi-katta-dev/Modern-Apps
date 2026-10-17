@@ -48,6 +48,20 @@ data class Event(
     /** RRULE and RDATE are independent ways to repeat, and either one makes this a series. */
     val isRecurring: Boolean get() = rrule != null || rdate.isNotEmpty()
 
+    /** Copy with [date] removed from the extra repeat dates. */
+    fun withoutRdate(date: LocalDate): Event = copy(rdate = rdate - date)
+
+    /**
+     * RFC 5545 RDATE column value for this event's extra dates, or null when empty so the
+     * column is cleared. Timed occurrences use the UTC datetime form: a date alone would be
+     * read back as midnight, putting the occurrence at the wrong time of day.
+     */
+    fun rdateColumnValue(): String? =
+        rdate.takeIf { it.isNotEmpty() }?.joinToString(",") { date ->
+            if (allDay) date.toIcalBasic()
+            else date.toIcalUtcDateTime(startDateTimeDisplay.time, TimeZone.of(timezone))
+        }
+
     val startDateTimeDisplay: LocalDateTime
         get() = Instant.fromEpochMilliseconds(start).toLocalDateTime(TimeZone.of(timezone))
 
@@ -81,13 +95,7 @@ data class Event(
                 put(CalendarContract.Events.RRULE, null as String?)
             }
             // Always written, including as null, so clearing the repeat also clears the dates.
-            put(
-                CalendarContract.Events.RDATE,
-                rdate.takeIf { it.isNotEmpty() }?.joinToString(",") { date ->
-                    if (allDay) date.toIcalBasic()
-                    else date.toIcalUtcDateTime(startDateTimeDisplay.time, tzObj)
-                },
-            )
+            put(CalendarContract.Events.RDATE, rdateColumnValue())
             put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
             put(CalendarContract.Events.EVENT_TIMEZONE, tz)
             if (exdate.isNotEmpty()) {

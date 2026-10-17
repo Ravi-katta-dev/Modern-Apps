@@ -360,17 +360,66 @@ class CalendarViewModel(application: Application) :
         }
     }
 
+    /**
+     * Deletes the whole series for [eventId] from the provider.
+     *
+     * Imported and recurring events reported undeletable (#825): marking DELETED only asked
+     * a sync adapter to delete later, which for a local calendar never comes. A real
+     * `delete()` removes the row now; the DELETED-flag update stays as the fallback when
+     * the provider refuses it.
+     */
     override fun deleteEventSeries(eventId: Long) {
-        upsertEvent(eventId, ContentValues().apply {
-            put(CalendarContract.Events.DELETED, 1)
-        })
+        val app = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            val deleted = try {
+                app.contentResolver.delete(
+                    CalendarContract.Events.CONTENT_URI,
+                    "${CalendarContract.Events._ID} = ?",
+                    arrayOf(eventId.toString()),
+                )
+            } catch (expected: Exception) {
+                Log.error("CalendarViewModel", "Error deleting event", expected)
+                0
+            }
+            if (deleted > 0) {
+                _events.value = Event.getAllEvents(app)
+                ReminderScheduler.reconcileAll(app, _events.value)
+                updateWidgets()
+            } else {
+                // The provider refused the delete (e.g. a read-only calendar it would not
+                // remove): flag it instead so the row at least hides from our queries.
+                upsertEvent(eventId, ContentValues().apply {
+                    put(CalendarContract.Events.DELETED, 1)
+                })
+                withContext(Dispatchers.Main) {
+                    AppMessages.show(app.getString(R.string.event_delete_failed))
+                }
+            }
+        }
     }
 
+    /**
+     * Removes one occurrence starting at [instanceBeginTime] from the series for [eventId].
+     *
+     * RRULE occurrences are excluded via EXDATE; RDATE occurrences live in the event's own
+     * date list instead, so those are stripped there. A non-series event has no occurrence
+     * to cut out, so deleting its "instance" deletes the event.
+     */
     override fun deleteEventInstance(eventId: Long, instanceBeginTime: Long) {
         val event = _events.value.find { it.id == eventId } ?: return
+        if (!event.isRecurring) {
+            deleteEventSeries(eventId)
+            return
+        }
         val zone = TimeZone.of(event.timezone)
         val instanceDate = Instant.fromEpochMilliseconds(instanceBeginTime)
             .toLocalDateTime(zone).date
+        if (event.rdate.contains(instanceDate)) {
+            upsertEvent(eventId, ContentValues().apply {
+                put(CalendarContract.Events.RDATE, event.withoutRdate(instanceDate).rdateColumnValue())
+            })
+            return
+        }
         // Timed occurrences need the datetime form; a date-only EXDATE is ignored
         // by the provider for timed events and the delete silently no-ops.
         val exdateStr = (event.exdate + instanceDate).distinct().joinToString(",") { date ->

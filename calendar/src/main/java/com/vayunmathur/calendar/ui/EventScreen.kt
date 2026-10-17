@@ -42,6 +42,7 @@ import com.vayunmathur.library.ui.IconDelete
 import com.vayunmathur.library.ui.IconDescription
 import com.vayunmathur.library.ui.IconEdit
 import com.vayunmathur.library.ui.IconGlobe
+import com.vayunmathur.library.ui.IconSchedule
 import com.vayunmathur.library.ui.rememberMessenger
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.sharedText
@@ -188,6 +189,13 @@ fun EventScreen(state: EventUiState, actions: EventActions) {
                 Text(com.vayunmathur.library.util.parseMarkdown(event.description, showMarkers = false))
             }, leadingContent = {
                 IconDescription()
+            })
+            if (event.reminders.isNotEmpty()) ListItem({
+                Text(event.reminders.sorted().joinToString(", ") { reminderLabel(context, it) })
+            }, leadingContent = {
+                IconSchedule()
+            }, supportingContent = {
+                Text(stringResource(R.string.reminders))
             })
             if(event.location.isNotBlank()) ListItem(
                 { Text(event.location, modifier = Modifier.sharedText("calendar-event-location-${event.id}")) },

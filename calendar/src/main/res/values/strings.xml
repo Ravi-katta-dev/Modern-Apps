@@ -208,6 +208,8 @@
     <string name="delete_this_event">Delete this event</string>
     <!-- Option to delete all occurrences of recurring event -->
     <string name="delete_all_events">Delete all events</string>
+    <!-- Shown when the provider refused to delete an event. Sentence -->
+    <string name="event_delete_failed">Couldn\'t delete the event</string>
 
     <!-- Edit event: save-scope chooser for recurring events, mirrors the delete options -->
     <!-- Option to apply edits to only this occurrence of a recurring event -->
@@ -273,6 +275,8 @@
     <string name="reminder_at_time_of_event">At time of event</string>
     <!-- Title of the dialog for setting a calendar's default reminders (Settings > calendar reminders action) -->
     <string name="default_reminders">Default reminders</string>
+    <!-- Event details: section header above the reminder list. Noun, plural -->
+    <string name="reminders">Reminders</string>
     <!-- Description at the top of the default-reminders dialog. %1$s = calendar display name -->
     <string name="default_reminders_description">Reminders added automatically to new events in <xliff:g id="calendar_name" example="Work">%1$s</xliff:g>.</string>
     <!-- Toggle in the default-reminders dialog: also apply the chosen reminders to events already in the calendar -->
@@ -298,6 +302,22 @@
         <!-- %1$d = minute count plural -->
         <item quantity="other"><xliff:g id="count" example="15">%1$d</xliff:g> minutes before</item>
     </plurals>
+    <!-- Reminder picker: opens the dialog for a non-preset time. Adjective -->
+    <string name="reminder_custom">Custom</string>
+    <!-- Custom reminder dialog: title. Noun phrase -->
+    <string name="reminder_custom_title">Custom reminder</string>
+    <!-- Custom reminder dialog: label for the numeric amount field. Noun -->
+    <string name="reminder_custom_amount">Amount</string>
+    <!-- Custom reminder dialog: label for the time-unit dropdown. Noun -->
+    <string name="reminder_custom_unit">Unit</string>
+    <!-- Custom reminder dialog: time-unit options. Nouns, plural -->
+    <string name="reminder_unit_minutes">Minutes</string>
+    <!-- Custom reminder dialog: hours unit option -->
+    <string name="reminder_unit_hours">Hours</string>
+    <!-- Custom reminder dialog: days unit option -->
+    <string name="reminder_unit_days">Days</string>
+    <!-- Custom reminder dialog: weeks unit option -->
+    <string name="reminder_unit_weeks">Weeks</string>
 
     <!-- Recurrence summary descriptions (RRule.describe): human-readable repeat rule -->
     <!-- Recurrence summary: event repeats daily -->
