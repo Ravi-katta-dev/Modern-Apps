@@ -40,7 +40,7 @@
     <string name="unread">غير مقروء</string>
     <string name="sender_blocked">تم حظر المرسل</string>
     <string name="save_as_eml">حفظ كـ .eml</string>
-    <string name="none">لا شئ</string>
+    <string name="none">لا شيء</string>
     <string name="unblock">إلغاء الحظر</string>
     <string name="tomorrow_8_am">غدًا (٨ صباحًا)</string>
     <string name="folders">المجلدات</string>
@@ -145,8 +145,8 @@
         <item quantity="many"><xliff:g id="count" example="2">%1$s</xliff:g> محاولة</item>
         <item quantity="other"><xliff:g id="count" example="2">%1$s</xliff:g> محاولة</item>
     </plurals>
-    <string name="heading_2">العنوان ٢</string>
-    <string name="heading_3">العنوان ٣</string>
-    <string name="heading_1">العنوان ١</string>
+    <string name="heading_2">عنوان ٢</string>
+    <string name="heading_3">عنوان ٣</string>
+    <string name="heading_1">عنوان ١</string>
     <string name="justify">المحاذاة</string>
 </resources>
