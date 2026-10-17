@@ -34,6 +34,7 @@ private fun gameDisplayName(gameId: String): String = when (gameId) {
     "minesweeper" -> "Minesweeper"
     "nonogram" -> "Nonogram"
     "arrows" -> "Arrows"
+    "kart" -> "Kart"
     else -> gameId.replaceFirstChar { it.uppercase() }
 }
 

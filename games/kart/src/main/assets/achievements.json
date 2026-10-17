@@ -1,0 +1,41 @@
+[
+  {
+    "id": "first_race",
+    "name": "Green Light",
+    "description": "Finish your first race!"
+  },
+  {
+    "id": "first_win",
+    "name": "Photo Finish",
+    "description": "Win your first race."
+  },
+  {
+    "id": "first_daily",
+    "name": "Daily Habit",
+    "description": "Finish a daily event."
+  },
+  {
+    "id": "cups_3",
+    "name": "Podium Tour",
+    "description": "Clear 3 cups.",
+    "targetProgress": 3
+  },
+  {
+    "id": "cups_10",
+    "name": "Grand Tour",
+    "description": "Clear 10 cups.",
+    "targetProgress": 10
+  },
+  {
+    "id": "daily_streak_7",
+    "name": "Week Streak",
+    "description": "Finish the daily event 7 days in a row.",
+    "targetProgress": 7
+  },
+  {
+    "id": "daily_streak_30",
+    "name": "Month Streak",
+    "description": "Finish the daily event 30 days in a row.",
+    "targetProgress": 30
+  }
+]

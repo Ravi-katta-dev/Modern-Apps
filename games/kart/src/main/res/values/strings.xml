@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Manifest / TopAppBar: App name. Noun, singular -->
+    <string name="app_name" translatable="false">Kart</string>
+
+    <!-- GameModeDropdown: Mode playing the cup progression. Noun plural -->
+    <string name="mode_casual">Cups</string>
+    <!-- GameModeDropdown: Mode playing today's shared event. Adjective -->
+    <string name="mode_daily">Daily</string>
+
+    <!-- KartGameScreen TopAppBar: Current cup in the progression. %1$s = cup name, e.g. Mushroom Cup -->
+    <string name="cup_title"><xliff:g id="cup" example="Mushroom Cup">%1$s</xliff:g></string>
+    <!-- KartGameScreen: How many tracks this cup holds. %1$d = track count, e.g. 4 -->
+    <string name="cup_tracks"><xliff:g id="count" example="4">%1$d</xliff:g> tracks</string>
+    <!-- KartGameScreen: Lifetime race wins. %1$d = win count, e.g. 6 -->
+    <string name="races_won"><xliff:g id="count" example="6">%1$d</xliff:g> race wins</string>
+    <!-- KartGameScreen: Starts the race flow. Verb phrase -->
+    <string name="start_race">Start Race</string>
+    <!-- KartGameScreen: Shown while the cup has not loaded yet. Sentence -->
+    <string name="garage_loading">Warming up the engines…</string>
+    <!-- KartGameScreen: Shown after clearing the daily, since there is only one per day. Sentence -->
+    <string name="daily_come_back_tomorrow">Finished! Come back tomorrow for a new event.</string>
+    <!-- KartGameScreen: Hint under the race button explaining what is coming. Sentence -->
+    <string name="how_to_play">Connect a phone as a controller, or plug in a gamepad</string>
+    <!-- KartGameScreen: Seats taken in the lobby. %1$d = seat count, e.g. 2 -->
+    <string name="lobby_seats"><xliff:g id="count" example="2">%1$d</xliff:g> driver(s) in the lobby</string>
+    <!-- KartGameScreen: Shown during the countdown. Sentence -->
+    <string name="countdown_hint">Get ready… controls go live at GO</string>
+    <!-- KartGameScreen: Current lap in the race. %1$d = current lap, e.g. 2. %2$d = total laps, e.g. 3 -->
+    <string name="race_lap">Lap <xliff:g id="current" example="2">%1$d</xliff:g> of <xliff:g id="total" example="3">%2$d</xliff:g></string>
+    <!-- KartGameScreen: One standings row. %1$d = place, e.g. 1. %2$s = driver name -->
+    <string name="race_place"><xliff:g id="place" example="1">%1$d</xliff:g>. <xliff:g id="name" example="You">%2$s</xliff:g></string>
+    <!-- KartGameScreen: Results header. Noun phrase -->
+    <string name="results_title">Final Standings</string>
+    <!-- KartGameScreen: Back to the lobby from results. Verb phrase -->
+    <string name="back_to_lobby">Back to Lobby</string>
+</resources>

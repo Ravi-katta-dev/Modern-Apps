@@ -1627,6 +1627,17 @@ fun IconFlag(modifier: Modifier = Modifier, tint: Color = LocalContentColor.curr
 fun IconMine(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
     AppIcon(Icons.Filled.Brightness7, "Mine", modifier, tint)
 
+/**
+ * A checkered flag — the kart racer.
+ *
+ * Material has no kart or checkered flag; `SportsEsports` (the gamepad) is the closest
+ * glyph that reads as a game rather than a sport. Named for what it means here rather
+ * than what it is called upstream, as `IconMine` (Brightness7) already is.
+ */
+@Composable
+fun IconKart(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.SportsEsports, "Kart", modifier, tint)
+
 // --- Music detection ---
 /** A single quaver - music is playing. */
 @Composable
@@ -1674,3 +1685,23 @@ fun IconBatteryCharging(modifier: Modifier = Modifier, tint: Color = LocalConten
 @Composable
 fun IconDoNotDisturb(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
     AppIcon(Icons.Filled.DoNotDisturbOn, "Do not disturb", modifier, tint)
+
+/**
+ * Globe - online (Lichess) play in the chess app's Online Play tab.
+ *
+ * Named for what it means here rather than what it is called upstream, as
+ * `IconMine` (Brightness7) and `IconKart` (SportsEsports) already are.
+ */
+@Composable
+fun IconOnline(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.Public, "Online play", modifier, tint)
+
+/**
+ * Clock face - the game clocks in the chess app's online game screen.
+ *
+ * Named for what it means here rather than what it is called upstream, as
+ * `IconMine` (Brightness7) and `IconKart` (SportsEsports) already are.
+ */
+@Composable
+fun IconClock(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.AccessTime, "Clock", modifier, tint)
