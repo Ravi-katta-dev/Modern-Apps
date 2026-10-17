@@ -1,3 +1,181 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="backup_dialog_title_export">تصدير كلمة المرور</string>
+    <string name="backup_dialog_title_import">استيراد كلمة المرور</string>
+    <string name="backup_password_prompt">أدخل كلمة مرور رئيسية لملف KDBX:</string>
+    <string name="backup_export_success">تم تصدير النسخة الاحتياطية بنجاح</string>
+    <string name="backup_export_failed_format">فشل تصدير النسخة الاحتياطية: <xliff:g id="error" example="permission denied">%1$s</xliff:g></string>
+    <string name="backup_import_success">تم استيراد النسخة الاحتياطية بنجاح. جارٍ إعادة تشغيل التطبيق…</string>
+    <string name="backup_import_failed_format">فشل استيراد النسخة الاحتياطية: <xliff:g id="error" example="invalid file">%1$s</xliff:g></string>
+    <string name="time_picker_title">اختيار الوقت</string>
+    <string name="label_now">الآن</string>
+    <string name="title_game_center">مركز الألعاب</string>
+    <string name="achievement_secret_description">واصل اللعب للكشف عن هذا الإنجاز</string>
+    <string name="achievement_completed">مكتمل!</string>
+    <string name="link_dialog_title_edit">تعديل الرابط</string>
+    <string name="link_dialog_title_insert">إدراج رابط</string>
+    <string name="link_action_unlink">إزالة الرابط</string>
+    <string name="link_action_open">فتح</string>
+    <string name="achievement_unlocked">تم فتح إنجاز!</string>
+    <string name="cd_link">رابط</string>
+    <string name="cancel">إلغاء</string>
+    <string name="delete">حذف</string>
+    <string name="close">إغلاق</string>
+    <string name="remove">إزالة</string>
+    <string name="rename">إعادة تسمية</string>
+    <string name="no_app_found">لا تطبيق يمكنه فتح هذا الرابط</string>
+    <string name="settings">الإعدادات</string>
+    <string name="save">حفظ</string>
+    <string name="add">إضافة</string>
+    <string name="done">تم</string>
+    <string name="ok">حسنّا</string>
+    <string name="clear">مسح</string>
+    <string name="share">مشاركة</string>
+    <string name="undo">تراجع</string>
+    <string name="create">إنشاء</string>
+    <string name="search">بحث</string>
+    <string name="continue_label">متابعة</string>
+    <string name="retry">إعادة المحاولة</string>
+    <string name="back">رجوع</string>
+    <string name="copy">نسخ</string>
+    <string name="name">الاسم</string>
+    <string name="open">فتح</string>
+    <string name="play">تشغيل</string>
+    <string name="reset">إعادة الضبط</string>
+    <string name="apply">تطبيق</string>
+    <string name="next">التالي</string>
+    <string name="unknown">غير معروف</string>
+    <string name="none">لا شيء</string>
+    <string name="today">اليوم</string>
+    <string name="time">الوقت</string>
+    <string name="date">التاريخ</string>
+    <string name="location">الموقع</string>
+    <string name="contacts">جهات الاتصال</string>
+    <string name="email">البريد الإلكتروني</string>
+    <string name="call">اتصال</string>
+    <string name="note">ملاحظة</string>
+    <string name="home">الرئيسية</string>
+    <string name="easy">سهل</string>
+    <string name="medium">متوسط</string>
+    <string name="hard">صعب</string>
+    <string name="next_level">المستوى التالي</string>
+    <string name="daily_challenge">التحدي اليومي</string>
+    <string name="new_game">لعبة جديدة</string>
+    <string name="restart">إعادة البدء</string>
+    <string name="dismiss">إغلاق</string>
+    <string name="all">الكل</string>
+    <string name="stop">إيقاف</string>
+    <string name="saved">تم الحفظ</string>
+    <string name="off">غير مفعّل</string>
+    <string name="settings_reminders">التذكيرات</string>
+    <string name="setting_daily_reminder">تذكير باللغز اليومي</string>
+    <string name="setting_daily_reminder_hint">أرسل إليّ إشعارًا إذا لم ألعب لغز اليوم</string>
+    <string name="setting_daily_reminder_time">وقت التذكير</string>
+    <string name="compass_low_accuracy_title">دقة البوصلة منخفضة</string>
+    <string name="compass_calibrate_figure_8">حرّك الهاتف على شكل رقم 8 لإجراء المعايرة</string>
+    <string name="ringtone_default">الافتراضي</string>
+    <string name="ringtone_default_named"><xliff:g id="default_label" example="Default">%1$s</xliff:g> (<xliff:g id="sound_name" example="Marimba">%2$s</xliff:g>)</string>
+    <string name="ringtone_silent">صامت</string>
+    <string name="ringtone_custom">مخصص</string>
+    <string name="permission_gate_title">منح الأذونات المطلوبة</string>
+    <string name="permission_grant">منح</string>
+    <string name="permission_name_other">الأذونات</string>
+    <string name="permission_purpose_other">ميزات التطبيق</string>
+    <string name="permission_name_location">الموقع</string>
+    <string name="permission_name_bluetooth">البلوتوث</string>
+    <string name="permission_name_local_network">الشبكة المحلية</string>
+    <string name="permission_name_camera">الكاميرا</string>
+    <string name="permission_name_microphone">الميكروفون</string>
+    <string name="permission_name_contacts">جهات الاتصال</string>
+    <string name="permission_name_phone">الهاتف</string>
+    <string name="permission_name_calendar">التقويم</string>
+    <string name="permission_name_notifications">الإشعارات</string>
+    <string name="permission_name_audio">الملفات الصوتية</string>
+    <string name="permission_name_photos">الصور والفيديوهات</string>
+    <string name="permission_name_photo_locations">مواقع الصور</string>
+    <string name="permission_name_storage">الملفات</string>
+    <string name="permission_name_exact_alarms">المنبّهات الدقيقة</string>
+    <string name="permission_name_all_files">كل الملفات</string>
+    <string name="permission_name_notification_listener">الوصول إلى الإشعارات</string>
+    <string name="permission_name_vpn">VPN</string>
+    <string name="permission_name_full_screen_intent">تنبيهات بملء الشاشة</string>
+    <string name="permission_name_manage_media">إدارة الوسائط</string>
+    <string name="permission_name_health_connect">البيانات الصحية</string>
+    <string name="permission_name_wifi">Wi-Fi المجاور</string>
+    <string name="permission_name_background_location">الموقع في الخلفية</string>
+    <string name="permission_purpose_location">المكان الحالي</string>
+    <string name="permission_purpose_background_location">الموقع أثناء إغلاق التطبيق</string>
+    <string name="permission_purpose_bluetooth">أجهزة البلوتوث القريبة</string>
+    <string name="permission_purpose_wifi">أجهزة Wi-Fi القريبة</string>
+    <string name="permission_purpose_local_network">الأجهزة على الشبكة المحلية</string>
+    <string name="permission_purpose_camera">الصور والفيديو</string>
+    <string name="permission_purpose_microphone">التسجيل الصوتي</string>
+    <string name="permission_purpose_contacts">أسماء وأرقام جهات الاتصال</string>
+    <string name="permission_purpose_phone">إجراء المكالمات</string>
+    <string name="permission_purpose_calendar">أحداث التقويم</string>
+    <string name="permission_purpose_notifications">التنبيهات والتحديثات</string>
+    <string name="permission_purpose_audio">الموسيقى على هذا الجهاز</string>
+    <string name="permission_purpose_photos">الصور والفيديو على هذا الجهاز</string>
+    <string name="permission_purpose_photos_with_location">الصور، الفيديو، ومواقعها</string>
+    <string name="permission_purpose_photo_locations">المواقع المحفوظة مع الصور</string>
+    <string name="permission_purpose_storage">الملفات على هذا الجهاز</string>
+    <string name="permission_purpose_exact_alarms">تذكيرات في أوقات محدّدة</string>
+    <string name="permission_purpose_all_files">الملفات خارج مجموعات الوسائط</string>
+    <string name="permission_purpose_notification_listener">الإشعارات من التطبيقات الأخرى</string>
+    <string name="permission_purpose_vpn">الموافقة على اتصال VPN</string>
+    <string name="permission_purpose_full_screen_intent">التنبيهات على شاشة القفل</string>
+    <string name="permission_purpose_manage_media">تعديل الصور ومقاطع الفيديو وحذفها</string>
+    <string name="permission_purpose_health_connect">قراءة وكتابة السجلات الصحية</string>
+    <string name="permission_exact_alarms_rationale">المنبّهات الدقيقة مطلوبة للتذكيرات التي يجب أن يتم إطلاقها في وقت محدّد. افتح الإعدادات للسماح بها.</string>
+    <string name="share_vault_members">الأعضاء</string>
+    <string name="share_vault_you">أنت</string>
+    <string name="share_vault_viewer_note">لديك حق الوصول. فقط المالك يستطيع تغيير المشاركة.</string>
+    <string name="share_vault_link">مشاركة الرابط</string>
+    <string name="share_vault_link_copied">تم نسخ رابط المشاركة</string>
+    <string name="map_unavailable">لا يمكن عرض الخريطة على هذا الجهاز.</string>
+    <string name="share_vault_computing">جارٍ الحوسبة…</string>
+    <string name="share_vault_your_device">مُعرّف جهازك</string>
+    <string name="share_vault_device_copied">تم نسخ مُعرّف الجهاز</string>
+    <string name="share_vault_role">الدور</string>
+    <string name="share_vault_role_editor">مُحرّر</string>
+    <string name="share_vault_send_invite">إرسال دعوة</string>
+    <string name="share_vault_requests">الطلبات</string>
+    <string name="share_vault_approve">موافقة</string>
+    <string name="share_vault_deny">رفض</string>
+    <string name="share_vault_show_code">إظهار رمز الأمان</string>
+    <string name="game_play_again">العب مجددًا</string>
+    <string name="game_back">رجوع</string>
+    <string name="game_time">الوقت</string>
+    <string name="game_level">المستوى</string>
+    <string name="game_moves">التحركات</string>
+    <string name="game_completed">مكتمل</string>
+    <string name="game_daily_challenge">التحدي اليومي</string>
+    <string name="share_vault_add_by_device">أضِف شخصًا بواسطة مُعرِّف الجهاز. يوافق الشخص عبر قناة منفصلة، ثم طلب الوصول بالرابط.</string>
+    <plurals name="game_daily_streak">
+        <item quantity="zero">لا أيام متواصلة (<xliff:g id="days" example="5">%1$d</xliff:g>)</item>
+        <item quantity="one">(<xliff:g id="days" example="5">%1$d</xliff:g>) يوم واحد متواصل</item>
+        <item quantity="two">(<xliff:g id="days" example="5">%1$d</xliff:g>) يومان متواصلان</item>
+        <item quantity="few"><xliff:g id="days" example="5">%1$d</xliff:g> أيام متواصلة</item>
+        <item quantity="many"><xliff:g id="days" example="5">%1$d</xliff:g> يومًا متواصل</item>
+        <item quantity="other"><xliff:g id="days" example="5">%1$d</xliff:g> يوم متواصل</item>
+    </plurals>
+    <plurals name="game_hearts_left">
+        <item quantity="zero">لا قلوب متبقية (<xliff:g id="count" example="2">%1$d</xliff:g>)</item>
+        <item quantity="one">(<xliff:g id="count" example="1">%1$d</xliff:g>) تبقى قلب واحد</item>
+        <item quantity="two">(<xliff:g id="count" example="1">%1$d</xliff:g>) تبقى قلبان اثنان</item>
+        <item quantity="few">تبقى <xliff:g id="count" example="1">%1$d</xliff:g> قلوب</item>
+        <item quantity="many">تبقى <xliff:g id="count" example="1">%1$d</xliff:g> قلب</item>
+        <item quantity="other">تبقى <xliff:g id="count" example="1">%1$d</xliff:g> قلب</item>
+    </plurals>
+    <string name="style_normal">عادي</string>
+    <string name="style_heading1">عنوان 1</string>
+    <string name="style_heading2">عنوان 2</string>
+    <string name="style_heading3">عنوان 3</string>
+    <string name="style_heading4">عنوان 4</string>
+    <string name="link_field_text">النص</string>
+    <string name="link_field_url">رابط إلى (URL)</string>
+    <string name="share_vault_recipient">معرّف جهاز المستلم</string>
+    <string name="share_vault_code_hint">قارن مع المستلم على قناة منفصلة قبل الدعوة.</string>
+    <string name="heading">عنوان <xliff:g id="level" example="2">%1$s</xliff:g></string>
+    <string name="share_vault_title">مشاركة الخزنة</string>
 </resources>
