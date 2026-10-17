@@ -24,4 +24,6 @@ android {
 dependencies {
     implementation(project(":sdk:games"))
     implementation(project(":library:ml"))
+    implementation(project(":library:network"))
+    implementation(libs.androidx.browser)
 }

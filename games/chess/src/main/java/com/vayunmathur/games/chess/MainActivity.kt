@@ -1,5 +1,6 @@
 package com.vayunmathur.games.chess
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -13,15 +14,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.vayunmathur.games.chess.auth.LichessAuthBridge
+import com.vayunmathur.games.chess.platform.OnlineChessViewModel
 import com.vayunmathur.games.chess.util.ChessViewModel
 import com.vayunmathur.games.chess.util.LearnViewModel
 import com.vayunmathur.games.chess.util.PuzzleViewModel
+import com.vayunmathur.library.network.NetworkClient
+import com.vayunmathur.library.network.TrustBundle
 import com.vayunmathur.library.ui.AchievementNotification
 import com.vayunmathur.library.ui.GameCenterScreen
 import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconOnline
 import com.vayunmathur.library.ui.IconPlay
 import com.vayunmathur.library.ui.MaActivity
-import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.library.util.BottomBarItem
 import com.vayunmathur.library.util.BottomNavBar
 import com.vayunmathur.library.util.GameHubComposeHook
@@ -30,6 +35,20 @@ import com.vayunmathur.library.util.SiblingPage
 import com.vayunmathur.library.util.rememberNavBackStack
 
 class MainActivity : MaActivity() {
+    override fun onCreateBeforeContent() {
+        // lichess.org serves public-CA certs; STANDARD covers its chain without system trust.
+        NetworkClient.init(this, TrustBundle.STANDARD)
+        // Cold start straight into the OAuth redirect (process died mid-sign-in): forward it like
+        // onNewIntent would. Sign-in can't complete without the in-memory verifier, but the
+        // attempt clears instead of hanging on "waiting for approval".
+        intent?.let(LichessAuthBridge::onRedirect)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        LichessAuthBridge.onRedirect(intent)
+    }
+
     @Composable
     override fun Content() {
         val backStack = rememberNavBackStack<Route>(Route.Game)
@@ -59,13 +78,17 @@ class MainActivity : MaActivity() {
                 backStack,
                 bottomBar = {
                     val cur = backStack.last()
-                    if (cur is Route.Game || cur is Route.Puzzles || cur is Route.Learn) {
+                    if (cur is Route.Game || cur is Route.Online || cur is Route.Puzzles || cur is Route.Learn) {
                         BottomNavBar(backStack, pages, cur)
                     }
                 }
             ) {
                 entry<Route.Game>(metadata = SiblingPage()) {
                     GameEntry(backStack, achievementsManager)
+                }
+                entry<Route.Online>(metadata = SiblingPage()) {
+                    val onlineViewModel: OnlineChessViewModel = viewModel()
+                    ChessOnlineScreens(onlineViewModel)
                 }
                 entry<Route.Puzzles>(metadata = SiblingPage()) {
                     val puzzleViewModel: PuzzleViewModel = viewModel()
@@ -100,9 +123,13 @@ class MainActivity : MaActivity() {
     @Composable
     private fun bottomBarPages(): List<BottomBarItem<out Route>> = listOf(
         BottomBarItem(
-            stringResource(UiR.string.play),
+            stringResource(R.string.tab_offline),
             Route.Game,
         ) { IconPlay() },
+        BottomBarItem(
+            stringResource(R.string.tab_online),
+            Route.Online,
+        ) { IconOnline() },
         BottomBarItem(
             stringResource(R.string.tab_puzzles),
             Route.Puzzles,

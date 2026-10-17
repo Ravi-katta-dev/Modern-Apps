@@ -55,6 +55,10 @@
     <!-- ChessBoard: Accessibility description for black pawn. Noun -->
     <string name="piece_black_pawn">Black Pawn</string>
 
+    <!-- MainActivity: Bottom navigation tab for offline (local + AI) play. Noun phrase -->
+    <string name="tab_offline">Offline Play</string>
+    <!-- MainActivity: Bottom navigation tab for online (Lichess) play. Noun phrase -->
+    <string name="tab_online">Online Play</string>
     <!-- MainActivity: Bottom navigation tab for Puzzles screen. Noun -->
     <string name="tab_puzzles">Puzzles</string>
     <!-- MainActivity: Bottom navigation tab for Learn lessons. Noun -->
@@ -93,4 +97,65 @@
     <string name="puzzle_show_solution">Show Solution</string>
     <!-- Puzzles: Loading state while fetching puzzle. Verb progressive -->
     <string name="puzzle_loading">Loading puzzle…</string>
+
+    <!-- Online: Sign-in CTA. Opens Lichess OAuth in a Custom Tab. Verb phrase -->
+    <string name="online_sign_in">Sign in with Lichess</string>
+    <!-- Online: Signed-in identity line. %1$s = Lichess username e.g. alice. Status -->
+    <string name="online_signed_in_as">Signed in as <xliff:g id="username" example="alice">%1$s</xliff:g></string>
+    <!-- Online: Sign-out button. Verb phrase -->
+    <string name="online_sign_out">Sign out</string>
+    <!-- Online: Lobby time-control option 1+0 (1 minute, no increment). Label -->
+    <string name="online_tc_1_0">1+0</string>
+    <!-- Online: Lobby time-control option 3+2. Label -->
+    <string name="online_tc_3_2">3+2</string>
+    <!-- Online: Lobby time-control option 5+3. Label -->
+    <string name="online_tc_5_3">5+3</string>
+    <!-- Online: Lobby time-control option 10+0. Label -->
+    <string name="online_tc_10_0">10+0</string>
+    <!-- Online: Quick Seek button, starts matchmaking with selected time control. Verb phrase CTA -->
+    <string name="online_quick_seek">Quick Seek</string>
+    <!-- Online: Seeking indicator while matchmaking. %1$s = time control e.g. 3+2. Verb progressive -->
+    <string name="online_seeking">Seeking <xliff:g id="time_control" example="3+2">%1$s</xliff:g>…</string>
+    <!-- Online: Username field label for challenge-by-username. Noun phrase -->
+    <string name="online_challenge_username">Challenge by username</string>
+    <!-- Online: Challenge button. Sends a game challenge to the typed username. Verb phrase CTA -->
+    <string name="online_challenge">Challenge</string>
+    <!-- Online: Confirmation after a challenge is sent. %1$s = opponent username e.g. alice. Sentence -->
+    <string name="online_challenge_sent">Challenge sent to <xliff:g id="username" example="alice">%1$s</xliff:g>.</string>
+    <!-- Online: Notice when the challenged player declines. Sentence -->
+    <string name="online_challenge_declined">Challenge declined.</string>
+    <!-- Online: Waiting for the Lichess approval to come back to the app. Verb progressive -->
+    <string name="online_signing_in">Waiting for Lichess approval…</string>
+    <!-- Online: You-resigned result line. Sentence -->
+    <string name="online_result_resigned">You resigned.</string>
+    <!-- Online: Opponent resigns result line. Sentence -->
+    <string name="online_result_opponent_resigned">Opponent resigned. You win!</string>
+    <!-- Online: Win result line. Sentence -->
+    <string name="online_result_win">You win!</string>
+    <!-- Online: Draw result line. Sentence -->
+    <string name="online_result_draw">Draw.</string>
+    <!-- Online: Loss result line. Sentence -->
+    <string name="online_result_loss">You lose.</string>
+    <!-- Online: Back-to-lobby button shown after a game ends. Verb phrase -->
+    <string name="online_back_to_lobby">Back to lobby</string>
+    <!-- Online: Resign confirm dialog title. Verb phrase -->
+    <string name="online_resign_title">Resign this game?</string>
+    <!-- Online: Resign confirm button. Verb -->
+    <string name="online_resign_confirm">Resign</string>
+    <!-- Online: Abort confirm dialog title. Shown before either side's first move. Verb phrase -->
+    <string name="online_abort_title">Abort this game?</string>
+    <!-- Online: Abort confirm button. Verb -->
+    <string name="online_abort_confirm">Abort</string>
+    <!-- Online: Connection banner while the game stream reconnects. Verb progressive -->
+    <string name="online_reconnecting">Reconnecting…</string>
+    <!-- Online: Error when the Lichess token expired (HTTP 401). Sentence -->
+    <string name="online_auth_expired">Signed out by Lichess — please sign in again.</string>
+    <!-- Online: Error when a seek or challenge fails. Sentence -->
+    <string name="online_matchmaking_failed">Could not start a game. Try again.</string>
+    <!-- Online: Error when sending a move fails. Sentence -->
+    <string name="online_move_failed">Move not sent. Try again.</string>
+    <!-- Online: Error when sign-in fails. Sentence -->
+    <string name="online_sign_in_failed">Sign-in failed. Try again.</string>
+    <!-- Online: Opponent label in game screen. %1$s = opponent username. Noun -->
+    <string name="online_opponent"><xliff:g id="username" example="alice">%1$s</xliff:g></string>
 </resources>
