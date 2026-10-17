@@ -42,6 +42,9 @@ impl Renderer {
             flat_meshes.push((&layer_mesh.vertices, &layer_mesh.indices));
         }
         for region in &mesh.regions {
+            if region.indices.is_empty() {
+                continue;
+            }
             flat_region_at.push(flat_meshes.len());
             flat_meshes.push((&region.vertices, &region.indices));
         }

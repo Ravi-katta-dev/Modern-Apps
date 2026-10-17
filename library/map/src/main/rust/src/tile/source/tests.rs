@@ -417,8 +417,13 @@ fn a_batch_read_issues_one_request_per_range_in_order() {
     for slot in &out {
         assert_eq!(slot.as_ref().unwrap().len(), 64);
     }
+    // Result slots follow request order (handles join in order); the issue order across
+    // the scoped threads is nondeterministic by design, so the log compares as a set:
+    // one request per range, no merging, no duplication.
+    let mut logged = r.fetcher.logged();
+    logged.sort();
     assert_eq!(
-        r.fetcher.logged(),
+        logged,
         vec!["bytes=0-7", "bytes=100-107", "bytes=200-207"],
     );
 }

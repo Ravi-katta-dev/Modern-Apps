@@ -176,23 +176,14 @@ fn align64(v: vk::DeviceSize) -> vk::DeviceSize {
     (v + 63) & !63
 }
 
-/// Reserve arena space for one packed group; `None` when no arena fits.
-///
-/// `None` is not an error — the caller falls back to fresh buffers and counts the
-/// allocation. Pure bump math, no Vulkan calls, so this never fails for device reasons.
-/// A group larger than one arena never fits: fall back rather than splitting draws
-/// across arenas, which would complicate every bind site for a case (a single mesh
-/// group over 8 MiB) that never occurs.
-fn try_reserve(
+/// Fit one packed group into an existing arena; `None` when none fits.
+fn try_fit(
     pool: &UploadPool,
     meshes: &[(&[f32], &[u32])],
     vert_bytes: vk::DeviceSize,
     index_bytes: vk::DeviceSize,
 ) -> Option<PooledPacked> {
     if vert_bytes == 0 || index_bytes == 0 {
-        return None;
-    }
-    if vert_bytes > VERTEX_ARENA_BYTES || index_bytes > VERTEX_ARENA_BYTES / 2 {
         return None;
     }
     for (n, arena) in pool.arenas.iter().enumerate() {
@@ -207,15 +198,7 @@ fn try_reserve(
             });
         }
     }
-    if pool.arenas.len() >= MAX_ARENAS {
-        return None;
-    }
-    Some(PooledPacked {
-        vert_offset: 0,
-        index_offset: 0,
-        arena: pool.arenas.len(),
-        first_index: rebase_first_index(meshes),
-    })
+    None
 }
 
 /// Grow the pool by one arena pair (2 fresh allocations, counted by the caller).
@@ -265,7 +248,9 @@ unsafe fn commit_bytes(
     packed_indices: &[u32],
 ) -> bool {
     let device = &renderer.context.device;
-    let arena = &renderer.upload_pool.arenas[packed.arena];
+    let Some(arena) = renderer.upload_pool.arenas.get(packed.arena) else {
+        return false;
+    };
     let vert_bytes = std::mem::size_of_val(packed_verts) as vk::DeviceSize;
     let index_bytes = std::mem::size_of_val(packed_indices) as vk::DeviceSize;
     // HOST_COHERENT arena memory: map, copy, unmap — no flush. Two maps per group; the
@@ -308,7 +293,16 @@ unsafe fn commit_bytes(
 }
 
 fn advance_arena(pool: &mut UploadPool, packed: &PooledPacked, vert_bytes: u64, index_bytes: u64) {
-    let arena = &mut pool.arenas[packed.arena];
+    // Empty groups reserve nothing — their slice is a placeholder naming arena 0 at
+    // offset 0. Advancing one would reset a live arena's cursor to zero and hand its
+    // ranges back out to the next tile, stomping live draws. Only committed bytes
+    // move a cursor.
+    if vert_bytes == 0 && index_bytes == 0 {
+        return;
+    }
+    let Some(arena) = pool.arenas.get_mut(packed.arena) else {
+        return;
+    };
     arena.used_verts = packed.vert_offset + vert_bytes;
     arena.used_indices = packed.index_offset + index_bytes;
 }
@@ -318,6 +312,13 @@ fn advance_arena(pool: &mut UploadPool, packed: &PooledPacked, vert_bytes: u64, 
 /// Returns `None` for an empty group (no reservation, no slices) and when the group
 /// fits nowhere even after growth — the caller falls back for the whole tile. Growth
 /// counts 2 into `Step::UploadAllocs` (one vertex + one index arena).
+///
+/// The cursor moves when the range is handed out, not after its bytes land: the three
+/// groups reserve in turn against one pool, so a later group must see the earlier
+/// group's range as taken even though nothing is committed yet. Reserving without
+/// advancing would hand every group the same range and each commit would stomp the
+/// previous group's bytes. A later commit failure abandons the range (never reused,
+/// never drawn — the tile falls back to fresh), exactly as `commit_bytes` documents.
 fn reserve_group(
     renderer: &mut Renderer,
     meshes: &[(&[f32], &[u32])],
@@ -326,12 +327,26 @@ fn reserve_group(
     if bytes == (0, 0) {
         return None;
     }
-    if let Some(reserved) = try_reserve(&renderer.upload_pool, meshes, bytes.0, bytes.1) {
+    // A group larger than one arena never fits: fall back rather than splitting draws
+    // across arenas, which would complicate every bind site for a case (a single mesh
+    // group over 8 MiB) that never occurs.
+    if bytes.0 > VERTEX_ARENA_BYTES || bytes.1 > VERTEX_ARENA_BYTES / 2 {
+        return None;
+    }
+    if let Some(reserved) = try_fit(&renderer.upload_pool, meshes, bytes.0, bytes.1) {
+        advance_arena(&mut renderer.upload_pool, &reserved, bytes.0, bytes.1);
         return Some(reserved);
+    }
+    if renderer.upload_pool.arenas.len() >= MAX_ARENAS {
+        return None;
     }
     grow_arenas(renderer).ok()?;
     UploadPool::record_allocs(renderer, 2);
-    try_reserve(&renderer.upload_pool, meshes, bytes.0, bytes.1)
+    // The new arena is empty, so the size check above guarantees the fit; no earlier
+    // arena fit, so this names the new one.
+    let reserved = try_fit(&renderer.upload_pool, meshes, bytes.0, bytes.1)?;
+    advance_arena(&mut renderer.upload_pool, &reserved, bytes.0, bytes.1);
+    Some(reserved)
 }
 
 /// Commit one tile's three packed groups into the pool.
@@ -390,7 +405,10 @@ pub(super) unsafe fn commit_tile_groups(
         }),
         (_, r) => r,
     }?;
-    // Pack the bytes exactly as `upload_packed` does, then commit each non-empty group.
+    // Pack the bytes exactly as `upload_packed` does, then commit each non-empty
+    // group into its reserved range. The cursors already moved at reserve time, so
+    // there is nothing to advance here — a failed commit abandons its range (the
+    // tile falls back to fresh) exactly as `commit_bytes` documents.
     let (fv, fi) = pack_group(fill::FLOATS_PER_VERTEX, groups.flat);
     let (lv, li) = pack_group(stroke::FLOATS_PER_VERTEX, groups.lines);
     let (rv, ri) = pack_group(ribbon::FLOATS_PER_VERTEX, groups.ribbons);
@@ -403,24 +421,6 @@ pub(super) unsafe fn commit_tile_groups(
     if !rv.is_empty() && !commit_bytes(renderer, &ribbons, &rv, &ri) {
         return None;
     }
-    advance_arena(
-        &mut renderer.upload_pool,
-        &flat,
-        fv.len() as u64 * 4,
-        fi.len() as u64 * 4,
-    );
-    advance_arena(
-        &mut renderer.upload_pool,
-        &lines,
-        lv.len() as u64 * 4,
-        li.len() as u64 * 4,
-    );
-    advance_arena(
-        &mut renderer.upload_pool,
-        &ribbons,
-        rv.len() as u64 * 4,
-        ri.len() as u64 * 4,
-    );
     Some(TileArenaSlices { flat, lines, ribbons })
 }
 

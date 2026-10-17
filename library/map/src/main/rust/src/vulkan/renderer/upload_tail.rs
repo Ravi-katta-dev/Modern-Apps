@@ -122,14 +122,28 @@ pub(super) fn build_layers(
 }
 
 /// Build the region-mask slices from the flat pool's `firstIndex` list.
+///
+/// Empty regions never reach the pool (`upload()` skips them when packing), so the
+/// `*_at` index runs over non-empty regions only — a parallel cursor like
+/// `build_carriageways`, never the enumeration position. Indexing by position was the
+/// FindFamily SIGABRT: the first empty segment made `*_at` shorter than the mesh list
+/// and `[0]` landed on an empty vec.
 pub(super) fn build_regions(
     mesh: &TileMesh,
     flat_region_at: &[usize],
     flat_first: &[u32],
 ) -> Vec<RegionBuffers> {
     let mut regions = Vec::with_capacity(mesh.regions.len());
-    for (n, region) in mesh.regions.iter().enumerate() {
-        let Some(&first_index) = flat_first.get(flat_region_at[n]) else {
+    let mut ri = 0usize;
+    for region in &mesh.regions {
+        if region.indices.is_empty() {
+            continue;
+        }
+        let Some(&at) = flat_region_at.get(ri) else {
+            continue;
+        };
+        ri += 1;
+        let Some(&first_index) = flat_first.get(at) else {
             continue;
         };
         regions.push(RegionBuffers {
@@ -145,17 +159,25 @@ pub(super) fn build_regions(
 }
 
 /// Build the live-traffic slices from the line pool's `firstIndex` list.
+///
+/// Same cursor contract as [`build_regions`]: empty segments are skipped at pack time,
+/// so the lookup runs over non-empty segments only.
 pub(super) fn build_traffic(
     mesh: &TileMesh,
     line_traffic_at: &[usize],
     line_first: &[u32],
 ) -> Vec<TrafficBuffers> {
     let mut traffic = Vec::with_capacity(mesh.traffic.len());
-    for (n, segment) in mesh.traffic.iter().enumerate() {
+    let mut ti = 0usize;
+    for segment in &mesh.traffic {
         if segment.indices.is_empty() {
             continue;
         }
-        let Some(&first_index) = line_first.get(line_traffic_at[n]) else {
+        let Some(&at) = line_traffic_at.get(ti) else {
+            continue;
+        };
+        ti += 1;
+        let Some(&first_index) = line_first.get(at) else {
             continue;
         };
         traffic.push(TrafficBuffers {
