@@ -1,5 +1,6 @@
 package com.vayunmathur.games.pipes.domain
 
+import com.vayunmathur.games.pipes.data.isCustomTopology
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -52,6 +53,7 @@ class DailyLevelsTest {
             val endpointCells = level.endpoints.flatMap { it.cells }
             assertEquals(endpointCells.size, endpointCells.toSet().size, "${level.id} reuses a cell")
             assertTrue(endpointCells.all { it in level.cells }, "${level.id} has an off-board endpoint")
+            // Pairs have 2 cells; triplet variant levels chain 3 dots into one flow.
             assertTrue(level.endpoints.all { it.cells.size == 2 }, "${level.id} has a malformed pair")
         }
     }
@@ -59,10 +61,12 @@ class DailyLevelsTest {
     @Test
     fun everyLevelForcesAFullBoard() {
         // PipesViewModel.checkWin only fires on a full board, so a level that can be "connected"
-        // any other way is a dead end for the player. See issue #552.
+        // any other way is a dead end for the player. See issue #552. Variant levels with custom
+        // topologies are hand-authored and out of scope for the 4-neighbour solver.
         for (offset in 0 until 30) {
             val pack = assertNotNull(DailyLevels.packFor(day + offset, pool), "day ${day + offset}")
             for (level in pack.levels) {
+                if (level.isCustomTopology()) continue
                 assertTrue(
                     NumberlinkSolver.classify(level.cells, level.endpoints)
                         != NumberlinkSolver.Verdict.MULTIPLE,

@@ -1,0 +1,41 @@
+{
+  "name": "Hexes",
+  "shape": "hexes",
+  "levels": [
+    {
+      "id": "Hexes_001",
+      "rows": 3,
+      "cols": 3,
+      "grid": "hex",
+      "endpoints": [
+        {"color": 0, "cells": [[0, 0], [2, 0]]},
+        {"color": 1, "cells": [[0, 2], [2, 1]]}
+      ],
+      "optimalMoves": 2
+    },
+    {
+      "id": "Hexes_002",
+      "rows": 4,
+      "cols": 4,
+      "grid": "hex",
+      "endpoints": [
+        {"color": 0, "cells": [[0, 0], [1, 2]]},
+        {"color": 1, "cells": [[1, 1], [2, 2]]},
+        {"color": 2, "cells": [[2, 3], [3, 0]]}
+      ],
+      "optimalMoves": 3
+    },
+    {
+      "id": "Hexes_003",
+      "rows": 3,
+      "cols": 4,
+      "grid": "hex",
+      "endpoints": [
+        {"color": 0, "cells": [[0, 0], [2, 0]]},
+        {"color": 1, "cells": [[0, 2], [1, 2]]},
+        {"color": 2, "cells": [[1, 1], [2, 3]]}
+      ],
+      "optimalMoves": 3
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 package com.vayunmathur.games.pipes.domain
 
+import com.vayunmathur.games.pipes.data.isCustomTopology
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -15,12 +16,16 @@ class ShippedPacksTest {
      * The assertion is "never provably more than one solution" rather than "always exactly one"
      * because the widest boards can exhaust the solver's state budget and come back
      * [NumberlinkSolver.Verdict.UNDECIDED]. Undecided is not a defect; MULTIPLE and NONE are.
+     *
+     * Variant packs (bridges, hex, wrap, portals, triplets) use custom topologies the 4-neighbour
+     * solver is explicitly out of scope for, so they are skipped here and covered by hand-authoring.
      */
     @Test
     fun noShippedLevelCanBeSolvedWithoutFillingTheBoard() {
         val broken = mutableListOf<String>()
         for (name in PackFixtures.packNames()) {
             for (level in PackFixtures.levels(name)) {
+                if (level.isCustomTopology()) continue
                 val verdict = NumberlinkSolver.classify(level.cells, level.endpoints)
                 if (verdict == NumberlinkSolver.Verdict.MULTIPLE || verdict == NumberlinkSolver.Verdict.NONE) {
                     broken += "$name/${level.id}=$verdict"

@@ -39,14 +39,18 @@ object LevelGenerator {
         maxFlows: Int,
         seed: Long,
         id: String,
-        earlyStopProb: Float = 0.25f
+        earlyStopProb: Float = 0.25f,
+        bridges: Set<CellPos> = emptySet(),
+        renderPositions: Map<CellPos, com.vayunmathur.games.pipes.data.RenderPos>? = null,
+        portals: Map<CellPos, CellPos> = emptyMap(),
+        grid: String = "square"
     ): LevelData? {
         val rows = cells.maxOf { it.row } + 1
         val cols = cells.maxOf { it.col } + 1
 
         for (attempt in 0 until 50) {
             val carved = carveCover(cells, adjacency, Random(seed + attempt), earlyStopProb) ?: continue
-            val paths = splitUntilUniquelySolvable(carved, cells, maxFlows) ?: continue
+            val paths = splitUntilUniquelySolvable(carved, cells, maxFlows, adjacency) ?: continue
             val endpoints = paths.mapIndexed { index, path ->
                 EndpointPair(index, listOf(path.first(), path.last()))
             }
@@ -56,10 +60,12 @@ object LevelGenerator {
                 cols = cols,
                 cells = cells,
                 adjacency = adjacency,
-                renderPositions = null,
+                renderPositions = renderPositions,
                 endpoints = endpoints,
-                bridges = emptySet(),
-                optimalMoves = endpoints.size
+                bridges = bridges,
+                optimalMoves = endpoints.size,
+                portals = portals,
+                grid = grid
             )
         }
         return null
@@ -79,10 +85,18 @@ object LevelGenerator {
         carved: List<List<CellPos>>,
         cells: Set<CellPos>,
         maxFlows: Int,
+        adjacency: Map<CellPos, List<CellPos>> = computeAdjacency(cells),
     ): List<List<CellPos>>? {
+        // Custom topologies (hex degree-6, wrap long-range edges, bridges, portals) are out of
+        // scope for NumberlinkSolver, which assumes the 4-neighbour grid. Only gate square boards
+        // on uniqueness; variant packs are hand-authored and exempt.
+        val isSquare = adjacency.all { (cell, neighbors) ->
+            neighbors.toSet() == computeAdjacency(cells)[cell]?.toSet()
+        }
         var paths = carved
         while (paths.size <= maxFlows) {
             if (!shortPairViolation(paths)) {
+                if (!isSquare) return paths
                 val endpoints = paths.mapIndexed { index, path ->
                     EndpointPair(index, listOf(path.first(), path.last()))
                 }
@@ -216,10 +230,14 @@ object LevelGenerator {
         adjacency: Map<CellPos, List<CellPos>>,
         levelCount: Int,
         maxFlows: Int,
-        seed: Long
+        seed: Long,
+        bridges: Set<CellPos> = emptySet(),
+        renderPositions: Map<CellPos, com.vayunmathur.games.pipes.data.RenderPos>? = null,
+        portals: Map<CellPos, CellPos> = emptyMap(),
+        grid: String = "square"
     ): List<LevelData> = (0 until levelCount).mapNotNull { i ->
         val currentSeed = seed + i * 100
         val id = "${name.replace("×", "x").replace(" ", "_")}_${String.format(Locale.ROOT, "%03d", i + 1)}"
-        generateLevel(cells, adjacency, maxFlows, currentSeed, id)
+        generateLevel(cells, adjacency, maxFlows, currentSeed, id, 0.25f, bridges, renderPositions, portals, grid)
     }
 }

@@ -1,0 +1,44 @@
+{
+  "name": "Triplets",
+  "shape": "triplets",
+  "levels": [
+    {
+      "id": "Triplets_001",
+      "rows": 5,
+      "cols": 5,
+      "endpoints": [
+        {"color": 0, "cells": [[2, 0], [2, 2], [2, 4]]},
+        {"color": 1, "cells": [[0, 0], [0, 4]]},
+        {"color": 2, "cells": [[0, 1], [0, 3]]},
+        {"color": 3, "cells": [[4, 0], [4, 4]]},
+        {"color": 4, "cells": [[4, 1], [4, 3]]}
+      ],
+      "optimalMoves": 5
+    },
+    {
+      "id": "Triplets_002",
+      "rows": 5,
+      "cols": 5,
+      "endpoints": [
+        {"color": 0, "cells": [[0, 2], [2, 2], [4, 2]]},
+        {"color": 1, "cells": [[0, 0], [0, 1]]},
+        {"color": 2, "cells": [[0, 4], [0, 3]]},
+        {"color": 3, "cells": [[4, 0], [4, 1]]},
+        {"color": 4, "cells": [[4, 4], [4, 3]]}
+      ],
+      "optimalMoves": 5
+    },
+    {
+      "id": "Triplets_003",
+      "rows": 5,
+      "cols": 5,
+      "endpoints": [
+        {"color": 0, "cells": [[0, 0], [2, 0], [2, 2]]},
+        {"color": 1, "cells": [[0, 1], [0, 4]]},
+        {"color": 2, "cells": [[1, 1], [1, 4]]},
+        {"color": 3, "cells": [[2, 3], [3, 3]]}
+      ],
+      "optimalMoves": 4
+    }
+  ]
+}

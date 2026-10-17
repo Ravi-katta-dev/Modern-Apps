@@ -24,7 +24,9 @@ data class LevelData(
     val renderPositions: Map<CellPos, RenderPos>?,
     val endpoints: List<EndpointPair>,
     val bridges: Set<CellPos>,
-    val optimalMoves: Int
+    val optimalMoves: Int,
+    val portals: Map<CellPos, CellPos> = emptyMap(),
+    val grid: String = "square"
 )
 
 data class LevelPack(
@@ -48,7 +50,13 @@ data class LevelPack(
             "packs/hourglass.json",
             "packs/blob.json",
             "packs/inkblot.json",
-            "packs/walls.json"
+            "packs/walls.json",
+            "packs/blockers.json",
+            "packs/bridges.json",
+            "packs/hexes.json",
+            "packs/portals.json",
+            "packs/triplets.json",
+            "packs/wrap.json"
         )
 
         var PACKS: List<LevelPack> = listOf()
@@ -78,6 +86,50 @@ internal fun computeAdjacency(cells: Set<CellPos>): Map<CellPos, List<CellPos>> 
     }
 }
 
+/**
+ * Six-neighbour adjacency for odd-r offset hex grids (same [CellPos] coords as squares).
+ * Even rows use W/E + NW/NE/SW/SE shifted left, odd rows shifted right. Filters to [cells].
+ */
+internal fun computeHexAdjacency(cells: Set<CellPos>): Map<CellPos, List<CellPos>> {
+    return cells.associateWith { cell ->
+        val even = cell.row % 2 == 0
+        val dirs = if (even) {
+            listOf(-1 to -1, -1 to 0, 0 to -1, 0 to 1, 1 to -1, 1 to 0)
+        } else {
+            listOf(-1 to 0, -1 to 1, 0 to -1, 0 to 1, 1 to 0, 1 to 1)
+        }
+        dirs.mapNotNull { (dr, dc) ->
+            val neighbor = CellPos(cell.row + dr, cell.col + dc)
+            if (neighbor in cells) neighbor else null
+        }
+    }
+}
+
+/**
+ * Staggered pixel centers for odd-r hex grids: x = col + 0.5 * (row parity), y = row * 0.866.
+ * Consumed via [LevelData.renderPositions]; keeps logic in [CellPos] while drawing honeycomb.
+ */
+internal fun hexRenderPositions(cells: Set<CellPos>): Map<CellPos, RenderPos> {
+    return cells.associateWith { cell ->
+        val x = cell.col + 0.5f * (cell.row and 1)
+        val y = cell.row * 0.8660254f
+        RenderPos(x, y)
+    }
+}
+
+/** True when a level needs the custom-topology path (solver exemption, hex art, portal rings). */
+fun LevelData.isCustomTopology(): Boolean {
+    if (bridges.isNotEmpty() || portals.isNotEmpty()) return true
+    if (renderPositions != null) return true
+    if (endpoints.any { it.cells.size != 2 }) return true
+    val square = computeAdjacency(cells)
+    if (adjacency.keys != square.keys) return true
+    for ((cell, neighbors) in adjacency) {
+        if (neighbors.toSet() != (square[cell]?.toSet() ?: emptySet<CellPos>())) return true
+    }
+    return false
+}
+
 private fun packFromJson(json: String): LevelPack {
     val obj = Json.parseToJsonElement(json).jsonObject
     val name = obj["name"]!!.jsonPrimitive.content
@@ -90,6 +142,9 @@ private fun levelFromJson(json: kotlinx.serialization.json.JsonObject): LevelDat
     val id = json["id"]!!.jsonPrimitive.content
     val rows = json["rows"]!!.jsonPrimitive.int
     val cols = json["cols"]!!.jsonPrimitive.int
+    // "grid": "hex" derives odd-r six-neighbour adjacency + staggered centers, so hex packs only
+    // declare cells + endpoints. Anything else is square with an optional explicit adjacency.
+    val grid = json["grid"]?.jsonPrimitive?.content ?: "square"
 
     val cells = json["cells"]?.jsonArray?.map {
         val arr = it.jsonArray
@@ -104,7 +159,41 @@ private fun levelFromJson(json: kotlinx.serialization.json.JsonObject): LevelDat
             CellPos(arr[0].jsonPrimitive.int, arr[1].jsonPrimitive.int)
         }
         cell to neighbors
-    }?.toMap() ?: computeAdjacency(cells)
+    }?.toMap() ?: if (grid == "hex") computeHexAdjacency(cells) else computeAdjacency(cells)
+
+    // Portals as paired cells: "portals": [[[r,c],[r,c]], ...]. Each pair is bidirectional.
+    // Transit is a normal adjacency step: the links are unioned into the adjacency below, and
+    // isValidStep accepts them like any other edge.
+    val portals = json["portals"]?.jsonArray?.flatMap { pair ->
+        val ends = pair.jsonArray.map { c ->
+            val arr = c.jsonArray
+            CellPos(arr[0].jsonPrimitive.int, arr[1].jsonPrimitive.int)
+        }
+        if (ends.size == 2) listOf(ends[0] to ends[1], ends[1] to ends[0]) else emptyList()
+    }?.toMap() ?: emptyMap()
+
+    // Extra long-range edges (wrap/torus): "extraEdges": [[[r,c],[r,c]], ...], bidirectional.
+    val extraEdges = json["extraEdges"]?.jsonArray?.flatMap { pair ->
+        val ends = pair.jsonArray.map { c ->
+            val arr = c.jsonArray
+            CellPos(arr[0].jsonPrimitive.int, arr[1].jsonPrimitive.int)
+        }
+        if (ends.size == 2) listOf(ends[0] to ends[1], ends[1] to ends[0]) else emptyList()
+    } ?: emptyList()
+
+    val fullAdjacency = if (portals.isEmpty() && extraEdges.isEmpty()) {
+        adjacency
+    } else {
+        val merged = adjacency.mapValues { (_, neighbors) -> neighbors.toMutableSet() }.toMutableMap()
+        for ((a, b) in portals) {
+            merged.getOrPut(a) { mutableSetOf() }.add(b)
+        }
+        for ((a, b) in extraEdges) {
+            merged.getOrPut(a) { mutableSetOf() }.add(b)
+        }
+        for (cell in cells) merged.putIfAbsent(cell, mutableSetOf())
+        merged.mapValues { (_, neighbors) -> neighbors.toList() }
+    }
 
     val renderPositions = json["renderPositions"]?.jsonObject?.map { (key, value) ->
         val parts = key.split(",")
@@ -112,7 +201,7 @@ private fun levelFromJson(json: kotlinx.serialization.json.JsonObject): LevelDat
         val posObj = value.jsonObject
         val pos = RenderPos(posObj["x"]!!.jsonPrimitive.float, posObj["y"]!!.jsonPrimitive.float)
         cell to pos
-    }?.toMap()
+    }?.toMap() ?: if (grid == "hex") hexRenderPositions(cells) else null
 
     val endpoints = json["endpoints"]!!.jsonArray.mapIndexed { index, endpoint ->
         val epObj = endpoint.jsonObject
@@ -131,5 +220,5 @@ private fun levelFromJson(json: kotlinx.serialization.json.JsonObject): LevelDat
 
     val optimalMoves = json["optimalMoves"]!!.jsonPrimitive.int
 
-    return LevelData(id, rows, cols, cells, adjacency, renderPositions, endpoints, bridges, optimalMoves)
+    return LevelData(id, rows, cols, cells, fullAdjacency, renderPositions, endpoints, bridges, optimalMoves, portals, grid)
 }

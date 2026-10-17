@@ -2,6 +2,7 @@ package com.vayunmathur.games.pipes.domain
 
 import com.vayunmathur.games.pipes.data.LevelData
 import com.vayunmathur.games.pipes.data.LevelPack
+import com.vayunmathur.games.pipes.data.isCustomTopology
 import kotlin.random.Random
 
 /**
@@ -24,10 +25,16 @@ object DailyLevels {
     /**
      * Null only when the shipped packs have not been loaded yet, or hold too few levels to fill a
      * day. Levels come back smallest first, so the day ramps up in difficulty.
+     *
+     * Variant packs (hex, portals, wrap, bridges, triplets) are hand-authored for custom
+     * topologies the 4-neighbour solver cannot validate, so they never enter the daily pool:
+     * every daily must force a full board (issue #552), which only the solver can certify.
+     * Classic boards with holes (blockers) validate fine and stay eligible.
      */
     fun packFor(day: Long, pool: List<LevelData> = defaultPool()): LevelPack? {
-        if (pool.size < LEVELS_PER_DAY) return null
-        val chosen = pool
+        val classic = pool.filter { !it.isCustomTopology() }
+        if (classic.size < LEVELS_PER_DAY) return null
+        val chosen = classic
             .shuffled(Random(SEED_OFFSET + day))
             .take(LEVELS_PER_DAY)
             .sortedBy { it.cells.size }

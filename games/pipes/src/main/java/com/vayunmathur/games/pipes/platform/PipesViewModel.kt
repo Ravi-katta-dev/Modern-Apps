@@ -224,10 +224,21 @@ class PipesViewModel(application: Application) : AndroidViewModel(application), 
 
     /** Removes [color]'s line from the board, leaving every other color untouched. */
     private fun clearColor(state: PipesGameState, color: Int): PipesGameState {
-        val path = state.paths[color] ?: return state
-        val newCellOwner = state.cellOwner.toMutableMap()
-        path.forEach { c -> if (newCellOwner[c] == color) newCellOwner.remove(c) }
-        return PipesGameState(state.paths - color, newCellOwner)
+        val remaining = state.paths - color
+        // Rebuild ownership so a bridge shared with the cleared color falls back to its
+        // remaining crosser instead of being orphaned (single-owner map caveat).
+        val newCellOwner = mutableMapOf<CellPos, Int>()
+        for ((c, path) in remaining) {
+            for (cell in path) {
+                val current = newCellOwner[cell]
+                if (current == null || current == c) {
+                    newCellOwner[cell] = c
+                }
+            }
+        }
+        // Non-bridge cells keep first-writer wins implicitly via path order; bridges allow sharing
+        // so last-writer fallback above is fine — commitDraw preserves first owner on redraw.
+        return PipesGameState(remaining, newCellOwner)
     }
 
     override fun extendPath(cell: CellPos) {
@@ -248,15 +259,17 @@ class PipesViewModel(application: Application) : AndroidViewModel(application), 
         activeColor: Int,
         path: List<CellPos>,
     ): Boolean {
-        val paired = levelData.endpoints.find { it.colorIndex == activeColor }
-            ?.cells?.let { cells ->
-                when (path.first()) {
-                    cells[0] -> cells[1]
-                    cells[1] -> cells[0]
-                    else -> null
-                }
-            } ?: return false
-        return path.last() == paired
+        val endpointCells = levelData.endpoints.find { it.colorIndex == activeColor }?.cells
+            ?: return false
+        if (path.first() !in endpointCells || path.last() !in endpointCells) return false
+        if (path.first() == path.last()) return false
+        // Pairs: the other end. Triplets (chain): all dots visited, ending on a dot.
+        return if (endpointCells.size == 2) {
+            val paired = if (path.first() == endpointCells[0]) endpointCells[1] else endpointCells[0]
+            path.last() == paired
+        } else {
+            endpointCells.all { it in path }
+        }
     }
 
     private fun tryBacktrack(currentPath: List<CellPos>, cell: CellPos): Boolean {
@@ -277,6 +290,7 @@ class PipesViewModel(application: Application) : AndroidViewModel(application), 
         if (cell in path) return false
         val neighbors = levelData.adjacency[path.last()] ?: return false
         if (cell !in neighbors || isForeignEndpoint(levelData, activeColor, cell)) return false
+        if (!isStraightThroughBridge(levelData, path, cell)) return false
         return isFreeForColor(s, levelData, activeColor, cell)
     }
 
@@ -284,6 +298,27 @@ class PipesViewModel(application: Application) : AndroidViewModel(application), 
         levelData.endpoints.filter { it.colorIndex != activeColor }
             .flatMap { it.cells }
             .contains(cell)
+
+    /**
+     * Bridges read as an overpass only when both pipes run straight through. When the path
+     * leaves a bridge cell, the exit must continue the entry line, so a pipe cannot corner
+     * on the crossing. Long-range exits (portal/wrap jumps) are not grid lines and skip
+     * the check.
+     */
+    private fun isStraightThroughBridge(
+        levelData: LevelData,
+        path: List<CellPos>,
+        cell: CellPos,
+    ): Boolean {
+        val origin = path.lastOrNull() ?: return true
+        if (origin !in levelData.bridges || path.size < 2) return true
+        if (kotlin.math.abs(cell.row - origin.row) + kotlin.math.abs(cell.col - origin.col) != 1) {
+            return true
+        }
+        val entry = path[path.size - 2]
+        return (entry.row == origin.row && origin.row == cell.row) ||
+            (entry.col == origin.col && origin.col == cell.col)
+    }
 
     private fun isFreeForColor(
         s: PipesUiState,
@@ -371,7 +406,9 @@ class PipesViewModel(application: Application) : AndroidViewModel(application), 
 
         val allConnected = levelData.endpoints.all { ep ->
             val path = gameState.paths[ep.colorIndex] ?: return
-            path.size >= 2 && setOf(path.first(), path.last()) == ep.cells.toSet()
+            path.size >= 2 && path.first() in ep.cells &&
+                (if (ep.cells.size == 2) path.last() in ep.cells - path.first()
+                else ep.cells.all { it in path } && path.last() in ep.cells)
         }
 
         if (allConnected) onLevelWon()
