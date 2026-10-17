@@ -173,11 +173,11 @@
     <string name="rotate_90">تدوير ٩٠°</string>
     <string name="delete_row">حذف الصف</string>
     <string name="integer">عدد صحيح</string>
-    <string name="heading_2">العنوان ٢</string>
-    <string name="heading_3">العنوان ٣</string>
+    <string name="heading_2">عنوان ٢</string>
+    <string name="heading_3">عنوان ٣</string>
     <string name="send_to_back">إرسال إلى الخلف</string>
     <string name="shape">شكل</string>
-    <string name="heading_4">العنوان ٤</string>
+    <string name="heading_4">عنوان ٤</string>
     <string name="rectangle">مستطيل</string>
     <string name="fill_down">تعبئة للأسفل</string>
     <string name="scientific">علمي</string>
@@ -187,7 +187,7 @@
     <string name="unmerge">إلغاء الدمج</string>
     <string name="move_paragraph_up">نقل الفقرة لأعلى</string>
     <string name="border_color">لون الحدود…</string>
-    <string name="heading_1">العنوان ١</string>
+    <string name="heading_1">عنوان ١</string>
     <string name="delete_column">حذف العمود</string>
     <string name="date">التاريخ</string>
     <string name="fraction">كسر</string>
