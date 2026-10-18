@@ -1,3 +1,4 @@
+use crate::bridge::log::log_info;
 use crate::vulkan::context::Context;
 use ash::vk;
 
@@ -16,6 +17,8 @@ pub struct Swapchain {
     pub extent: vk::Extent2D,
     /// Samples per pixel the pipelines must be built for.
     pub samples: vk::SampleCountFlags,
+    /// The present mode negotiated with the driver ([`choose_present_mode`]).
+    pub present_mode: vk::PresentModeKHR,
     /// The multisampled colour target, absent when `samples` is 1.
     msaa: Option<MsaaTarget>,
     /// The combined depth-stencil target: depth for the 3D layers, stencil for the region mask,
@@ -63,12 +66,19 @@ impl Swapchain {
             }
         };
         // FIFO is vsync, and the map is driven by Choreographer: anything else would only
-        // queue frames nobody sees, at the cost of power.
-        let present_mode = if present_modes.contains(&vk::PresentModeKHR::FIFO) {
-            vk::PresentModeKHR::FIFO
-        } else {
-            present_modes[0]
-        };
+        // queue frames nobody sees, at the cost of power. MAILBOX is the exception: like
+        // FIFO it is tear-free, but a newer frame replaces the queued one instead of
+        // waiting behind it — up to a frame less latency through a 60fps pan/zoom for no
+        // extra power while idle (the on-demand loop queues nothing when nothing moves).
+        // IMMEDIATE is never picked: it tears, and a torn map frame is worse than a
+        // vsync-late one. FIFO is the mandated fallback (the only mode the spec requires)
+        // and the old behaviour wherever MAILBOX is absent.
+        let present_mode = choose_present_mode(&present_modes);
+        log_info(&format!(
+            "swapchain present mode: {} (offered {} modes)",
+            present_mode_name(present_mode),
+            present_modes.len(),
+        ));
         let max = if capabilities.max_image_count == 0 {
             u32::MAX
         } else {
@@ -255,6 +265,7 @@ impl Swapchain {
             format: chosen.format,
             extent,
             samples,
+            present_mode,
             msaa,
             stencil: stencil_target,
         })
@@ -282,5 +293,78 @@ impl Swapchain {
         }
         self.views.clear();
         self.loader.destroy_swapchain(self.swapchain, None);
+    }
+}
+
+/// Pick the swapchain present mode: MAILBOX where offered, FIFO otherwise.
+///
+/// Pure so it is host-testable: no device, just the driver's offered list. MAILBOX is
+/// tear-free like FIFO but replaces the queued frame instead of waiting behind it, so
+/// a 60fps gesture presents newer poses; FIFO is the spec-mandated fallback and the
+/// previous behaviour. IMMEDIATE is never chosen even when it is the only other
+/// option — tearing on a map is worse than vsync latency — so a driver offering only
+/// IMMEDIATE keeps the old `present_modes[0]` answer.
+fn choose_present_mode(present_modes: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
+    if present_modes.contains(&vk::PresentModeKHR::MAILBOX) {
+        vk::PresentModeKHR::MAILBOX
+    } else if present_modes.contains(&vk::PresentModeKHR::FIFO) {
+        vk::PresentModeKHR::FIFO
+    } else {
+        // Unreachable on a conformant driver (FIFO is mandatory), but the old code
+        // indexed [0] here and a panic on a non-conformant driver is worse than a
+        // torn frame. `new` already errors on an empty format list; an empty mode
+        // list fails below at creation with the driver's own error.
+        present_modes.first().copied().unwrap_or(vk::PresentModeKHR::FIFO)
+    }
+}
+
+/// The creation-time log line names the negotiated mode, so a device run can confirm
+/// which path the driver took without a second build. By discriminant rather than
+/// `Debug`: `ash`'s bitflag-style enums do not implement it.
+fn present_mode_name(mode: vk::PresentModeKHR) -> &'static str {
+    match mode {
+        vk::PresentModeKHR::IMMEDIATE => "IMMEDIATE",
+        vk::PresentModeKHR::MAILBOX => "MAILBOX",
+        vk::PresentModeKHR::FIFO => "FIFO",
+        vk::PresentModeKHR::FIFO_RELAXED => "FIFO_RELAXED",
+        _ => "UNKNOWN",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// MAILBOX wins where offered (tear-free and fresher through gestures); FIFO is
+    /// the mandated fallback and the old behaviour; IMMEDIATE is never picked even
+    /// when it is the only other option.
+    ///
+    /// Android-gated like the rest of this module (`ash` is an Android-only
+    /// dependency), so `cargo test` on the host never runs it — it compiles and runs
+    /// under the Android test target instead. The creation-time logcat line naming
+    /// the negotiated mode is the on-device proof in the meantime.
+    #[test]
+    fn mailbox_wins_over_fifo_and_immediate_is_never_picked() {
+        use vk::PresentModeKHR::*;
+        assert_eq!(
+            choose_present_mode(&[FIFO, MAILBOX, IMMEDIATE]),
+            MAILBOX,
+            "tear-free with the freshest queued frame"
+        );
+        assert_eq!(
+            choose_present_mode(&[FIFO, IMMEDIATE]),
+            FIFO,
+            "the old behaviour where MAILBOX is absent"
+        );
+        assert_eq!(
+            choose_present_mode(&[IMMEDIATE]),
+            IMMEDIATE,
+            "a non-conformant driver keeps the old [0] answer, not a panic"
+        );
+        assert_eq!(
+            choose_present_mode(&[]),
+            FIFO,
+            "empty degrades to the mandated mode for the creation error below"
+        );
     }
 }

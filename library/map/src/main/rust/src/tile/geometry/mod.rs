@@ -38,6 +38,8 @@ mod tests_extra3;
 mod tests_extra7;
 #[cfg(test)]
 mod tests_extra4;
+#[cfg(test)]
+mod tests_extra8;
 
 pub use build::{build, build_toggled};
 pub use mesh::{

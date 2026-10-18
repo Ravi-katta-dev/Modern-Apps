@@ -281,6 +281,14 @@ pub struct TileMesh {
     /// behind; without the tag it could not tell a tile built with POI off from one whose
     /// tile simply has no POI in it.
     pub generation: u32,
+    /// The toggle snapshot this was built at, plus what its source could have emitted.
+    ///
+    /// The kinds-aware second opinion behind the generation: when the generation has
+    /// moved on, [`has_tile`](crate::vulkan::renderer::Renderer::has_tile) consults
+    /// [`ToggleStamp::stale_under`](crate::style::ToggleStamp::stale_under) before
+    /// re-requesting, so a chip change rebuilds only tiles whose POI set actually
+    /// changed. See [`crate::style::GatedSummary`].
+    pub toggle_stamp: crate::style::ToggleStamp,
     /// The tile's heightmap, retained so per-frame label emission can sample ground height
     /// under anchors (mirroring how `labels`/`arrows` are retained for per-frame draws).
     /// `None` where the tile carries none; a few hundred bytes at DEM resolution.

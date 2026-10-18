@@ -6,8 +6,8 @@ use super::mesh::{BuildingMesh, CarriagewayMesh, LayerMesh, TileMesh};
 use super::regions::region_meshes;
 use super::split::split_t;
 use super::terrain::{drape_vertices, terrain_mesh, tile_ground_width_m};
-use super::traffic::traffic_meshes;
-use crate::style::{KindFilter, Layer, LayerKind, LayerToggles};
+use super::traffic::{traffic_meshes, traffic_present};
+use crate::style::{GatedSummary, KindFilter, Layer, LayerKind, LayerToggles, Toggle, ToggleStamp};
 use crate::tess::{fill, ribbon, stroke};
 use crate::tile::select::ANCESTOR_DEPTH;
 use crate::tile::symbol;
@@ -108,6 +108,44 @@ pub fn build_toggled(
     };
     let taper_run = taper::taper_run(ground_width_m);
     let extent = tile.extent as u32;
+
+    // The toggle-gated source summary for kinds-aware re-tessellation (see
+    // [`GatedSummary`]): what this tile *could* emit behind each gate, independent of
+    // whether the gate is open now. Computed from the source before the toggle gate
+    // below, so a tile built with POI off still records the POI kinds it holds.
+    //
+    // Only toggle-gated layers are scanned: basemap content is never gated, so no
+    // summary could excuse it, and the scan is `matches_feature` integer compares over
+    // the gated layers' features — not shaping — so it costs a fraction of the labels
+    // it saves. The zoom window below mirrors the layer loop's own (a layer outside
+    // its window emits nothing either way), and the match is the same
+    // `matches_feature` the loop uses, so the two cannot disagree about what counts.
+    let mut gated = GatedSummary::default();
+    for layer in layers.iter().filter(|l| l.toggle.is_some()) {
+        if layer.min_zoom > deepest || layer.max_zoom < z {
+            continue;
+        }
+        let Some(source) = tile.layer(layer.source_layer_id) else {
+            continue;
+        };
+        for feature in &source.features {
+            if !layer.matches_feature(feature) {
+                continue;
+            }
+            match layer.toggle {
+                Some(Toggle::Poi) => gated.poi_kinds.push(feature.kind),
+                Some(Toggle::Transit) => gated.has_transit = true,
+                // No style layer carries the traffic toggle today (traffic geometry comes
+                // from `traffic_meshes`, probed below) — but if one ever does, its
+                // matched features are traffic-gated content all the same.
+                Some(Toggle::Traffic) => gated.has_traffic = true,
+                None => {}
+            }
+        }
+    }
+    gated.poi_kinds.sort_unstable();
+    gated.poi_kinds.dedup();
+    gated.has_traffic |= traffic_present(tile, z);
 
     for (index, layer) in layers.iter().enumerate() {
         // Before the zoom window and before the layer lookup: an optional layer that is
@@ -429,6 +467,11 @@ pub fn build_toggled(
         yellow_centre: tile.convention.is_some_and(|c| c.yellow_centre),
         arrows: arrow_meshes(tile, z, left_hand),
         generation,
+        toggle_stamp: ToggleStamp {
+            toggles,
+            kinds: kinds.clone(),
+            gated,
+        },
         heightmap: tile.heightmap.clone(),
     }
 }

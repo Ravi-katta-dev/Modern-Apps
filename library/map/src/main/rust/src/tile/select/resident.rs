@@ -16,6 +16,36 @@ pub fn zoom_out_burst(last_zoom: Option<f64>, zoom: f64) -> bool {
     last_zoom.is_none_or(|last| zoom < last)
 }
 
+/// The most tiles allowed resident on the GPU at once.
+///
+/// Eviction is the only thing bounding tile memory — there is no separate budget — so this is a
+/// real limit rather than a safety net. It matters more now that descendants are kept: an
+/// ancestor set is linear in depth, but a descendant set is not, and without a cap every deep
+/// tile visited would stay resident for as long as the camera sat above it.
+///
+/// Sized from what the renderer reports rather than from theory. A dense z14 screenful logged
+/// ~2.0 M triangles across 7 tiles, so a tile in a city centre costs single-digit megabytes of
+/// vertex and index buffers; 64 leaves room for a ~12-tile viewport, its four ancestor levels and
+/// a useful spread of descendants, while keeping the worst case in the hundreds of megabytes
+/// rather than the gigabytes an uncapped depth-2 fan-out could reach. Going over drops
+/// descendants first, so the cost of being wrong here is a briefly coarser zoom-out, not a blank
+/// screen.
+///
+/// P5.4 verdict — held at 64, measured first. The structural pin is
+/// `resident_demand_fits_the_cap_with_headroom`: worst unfogged keep set 37 (tablet
+/// z12, 45° bearing), leaving 27 slots for descendant stand-ins under this cap. Tilted
+/// frames enumerate more (162 at 65° pitch) but those far tiles are fogged to the land
+/// colour past ~6 viewport heights (`FOG_FAR_VIEWPORTS`) — haze, not detail — so the
+/// follow-up for tilt churn is a pitch-aware far-fetch cap in `coverage`, not a bigger
+/// resident set. The device counters that would justify moving this number are the
+/// per-frame report's `stale-dropped`, `fcan` and resident-tile counts: churn there
+/// with a small keep set means raise; a large resident set with idle-time memory
+/// pressure means lower.
+///
+/// Lives here (not in `bridge::handle`) so the host-testable selection suite can pin the
+/// structural demand against it.
+pub const RESIDENT_TILE_CAP: usize = 64;
+
 /// How many levels of descendant to *keep* when they are already resident.
 ///
 /// The mirror of [`ANCESTOR_DEPTH`], and the reason zooming out no longer blanks the map. An

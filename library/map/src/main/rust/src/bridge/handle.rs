@@ -5,6 +5,10 @@ use crate::style::{Layer, Palette, SharedToggles};
 use crate::bridge::gesture::GestureDebounce;
 use crate::tile::geometry::TileMesh;
 use crate::tile::select::TileId;
+/// Re-exported so `bridge::frame` keeps its `super::handle::RESIDENT_TILE_CAP` path: the
+/// constant lives in `tile::select` (with the retention policy and its measurement pin),
+/// but the frame reads it through the handle.
+pub(crate) use crate::tile::select::RESIDENT_TILE_CAP;
 use crate::vulkan::renderer::Renderer;
 use jni::sys::jlong;
 use std::collections::{HashMap, HashSet};
@@ -74,22 +78,6 @@ impl ZoomRange {
 /// and radio handle without thermal or socket pressure. Raise toward 20 only with the
 /// per-tile `queue/fetch/tess` logs showing fetch still dominating and thermals clean.
 pub(crate) const WORKER_COUNT: usize = 8;
-
-/// The most tiles allowed resident on the GPU at once.
-///
-/// Eviction is the only thing bounding tile memory — there is no separate budget — so this is a
-/// real limit rather than a safety net. It matters more now that descendants are kept: an
-/// ancestor set is linear in depth, but a descendant set is not, and without a cap every deep
-/// tile visited would stay resident for as long as the camera sat above it.
-///
-/// Sized from what the renderer reports rather than from theory. A dense z14 screenful logged
-/// ~2.0 M triangles across 7 tiles, so a tile in a city centre costs single-digit megabytes of
-/// vertex and index buffers; 64 leaves room for a ~12-tile viewport, its four ancestor levels and
-/// a useful spread of descendants, while keeping the worst case in the hundreds of megabytes
-/// rather than the gigabytes an uncapped depth-2 fan-out could reach. Going over drops
-/// descendants first, so the cost of being wrong here is a briefly coarser zoom-out, not a blank
-/// screen.
-pub(crate) const RESIDENT_TILE_CAP: usize = 64;
 
 /// How many finished tiles may be uploaded in one frame.
 ///

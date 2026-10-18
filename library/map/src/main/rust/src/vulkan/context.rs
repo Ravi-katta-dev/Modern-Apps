@@ -131,6 +131,31 @@ impl Context {
         };
         let queue = device.get_device_queue(queue_family_index, 0);
 
+        // P5.3 probe: name what the driver offers so the render-path decisions above stay
+        // measured, not assumed. Read-only queries + one log line, zero behaviour change:
+        // whether `VK_KHR_dynamic_rendering` exists answers "where drivers allow" for the
+        // dynamic-rendering half, and the API version says when it goes core (1.3).
+        {
+            let props = instance.get_physical_device_properties(physical_device);
+            let v = props.api_version;
+            let dynamic = instance
+                .enumerate_device_extension_properties(physical_device)
+                .map(|exts| {
+                    exts.iter().any(|e| {
+                        let name = unsafe { CStr::from_ptr(e.extension_name.as_ptr()) };
+                        name.to_bytes() == b"VK_KHR_dynamic_rendering"
+                    })
+                })
+                .unwrap_or(false);
+            crate::bridge::log::log_info(&format!(
+                "vulkan driver: api {}.{}.{} dynamic_rendering={}",
+                vk::api_version_major(v),
+                vk::api_version_minor(v),
+                vk::api_version_patch(v),
+                dynamic,
+            ));
+        }
+
         Ok(Context {
             entry,
             instance,

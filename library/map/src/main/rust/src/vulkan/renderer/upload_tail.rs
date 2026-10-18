@@ -292,6 +292,7 @@ pub(super) fn assemble_tile(
         // (nothing is under it to fade over anyway).
         uploaded_at,
         generation: mesh.generation,
+        toggle_stamp: mesh.toggle_stamp.clone(),
     }
 }
 

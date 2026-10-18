@@ -53,6 +53,124 @@ impl KindFilter {
         }
         self.0.binary_search(&kind).is_ok()
     }
+
+    /// The subset of `source_kinds` this filter admits, sorted.
+    ///
+    /// The kinds-aware re-tessellation check ([`ToggleStamp::stale_under`]): a filter
+    /// change rebuilds a tile only when the admitted set changed. An empty filter
+    /// admits everything, so the answer is the source set itself.
+    pub fn admitted(&self, source_kinds: &[u16]) -> Vec<u16> {
+        if self.0.is_empty() {
+            let mut out = source_kinds.to_vec();
+            out.sort_unstable();
+            out.dedup();
+            return out;
+        }
+        let mut out: Vec<u16> = source_kinds
+            .iter()
+            .copied()
+            .filter(|k| self.0.binary_search(k).is_ok())
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+}
+
+/// Which toggle-gated content a tile's source could emit, independent of the snapshot it
+/// was built at.
+///
+/// Tessellation gates optional layers, so a mesh does not record what was gated *out* —
+/// and without that, any toggle flip must rebuild every tile, because a tile built with
+/// POI off might gain POIs when it turns on. This summary closes that gap: it is computed
+/// from the source at build time (see `tile::geometry::build_toggled`), so `has_tile` can
+/// prove a toggle change affects nothing here and skip the rebuild.
+///
+/// Only toggle-gated layers feed it. Basemap content is never gated, so no summary could
+/// ever excuse it — and `matches_feature` over POI/transit/traffic candidates is integer
+/// compares, not shaping, so recording this costs a fraction of what the gate saves.
+#[derive(Clone, Debug, Default)]
+pub struct GatedSummary {
+    /// Distinct interned `kind`s of the source features a POI-toggle layer admits
+    /// ([`Layer::matches_feature`]), before the category filter. The admitted set under a
+    /// filter is [`KindFilter::admitted`] over this; a filter change rebuilds the tile
+    /// only when that set changed.
+    pub poi_kinds: Vec<u16>,
+    /// A transit-toggle layer admits at least one source feature.
+    pub has_transit: bool,
+    /// The tile carries live-traffic segments (see `tile::geometry::traffic`).
+    pub has_traffic: bool,
+}
+
+impl GatedSummary {
+    /// The POI kinds this filter admits out of the source set, sorted.
+    pub fn admitted(&self, filter: &KindFilter) -> Vec<u16> {
+        filter.admitted(&self.poi_kinds)
+    }
+}
+
+/// The toggle snapshot a mesh was built at, plus what its source could have emitted.
+///
+/// Stamp and summary travel together on every [`crate::tile::geometry::TileMesh`] so the
+/// render thread can answer freshness without the source: [`stale_under`](Self::stale_under)
+/// is the kinds-aware re-tessellation predicate. The global `generation` counter is kept
+/// unchanged (it is the fast path and the tested contract); this is the second opinion
+/// consulted when the generation has moved on.
+#[derive(Clone, Debug)]
+pub struct ToggleStamp {
+    /// The toggles the mesh was built with.
+    pub toggles: LayerToggles,
+    /// The kind filter the mesh was built with.
+    pub kinds: KindFilter,
+    /// What the source could have emitted.
+    pub gated: GatedSummary,
+}
+
+impl ToggleStamp {
+    /// Would this mesh's content differ under `toggles` + `kinds`?
+    ///
+    /// `false` means rebuilding is provably useless: every gate that admits a feature of
+    /// this tile agrees, so the rebuild would emit bit-identical geometry. `true` means
+    /// rebuild (it is conservative — a changed gate with no geometric effect still
+    /// answers true when the summary cannot prove otherwise).
+    ///
+    /// The cases, in order:
+    /// * transit/traffic flip with source content behind the gate: the layer appears or
+    ///   vanishes, so rebuild;
+    /// * POI flip: turning off rebuilds only when something is shown (admitted under the
+    ///   built filter), turning on rebuilds only when the source holds POI features;
+    /// * kind-filter change with POI drawn: rebuilds only when the admitted set changed,
+    ///   so narrowing Food→Coffee skips every tile with no food POIs, and widening the
+    ///   chips skips every tile whose POIs were already all admitted.
+    ///
+    /// A filter change with POI off is always fresh: POI layers are gated regardless of
+    /// the filter, so the meshes cannot differ.
+    pub fn stale_under(&self, toggles: &LayerToggles, kinds: &KindFilter) -> bool {
+        let built = &self.toggles;
+        if built.transit != toggles.transit && self.gated.has_transit {
+            return true;
+        }
+        if built.traffic != toggles.traffic && self.gated.has_traffic {
+            return true;
+        }
+        if built.poi != toggles.poi {
+            if built.poi {
+                // Was on: turning off removes what is shown.
+                if !self.gated.admitted(&self.kinds).is_empty() {
+                    return true;
+                }
+            } else if !self.gated.poi_kinds.is_empty() {
+                // Was off: turning on adds whatever the source holds.
+                return true;
+            }
+        }
+        if built.poi && self.kinds != *kinds {
+            if self.gated.admitted(&self.kinds) != self.gated.admitted(kinds) {
+                return true;
+            }
+        }
+        false
+    }
 }
 
 /// The toggles, the POI kind filter and a generation counter, read as one snapshot and shared
@@ -121,5 +239,191 @@ impl SharedToggles {
         snapshot.kinds = kinds;
         snapshot.generation = snapshot.generation.wrapping_add(1).max(1);
         true
+    }
+}
+
+#[cfg(test)]
+mod stamp_tests {
+    use super::*;
+    use crate::style::kind_id;
+
+    fn kinds(names: &[&str]) -> KindFilter {
+        KindFilter::new(names.iter().filter_map(|n| kind_id(n)).collect())
+    }
+
+    fn stamp(
+        poi: bool,
+        transit: bool,
+        traffic: bool,
+        filter: KindFilter,
+        poi_kinds: Vec<u16>,
+        has_transit: bool,
+        has_traffic: bool,
+    ) -> ToggleStamp {
+        ToggleStamp {
+            toggles: LayerToggles {
+                poi,
+                transit,
+                traffic,
+            },
+            kinds: filter,
+            gated: GatedSummary {
+                poi_kinds,
+                has_transit,
+                has_traffic,
+            },
+        }
+    }
+
+    fn cafe_bar() -> (u16, u16) {
+        (
+            kind_id("cafe").expect("cafe"),
+            kind_id("bar").expect("bar"),
+        )
+    }
+
+    /// The common case this exists for: tapping a chip must not rebuild a tile with no
+    /// POIs, and must not rebuild one whose POIs are all outside both the old and the
+    /// new filter.
+    #[test]
+    fn a_kind_change_skips_tiles_it_cannot_affect() {
+        let (cafe, bar) = cafe_bar();
+        let poi_on = LayerToggles {
+            poi: true,
+            transit: false,
+            traffic: false,
+        };
+        // No POI features at all: any chip change is fresh.
+        let bare = stamp(true, false, false, KindFilter::all(), vec![], false, false);
+        assert!(!bare.stale_under(&poi_on, &kinds(&["cafe"])));
+        // POIs, but none admitted before or after: still fresh.
+        let other = stamp(
+            true,
+            false,
+            false,
+            kinds(&["cafe"]),
+            vec![bar],
+            false,
+            false,
+        );
+        assert!(!other.stale_under(&poi_on, &kinds(&["restaurant"])));
+        // An admitted kind leaves the set: stale.
+        let food = stamp(
+            true,
+            false,
+            false,
+            KindFilter::all(),
+            vec![cafe, bar],
+            false,
+            false,
+        );
+        assert!(food.stale_under(&poi_on, &kinds(&["cafe"])));
+        // Widening over an already-fully-admitted tile: fresh.
+        let all_food = stamp(
+            true,
+            false,
+            false,
+            kinds(&["cafe", "bar"]),
+            vec![cafe],
+            false,
+            false,
+        );
+        assert!(!all_food.stale_under(&poi_on, &KindFilter::all()));
+    }
+
+    /// With POI off the filter is meaningless: meshes cannot differ, whatever the chips say.
+    #[test]
+    fn a_kind_change_with_poi_off_is_always_fresh() {
+        let (cafe, _) = cafe_bar();
+        let off = LayerToggles {
+            poi: false,
+            transit: false,
+            traffic: false,
+        };
+        let stamp = stamp(false, false, false, KindFilter::all(), vec![cafe], false, false);
+        assert!(!stamp.stale_under(&off, &kinds(&["cafe"])));
+    }
+
+    /// Turning POI off rebuilds only tiles that actually show POIs; turning it on
+    /// rebuilds only tiles whose source holds POI features.
+    #[test]
+    fn a_poi_flip_rebuilds_only_tiles_with_poi_content() {
+        let (cafe, _) = cafe_bar();
+        let on = LayerToggles {
+            poi: true,
+            transit: false,
+            traffic: false,
+        };
+        let off = LayerToggles {
+            poi: false,
+            transit: false,
+            traffic: false,
+        };
+        // Built with POI on, showing a cafe: turning off removes it.
+        let showing = stamp(true, false, false, KindFilter::all(), vec![cafe], false, false);
+        assert!(showing.stale_under(&off, &KindFilter::all()));
+        // Built with POI on, but the filter admits nothing: turning off removes nothing.
+        let showing_nothing = stamp(
+            true,
+            false,
+            false,
+            kinds(&["bar"]),
+            vec![cafe],
+            false,
+            false,
+        );
+        assert!(!showing_nothing.stale_under(&off, &kinds(&["bar"])));
+        // Built with POI off, source holds a cafe: turning on adds it.
+        let holding = stamp(false, false, false, KindFilter::all(), vec![cafe], false, false);
+        assert!(holding.stale_under(&on, &KindFilter::all()));
+        // Built with POI off, source holds none: turning on adds nothing.
+        let bare = stamp(false, false, false, KindFilter::all(), vec![], false, false);
+        assert!(!bare.stale_under(&on, &KindFilter::all()));
+    }
+
+    /// Transit/traffic flips rebuild only tiles whose source carries the layer.
+    #[test]
+    fn a_transit_or_traffic_flip_skips_tiles_without_the_layer() {
+        let base = LayerToggles {
+            poi: false,
+            transit: false,
+            traffic: false,
+        };
+        let transit_on = LayerToggles {
+            transit: true,
+            ..base
+        };
+        let traffic_on = LayerToggles {
+            traffic: true,
+            ..base
+        };
+        let bare = stamp(false, false, false, KindFilter::all(), vec![], false, false);
+        assert!(!bare.stale_under(&transit_on, &KindFilter::all()));
+        assert!(!bare.stale_under(&traffic_on, &KindFilter::all()));
+        let transit_tile = stamp(false, false, false, KindFilter::all(), vec![], true, false);
+        assert!(transit_tile.stale_under(&transit_on, &KindFilter::all()));
+        assert!(!transit_tile.stale_under(&traffic_on, &KindFilter::all()));
+        let traffic_tile = stamp(false, false, false, KindFilter::all(), vec![], false, true);
+        assert!(traffic_tile.stale_under(&traffic_on, &KindFilter::all()));
+        assert!(!traffic_tile.stale_under(&transit_on, &KindFilter::all()));
+    }
+
+    /// Identical snapshots are never stale, and `admitted` honours the empty-means-all rule.
+    #[test]
+    fn an_unchanged_snapshot_is_fresh_and_admitted_matches_admits() {
+        let (cafe, bar) = cafe_bar();
+        let toggles = LayerToggles {
+            poi: true,
+            transit: true,
+            traffic: true,
+        };
+        let filter = kinds(&["cafe"]);
+        let stamp = stamp(true, true, true, filter.clone(), vec![cafe, bar], true, true);
+        assert!(!stamp.stale_under(&toggles, &filter));
+        assert_eq!(filter.admitted(&[cafe, bar]), vec![cafe]);
+        assert_eq!(
+            KindFilter::all().admitted(&[bar, cafe]),
+            vec![cafe.min(bar), cafe.max(bar)]
+        );
     }
 }

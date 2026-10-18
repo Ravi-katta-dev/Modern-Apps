@@ -61,7 +61,7 @@ mod tests;
 #[cfg(test)]
 mod tests_part2;
 
-pub use self::filter::{KindFilter, SharedToggles};
+pub use self::filter::{GatedSummary, KindFilter, SharedToggles, ToggleStamp};
 pub use self::kinds::{Anchor, LayerKind, LayerToggles, Toggle, Variant};
 #[cfg(test)]
 pub use self::layer::kind_id_for_test;

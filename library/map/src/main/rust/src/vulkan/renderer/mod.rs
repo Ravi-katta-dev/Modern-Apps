@@ -146,8 +146,10 @@ pub(crate) struct ResidentTile {
     /// ancestor instead of popping.
     uploaded_at: f32,
     /// The toggle generation this was tessellated at — see
-    /// [`crate::style::SharedToggles`].
+    /// [`crate::style::SharedToggles`]. The kinds-aware second opinion behind it
+    /// ([`ToggleStamp`](crate::style::ToggleStamp)) rides alongside.
     generation: u32,
+    toggle_stamp: crate::style::ToggleStamp,
 }
 
 /// One live-traffic component segment, on the GPU.
@@ -216,11 +218,8 @@ struct RegionBuffers {
     level: u16,
 }
 
-/// A transient per-frame buffer pair (one symbol draw's vertices + indices),
-/// held for [`FRAMES_IN_FLIGHT`] frames so no in-flight command buffer still
-/// references it at destroy time. Same grace rule as [`Renderer::retiring`],
-/// but buffers are not tiles — so they retire in their own queue, with no
-/// per-frame `device_wait_idle` stall (that wedged the guest under load).
+/// A transient per-frame buffer pair, held for [`FRAMES_IN_FLIGHT`] frames (same grace
+/// rule as [`Renderer::retiring`], but its own queue — no `device_wait_idle` stall).
 struct TransientBuffers {
     vbuf: Buffer,
     ibuf: Buffer,

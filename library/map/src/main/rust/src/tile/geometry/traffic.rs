@@ -8,6 +8,38 @@ use crate::tile::select::ANCESTOR_DEPTH;
 use tilecodec::mamaps::body::{Body, GEOM_LINE};
 use tilecodec::mamaps::dict::LAYER_TRAFFIC;
 
+/// Would this tile emit live-traffic segments if the traffic toggle were on?
+///
+/// The toggle-independent half of [`traffic_meshes`]: the zoom gate and the source scan,
+/// without the toggle gate — so a tile built with traffic off can still record that it
+/// *could* carry traffic. That is the [`crate::style::GatedSummary::has_traffic`] input
+/// to kinds-aware re-tessellation: flipping traffic rebuilds only tiles that answer true
+/// here. Mirrors the gate above (zoom window, line geometry, a colourable id); the two
+/// must agree, or a tile would claim no traffic and then emit some.
+pub(crate) fn traffic_present(tile: &Body, z: u8) -> bool {
+    // The same stand-in window as the emitter: a tile builds the overlay whenever any
+    // level it stands in for reaches the traffic floor.
+    if z.saturating_add(ANCESTOR_DEPTH) < TRAFFIC_MIN_ZOOM {
+        return false;
+    }
+    let Some(source) = tile.layer(LAYER_TRAFFIC) else {
+        return false;
+    };
+    for (feature_index, feature) in source.features.iter().enumerate() {
+        if feature.geom_type != GEOM_LINE {
+            continue;
+        }
+        let Some(id) = tile.feature_id(LAYER_TRAFFIC, feature_index) else {
+            continue;
+        };
+        if id == tilecodec::mamaps::body::ID_NONE {
+            continue;
+        }
+        return true;
+    }
+    false
+}
+
 /// Tessellate this tile's live-traffic component segments, one mesh per feature.
 ///
 /// Gated on the traffic toggle so leaving it off costs nothing — the same tessellation-time

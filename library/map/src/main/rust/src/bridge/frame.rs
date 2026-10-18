@@ -188,8 +188,10 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_render<'l>(
     // A tile is "had" only if it was tessellated at the current toggle generation, so a
     // toggle change re-requests the resident set through this same loop rather than
     // needing a path of its own. The stale mesh keeps drawing until its replacement
-    // arrives.
-    let (_, _, generation) = map.toggles.get();
+    // arrives. Read once: the snapshot, filter and generation must agree with each
+    // other (and with the `kinds` the render call below takes), so two `get`s must
+    // never straddle a `set`.
+    let (snap_toggles, snap_kinds, generation) = map.toggles.get();
     // Gesture debounce (MapLibre's "load while moving" rule): while a gesture is active
     // the *fetch* zoom freezes at the gesture-start level, so a pinch does not churn the
     // wanted set every frame with tiles that scroll out before they land. Rendering keeps
@@ -314,7 +316,7 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_render<'l>(
     let fetch_held = live_keys.difference(&frozen_set).count();
     for tile in center_first(&visible).iter().chain(wash_extra.iter()) {
         let key = tile.key();
-        if map.renderer.has_tile(key, generation)
+        if map.renderer.has_tile(key, generation, &snap_toggles, &snap_kinds)
             || map.absent.contains(&key)
             // Still inside its backoff after a failure. Left in `retry` rather than removed
             // here, so the attempt count keeps climbing if it fails again.
@@ -359,8 +361,9 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_render<'l>(
 
     // The active category filter goes to the renderer as well as to tessellation: a chip both
     // narrows which POIs are drawn and pulls its own kinds in earlier than the ambient map shows
-    // them. See `Layer::draws_at_focused`.
-    let (_, kinds, _) = map.toggles.get();
+    // them. See `Layer::draws_at_focused`. This is the same snapshot the fetch loop above read —
+    // re-reading here could straddle a `set` and disagree with it.
+    let kinds = snap_kinds;
     let outcome = map.renderer.render(
         &camera,
         &map.layers,

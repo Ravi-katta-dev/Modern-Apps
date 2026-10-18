@@ -1,7 +1,7 @@
 use super::{Overlay, Renderer, UserPuck, FRAMES_IN_FLIGHT};
 use crate::camera::Camera;
 use crate::marker::Marker;
-use crate::style::{Layer, Palette};
+use crate::style::{KindFilter, Layer, LayerToggles, Palette};
 use crate::tile::select;
 use crate::timing::{nanos_since, Step};
 use ash::vk;
@@ -166,10 +166,23 @@ impl Renderer {
     /// requests one it has never seen. That is the whole re-tessellation mechanism: the
     /// old mesh keeps drawing until the new one lands, so a toggle change never blanks
     /// the map, and nothing is evicted or refetched.
-    pub fn has_tile(&self, key: u64, generation: u32) -> bool {
-        self.tiles
-            .get(&key)
-            .is_some_and(|tile| tile.generation == generation)
+    ///
+    /// Kinds-aware (P5): when the generation has moved on, the tile gets a second
+    /// opinion before it is re-requested. [`ToggleStamp::stale_under`](crate::style::ToggleStamp::stale_under)
+    /// proves a toggle change affects nothing here — a chip change on a tile with no
+    /// POIs, a transit flip with no transit features — and the tile stays fresh without
+    /// a rebuild. The generation fast path is unchanged: an exact match never consults
+    /// the stamp.
+    pub fn has_tile(
+        &self,
+        key: u64,
+        generation: u32,
+        toggles: &LayerToggles,
+        kinds: &KindFilter,
+    ) -> bool {
+        self.tiles.get(&key).is_some_and(|tile| {
+            tile.generation == generation || !tile.toggle_stamp.stale_under(toggles, kinds)
+        })
     }
 
     /// Whether another frame would do something this one did not — the renderer's half of
