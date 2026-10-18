@@ -82,4 +82,15 @@
     <string name="saf_use_this_folder">Usa questa cartella</string>
     <string name="saf_save">Salva</string>
     <string name="saf_select_count">Seleziona (<xliff:g id="count" example="3">%1$d</xliff:g>)</string>
+    <string name="trash">Cestino</string>
+    <string name="trash_empty">Il cestino è vuoto</string>
+    <string name="trash_auto_delete_note">Gli elementi saranno eliminati definitivamente dopo 30 giorni</string>
+    <string name="restore">Ripristina</string>
+    <string name="delete_forever">Elimina definitivamente</string>
+    <string name="empty_trash">Svuota cestino</string>
+    <string name="delete_permanently_title">Eliminare definitivamente <xliff:g id="count" example="3">%1$d</xliff:g> elementi?</string>
+    <string name="delete_permanently_message">Questa operazione non può essere annullata. Le cartelle e alcuni file non possono essere spostati nel cestino.</string>
+    <string name="moved_to_trash">Spostati nel cestino <xliff:g id="count" example="3">%1$d</xliff:g> elementi</string>
+    <string name="restored_n">Ripristinati <xliff:g id="count" example="3">%1$d</xliff:g> elementi</string>
+    <string name="deleted_forever_n">Eleminati definitivamente <xliff:g id="count" example="3">%1$d</xliff:g> elementi</string>
 </resources>
