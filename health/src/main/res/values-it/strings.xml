@@ -104,4 +104,5 @@
     <string name="metric_exercise_duration">Esercizio</string>
     <string name="label_exercise">Esercizio</string>
     <string name="no_workouts">Nessun allenamento registrato</string>
+    <string name="grant_permissions_rationale">Questa app legge e registra i tuoi dati sanitari tramite Health Connect. Nessun dato esce dal tuo dispositivo.</string>
 </resources>
