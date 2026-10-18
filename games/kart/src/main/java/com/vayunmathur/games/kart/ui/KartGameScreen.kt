@@ -207,6 +207,22 @@ private fun RacingBody(phase: RacePhase.Racing) {
         style = MaterialTheme.typography.titleLarge,
         color = MaterialTheme.colorScheme.primary,
     )
+    val lastLap = phase.lastLapMs?.let(::formatLapTime)
+    if (lastLap != null) {
+        Text(
+            stringResource(R.string.race_last_lap, lastLap),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    val bestLap = phase.bestLapMs?.let(::formatLapTime)
+    if (bestLap != null) {
+        Text(
+            stringResource(R.string.race_best_lap, bestLap),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
     phase.order.forEachIndexed { place, id ->
         Column(Modifier.fillMaxWidth()) {
             Text(
@@ -219,6 +235,15 @@ private fun RacingBody(phase: RacePhase.Racing) {
             )
         }
     }
+}
+
+/** Format a lap time as m:ss.mmm, e.g. 0:24.318. Null-safe at the call site: only called non-null. */
+private fun formatLapTime(ms: Long): String {
+    val total = ms.coerceAtLeast(0L)
+    val minutes = total / 60_000
+    val seconds = (total % 60_000) / 1_000
+    val millis = total % 1_000
+    return "$minutes:%02d.%03d".format(java.util.Locale.US, seconds, millis)
 }
 
 /** Short label for a seat: players keep their join name, AI karts show as rivals. */

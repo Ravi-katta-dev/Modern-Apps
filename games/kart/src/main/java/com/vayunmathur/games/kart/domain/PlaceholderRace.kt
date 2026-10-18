@@ -8,7 +8,8 @@ import com.vayunmathur.games.kart.data.CUPS
  *
  * One lap is [TRACK_LENGTH] units; karts advance by throttle × [TOP_SPEED] per second, minus a
  * steering scrub. Positions are fractional progress in laps; [leaderboard] sorts by total progress.
- * AI drivers hold a fixed pace with a wobble so they are beatable but not statues.
+ * AI drivers hold pace × wobble plus a rubber-band boost off the leader's progress (see
+ * [effectiveAiPace]), so they are beatable but not statues.
  *
  * Everything here is pure and timestepped ([tick] takes seconds), so the race is a JVM test and
  * the native engine only has to reproduce its shape, not its code.
@@ -36,6 +37,46 @@ class PlaceholderRace(
 
         /** AI pace as a fraction of top speed, before the per-driver wobble. */
         const val AI_PACE = 0.78f
+
+        /**
+         * Rubber-band gain: pace points earned per [RUBBER_STEP] laps of deficit behind the leader.
+         * Mirrors the native engine's `RUBBER_GAIN`.
+         */
+        const val RUBBER_GAIN = 0.02f
+
+        /**
+         * Deficit step (in laps, fractional) that earns one [RUBBER_GAIN].
+         * Mirrors the native engine's `RUBBER_STEP`.
+         */
+        const val RUBBER_STEP = 0.05f
+
+        /**
+         * Hard cap on effective AI pace: backmarkers close in, never teleport past.
+         * Mirrors the native engine's `AI_PACE_MAX`.
+         */
+        const val AI_PACE_MAX = 0.95f
+
+        /**
+         * Rubber-band boost in pace points for a [deficitLaps]-lap deficit behind the leader.
+         *
+         * Formula: `floor(deficit / RUBBER_STEP) * RUBBER_GAIN` — +0.02 pace per 5% of a lap
+         * down, same steps as the native engine, so mid-pack pace doesn't jitter as gaps breathe.
+         * The leader (deficit <= 0) gets nothing; the cap lives in [effectiveAiPace].
+         */
+        fun rubberBoost(deficitLaps: Float): Float {
+            if (deficitLaps <= 0f) return 0f
+            return kotlin.math.floor(deficitLaps / RUBBER_STEP) * RUBBER_GAIN
+        }
+
+        /**
+         * Effective AI pace for a driver with [wobble] sitting [deficitLaps] behind the leader:
+         * base pace times wobble, plus the rubber-band boost, capped at [AI_PACE_MAX].
+         *
+         * The leader always runs bare `AI_PACE * wobble` — no leader slowdown, by design (see the
+         * native `effective_pace` rustdoc for why).
+         */
+        fun effectiveAiPace(wobble: Float, deficitLaps: Float): Float =
+            (AI_PACE * wobble + rubberBoost(deficitLaps)).coerceAtMost(AI_PACE_MAX)
     }
 
     private data class Kart(
@@ -97,14 +138,17 @@ class PlaceholderRace(
      * Advance the race by [dtSeconds].
      *
      * Steering scrubs speed (full lock costs ~18%, less while drifting); AI runs its pace ×
-     * wobble. Progress never goes backwards: braking to a standstill holds position.
+     * wobble plus a rubber-band boost off the leader's progress (see [effectiveAiPace]).
+     * Progress never goes backwards: braking to a standstill holds position.
      */
     fun tick(dtSeconds: Float) {
         val dt = dtSeconds.coerceIn(0f, 1f)
+        val leaderProgress = karts.maxOfOrNull { it.progress } ?: 0f
         for (kart in karts) {
             if (lapOf(kart) >= laps) continue
             val speed = if (kart.ai) {
-                TOP_SPEED * AI_PACE * kart.wobble
+                val deficitLaps = (leaderProgress - kart.progress) / TRACK_LENGTH
+                TOP_SPEED * effectiveAiPace(kart.wobble, deficitLaps.coerceAtLeast(0f))
             } else {
                 val control = controls[kart.id] ?: KartControl.NEUTRAL
                 val scrub = 1f - kotlin.math.abs(control.steering) *

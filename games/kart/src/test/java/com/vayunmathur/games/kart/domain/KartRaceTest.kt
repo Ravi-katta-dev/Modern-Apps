@@ -143,4 +143,139 @@ class KartRaceTest {
         straight.tick(1f)
         assertTrue(drift.lapProgress("p1") < straight.lapProgress("p1"))
     }
+
+    @Test
+    fun placeLossTriggersRumble() {
+        // remote-1 drops from 2nd to 3rd (got passed); remote-2 climbs past them.
+        val buzzed = RumbleDecider.decide(
+            prevOrder = listOf("you", "remote-1", "remote-2"),
+            newOrder = listOf("you", "remote-2", "remote-1"),
+            localPlayerIds = setOf("you"),
+            lastBuzzMs = emptyMap(),
+            nowMs = 10_000L,
+        )
+        assertEquals(listOf("remote-1"), buzzed)
+    }
+
+    @Test
+    fun noRumbleOnImprovementOrUnchanged() {
+        // remote-2 climbs past the local seat; nobody remote worsens.
+        assertEquals(
+            emptyList(),
+            RumbleDecider.decide(
+                prevOrder = listOf("remote-1", "you", "remote-2"),
+                newOrder = listOf("remote-1", "remote-2", "you"),
+                localPlayerIds = setOf("you"),
+                lastBuzzMs = emptyMap(),
+                nowMs = 10_000L,
+            ),
+        )
+        assertEquals(
+            emptyList(),
+            RumbleDecider.decide(
+                prevOrder = listOf("you", "remote-1"),
+                newOrder = listOf("you", "remote-1"),
+                localPlayerIds = setOf("you"),
+                lastBuzzMs = emptyMap(),
+                nowMs = 10_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun cooldownSuppressesRepeatBuzz() {
+        val prev = listOf("remote-1", "you")
+        val new = listOf("you", "remote-1")
+        val locals = setOf("you")
+        val first = RumbleDecider.decide(prev, new, locals, emptyMap(), nowMs = 10_000L)
+        assertEquals(listOf("remote-1"), first)
+        assertEquals(
+            emptyList(),
+            RumbleDecider.decide(prev, new, locals, mapOf("remote-1" to 10_000L), nowMs = 10_500L),
+        )
+        assertEquals(
+            listOf("remote-1"),
+            RumbleDecider.decide(prev, new, locals, mapOf("remote-1" to 10_000L), nowMs = 11_500L),
+        )
+    }
+
+    @Test
+    fun localSeatsAndAiNeverBuzz() {
+        // The touch seat, a plugged-in gamepad, and AI rivals all worsen — none buzz; only the
+        // remote phone that dropped from 1st to 4th does.
+        val buzzed = RumbleDecider.decide(
+            prevOrder = listOf("remote-1", "you", "pad-1", "ai-0"),
+            newOrder = listOf("you", "pad-1", "ai-0", "remote-1"),
+            localPlayerIds = setOf("you", "pad-1"),
+            lastBuzzMs = emptyMap(),
+            nowMs = 10_000L,
+        )
+        assertEquals(listOf("remote-1"), buzzed)
+    }
+
+    @Test
+    fun firstTickAndNewcomersStaySilent() {
+        assertEquals(
+            emptyList(),
+            RumbleDecider.decide(
+                prevOrder = emptyList(),
+                newOrder = listOf("you", "remote-1"),
+                localPlayerIds = setOf("you"),
+                lastBuzzMs = emptyMap(),
+                nowMs = 10_000L,
+            ),
+        )
+        assertEquals(
+            emptyList(),
+            RumbleDecider.decide(
+                prevOrder = listOf("you"),
+                newOrder = listOf("you", "remote-1"),
+                localPlayerIds = setOf("you"),
+                lastBuzzMs = emptyMap(),
+                nowMs = 10_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun lapIncrementRecordsDurationAndBest() {
+        var state = LapTracker.State(lastIncrementMs = 1_000L)
+        state = LapTracker.onLapTick(prevLap = 0, lap = 1, nowMs = 26_000L, state = state)
+        assertEquals(25_000L, state.times.lastLapMs)
+        assertEquals(25_000L, state.times.bestLapMs)
+        state = LapTracker.onLapTick(prevLap = 1, lap = 2, nowMs = 49_000L, state = state)
+        assertEquals(23_000L, state.times.lastLapMs)
+        assertEquals(23_000L, state.times.bestLapMs)
+    }
+
+    @Test
+    fun sameLapTickKeepsState() {
+        val state = LapTracker.State(lastIncrementMs = 1_000L)
+        assertEquals(state, LapTracker.onLapTick(prevLap = 1, lap = 1, nowMs = 26_000L, state = state))
+    }
+
+    @Test
+    fun backmarkerPaceBoostsLeaderStaysBase() {
+        val wobble = 0.95f
+        val base = PlaceholderRace.AI_PACE * wobble
+        assertEquals(base, PlaceholderRace.effectiveAiPace(wobble, 0f))
+        assertTrue(PlaceholderRace.effectiveAiPace(wobble, 0.10f) > base)
+    }
+
+    @Test
+    fun rubberBoostStepsAndShrinks() {
+        assertEquals(
+            PlaceholderRace.RUBBER_GAIN,
+            PlaceholderRace.rubberBoost(PlaceholderRace.RUBBER_STEP),
+        )
+        assertEquals(0f, PlaceholderRace.rubberBoost(PlaceholderRace.RUBBER_STEP * 0.5f))
+        assertTrue(PlaceholderRace.rubberBoost(0.20f) > PlaceholderRace.rubberBoost(0.05f))
+        assertEquals(0f, PlaceholderRace.rubberBoost(-0.5f))
+    }
+
+    @Test
+    fun aiPaceCapHolds() {
+        assertTrue(PlaceholderRace.effectiveAiPace(1f, 10f) <= PlaceholderRace.AI_PACE_MAX)
+        assertTrue(PlaceholderRace.effectiveAiPace(0.90f, 10f) <= PlaceholderRace.AI_PACE_MAX)
+    }
 }

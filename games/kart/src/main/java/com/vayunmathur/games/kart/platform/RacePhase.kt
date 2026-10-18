@@ -15,12 +15,16 @@ sealed interface RacePhase {
     /**
      * Live race. [order] is player ids (humans then AI) by progress descending; [lapProgress]
      * maps each id to 0..1 through its current lap; [playerLap] is this device's completed laps.
+     * [lastLapMs] is how long the local player's last completed lap took, [bestLapMs] the best
+     * local lap this race; both are null until the first lap completes.
      */
     data class Racing(
         val order: List<String>,
         val lapProgress: Map<String, Float>,
         val playerLap: Int,
         val totalLaps: Int,
+        val lastLapMs: Long? = null,
+        val bestLapMs: Long? = null,
     ) : RacePhase
 
     /** Across the line. [winner] may be an AI id; [order] is the final standing. */

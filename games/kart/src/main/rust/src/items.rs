@@ -4,6 +4,9 @@
 //! green shell that spins whoever it touches. AI drivers follow the racing
 //! line with per-driver pace and wobble, and fire shells forward when they
 //! hold one — beatable but not statues, mirroring the placeholder's 0.78 pace.
+//! Backmarkers get a rubber-band pace boost that scales with their deficit
+//! behind the leader (capped, so they close in without teleporting past);
+//! the leader always runs base pace — no leader slowdown, by design.
 
 use crate::physics::{DriveInput, KartBody};
 use crate::track;
@@ -18,6 +21,12 @@ pub const SHELL_LIFE: f32 = 6.0;
 pub const BOX_RADIUS: f32 = 3.5;
 /// AI pace as a fraction of top speed, before the per-driver wobble.
 pub const AI_PACE: f32 = 0.78;
+/// Rubber-band gain: pace points earned per [RUBBER_STEP] laps of deficit.
+pub const RUBBER_GAIN: f32 = 0.02;
+/// Deficit step (in laps, fractional) that earns one [RUBBER_GAIN].
+pub const RUBBER_STEP: f32 = 0.05;
+/// Hard cap on effective AI pace: backmarkers close in, never teleport past.
+pub const AI_PACE_MAX: f32 = 0.95;
 
 /// What a kart is holding. One slot: firing spends it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -82,6 +91,33 @@ pub struct AiDriver {
     pub steer: f32,
 }
 
+/// Rubber-band boost in pace points for a deficit of [deficit_laps] laps
+/// behind the leader (fractional, clamped at zero below).
+///
+/// Formula: `floor(deficit / RUBBER_STEP) * RUBBER_GAIN` — +0.02 pace per 5%
+/// of a lap down. Steps (not a smooth ramp) so mid-pack pace doesn't jitter
+/// every tick as gaps breathe; the leader (`deficit <= 0`) gets nothing.
+/// The cap lives in [`effective_pace`], not here.
+pub fn rubber_boost(deficit_laps: f32) -> f32 {
+    if deficit_laps <= 0.0 {
+        return 0.0;
+    }
+    (deficit_laps / RUBBER_STEP).floor() * RUBBER_GAIN
+}
+
+/// Effective AI pace for a driver with [wobble] sitting [deficit_laps] behind
+/// the leader: base pace times wobble, plus the rubber-band boost, capped at
+/// [`AI_PACE_MAX`].
+///
+/// The cap is what keeps the field together without teleporting: a far-back
+/// rival closes at most ~0.95 pace, still beatable flat-out by a clean human
+/// lap, while the leader always runs bare `AI_PACE * wobble` (no slowdown —
+/// punishing clean driving up front felt worse in playtesting than letting a
+/// spun-out rival catch back up).
+pub fn effective_pace(wobble: f32, deficit_laps: f32) -> f32 {
+    (AI_PACE * wobble + rubber_boost(deficit_laps)).min(AI_PACE_MAX)
+}
+
 impl AiDriver {
     /// Create driver `index` of `count`: spread the wobble across the field.
     pub fn new(index: usize, count: usize) -> Self {
@@ -97,8 +133,9 @@ impl AiDriver {
     }
 
     /// Drive one tick: steer toward a lookahead point on the racing line,
-    /// hold the throttle at pace, drift when the corner is tight.
-    pub fn control(&mut self, kart: &KartBody) -> DriveInput {
+    /// hold the throttle at pace (plus the rubber-band boost for
+    /// [deficit_laps] behind the leader), drift when the corner is tight.
+    pub fn control(&mut self, kart: &KartBody, deficit_laps: f32) -> DriveInput {
         let ahead_s = track::advance(kart.track_s, 12.0);
         let ahead = track::point_at(ahead_s);
         let dx = ahead.x - kart.x;
@@ -110,7 +147,7 @@ impl AiDriver {
         self.steer += (target - self.steer) * 0.18;
         let tight = err.abs() > 0.45;
         DriveInput {
-            throttle: AI_PACE * self.wobble,
+            throttle: effective_pace(self.wobble, deficit_laps),
             steering: self.steer,
             brake: 0.0,
             drift: tight,
@@ -163,7 +200,7 @@ mod tests {
         kart.speed = crate::physics::TOP_SPEED * AI_PACE;
         let mut ai = AiDriver::new(0, 4);
         for _ in 0..1200 {
-            let c = ai.control(&kart);
+            let c = ai.control(&kart, 0.0);
             kart.tick(&c, 1.0 / 60.0);
         }
         let p = track::point_at(kart.track_s);
@@ -173,6 +210,45 @@ mod tests {
             kart.track_s,
             kart.x,
             kart.z
+        );
+    }
+
+    #[test]
+    fn backmarker_gets_pace_boost_leader_gets_none() {
+        let wobble = 0.95;
+        let base = AI_PACE * wobble;
+        assert_eq!(rubber_boost(0.0), 0.0, "leader runs bare base pace");
+        assert_eq!(effective_pace(wobble, 0.0), base);
+        assert!(
+            effective_pace(wobble, 0.10) > base,
+            "a tenth of a lap down should earn a boost"
+        );
+    }
+
+    #[test]
+    fn boost_steps_and_shrinks_as_deficit_closes() {
+        // One step (5% of a lap) earns exactly RUBBER_GAIN a step.
+        assert_eq!(rubber_boost(RUBBER_STEP), RUBBER_GAIN);
+        assert_eq!(rubber_boost(RUBBER_STEP * 2.0), RUBBER_GAIN * 2.0);
+        // Below one step earns nothing; closing the gap shrinks the boost.
+        assert_eq!(rubber_boost(RUBBER_STEP * 0.5), 0.0);
+        assert!(
+            rubber_boost(0.20) > rubber_boost(0.05),
+            "closer to the leader means less boost"
+        );
+        // Non-positive deficits (leader, rounding noise) never boost.
+        assert_eq!(rubber_boost(-0.5), 0.0);
+    }
+
+    #[test]
+    fn pace_cap_holds_for_far_backmarkers() {
+        assert!(
+            effective_pace(1.0, 10.0) <= AI_PACE_MAX,
+            "even a lap down stays at or under the cap"
+        );
+        assert!(
+            effective_pace(0.90, 10.0) <= AI_PACE_MAX,
+            "slow-wobble drivers cap too"
         );
     }
 

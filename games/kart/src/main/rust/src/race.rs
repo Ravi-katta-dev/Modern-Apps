@@ -135,20 +135,26 @@ impl Race {
                 b.respawn_left -= dt;
             }
         }
-        // Order first: items deal by race position.
+        // Order first: items deal by race position, and AI paces itself off
+        // the leader's progress (rubber-banding).
         let mut order: Vec<usize> = (0..self.seats.len()).collect();
         order.sort_by(|&a, &b| {
             progress_key(&self.seats[b].kart)
                 .partial_cmp(&progress_key(&self.seats[a].kart))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        let leader_progress = order
+            .first()
+            .map(|&si| progress_key(&self.seats[si].kart))
+            .unwrap_or(0.0);
         for (pos, &si) in order.iter().enumerate() {
             // Read the seat's state first (immutable borrows end here).
             let seat_count = self.seats.len();
             let (control, should_fire, held_item, kx, kz) = {
                 let seat = &mut self.seats[si];
                 let mut control = if let Some(ai) = &mut seat.ai {
-                    let mut c = ai.control(&seat.kart);
+                    let deficit = leader_progress - progress_key(&seat.kart);
+                    let mut c = ai.control(&seat.kart, deficit.max(0.0));
                     // AI fires shells at the kart ahead, mushrooms on straights.
                     if seat.held == HeldItem::Shell && pos > 0 {
                         c.item = true;

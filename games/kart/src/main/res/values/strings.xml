@@ -30,6 +30,10 @@
     <string name="race_lap">Lap <xliff:g id="current" example="2">%1$d</xliff:g> of <xliff:g id="total" example="3">%2$d</xliff:g></string>
     <!-- KartGameScreen: One standings row. %1$d = place, e.g. 1. %2$s = driver name -->
     <string name="race_place"><xliff:g id="place" example="1">%1$d</xliff:g>. <xliff:g id="name" example="You">%2$s</xliff:g></string>
+    <!-- KartGameScreen: Last completed lap time. %1$s = formatted time, e.g. 0:24.318 -->
+    <string name="race_last_lap">Last lap <xliff:g id="time" example="0:24.318">%1$s</xliff:g></string>
+    <!-- KartGameScreen: Best lap this race. %1$s = formatted time, e.g. 0:23.904 -->
+    <string name="race_best_lap">Best lap <xliff:g id="time" example="0:23.904">%1$s</xliff:g></string>
     <!-- KartGameScreen: Results header. Noun phrase -->
     <string name="results_title">Final Standings</string>
     <!-- KartGameScreen: Back to the lobby from results. Verb phrase -->

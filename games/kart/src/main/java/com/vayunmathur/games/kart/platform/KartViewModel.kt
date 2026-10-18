@@ -8,13 +8,16 @@ import com.vayunmathur.games.kart.data.KartDataStore
 import com.vayunmathur.games.kart.data.KartProgress
 import com.vayunmathur.games.kart.domain.GameInputLoop
 import com.vayunmathur.games.kart.domain.KartRules
+import com.vayunmathur.games.kart.domain.LapTracker
 import com.vayunmathur.games.kart.domain.PlaceholderRace
+import com.vayunmathur.games.kart.domain.RumbleDecider
 import com.vayunmathur.games.kart.util.KartNative
 import com.vayunmathur.library.util.AchievementsManager
 import com.vayunmathur.library.util.DailyChallengeStore
 import com.vayunmathur.library.util.DailyStreakReporter
 import com.vayunmathur.library.work.DailyPuzzleReminder
 import com.vayunmathur.library.work.DailyReminderSettings
+import com.vayunmathur.sdk.controller.RumbleFeedback
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -239,6 +242,11 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
         KartNative.startRace(seats)
         kartHost.host?.startRace()
         val itemLatch = mutableMapOf<String, Boolean>()
+        val localSeats = localPlayerIds()
+        var prevOrder: List<String> = emptyList()
+        val lastBuzzMs = mutableMapOf<String, Long>()
+        var prevLap = 0
+        var lapState = LapTracker.State(lastIncrementMs = android.os.SystemClock.uptimeMillis())
         tickJob?.cancel()
         tickJob = viewModelScope.launch {
             while (isActive) {
@@ -267,11 +275,20 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
                     return@launch
                 }
                 val ordered = standings.sortedBy { it.place }
+                val order = ordered.map { it.player }
+                buzzPlaceLosers(prevOrder, order, localSeats, lastBuzzMs)
+                prevOrder = order
+                val nowMs = android.os.SystemClock.uptimeMillis()
+                val lap = ordered.firstOrNull { it.player == seat }?.lap ?: 0
+                lapState = LapTracker.onLapTick(prevLap, lap, nowMs, lapState)
+                prevLap = lap
                 _racePhase.value = RacePhase.Racing(
-                    order = ordered.map { it.player },
+                    order = order,
                     lapProgress = ordered.associate { it.player to it.progress },
-                    playerLap = ordered.firstOrNull { it.player == seat }?.lap ?: 0,
+                    playerLap = lap,
                     totalLaps = RACE_LAPS,
+                    lastLapMs = lapState.times.lastLapMs,
+                    bestLapMs = lapState.times.bestLapMs,
                 )
             }
         }
@@ -281,6 +298,11 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
         val newRace = PlaceholderRace(playerIds = seats)
         race = newRace
         kartHost.host?.startRace()
+        val localSeats = localPlayerIds()
+        var prevOrder: List<String> = emptyList()
+        val lastBuzzMs = mutableMapOf<String, Long>()
+        var prevLap = 0
+        var lapState = LapTracker.State(lastIncrementMs = android.os.SystemClock.uptimeMillis())
         tickJob?.cancel()
         tickJob = viewModelScope.launch {
             var lastMs = android.os.SystemClock.uptimeMillis()
@@ -316,11 +338,18 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
                     return@launch
                 }
                 val order = newRace.leaderboard()
+                buzzPlaceLosers(prevOrder, order, localSeats, lastBuzzMs)
+                prevOrder = order
+                val lap = newRace.lapOf(seat)
+                lapState = LapTracker.onLapTick(prevLap, lap, nowMs, lapState)
+                prevLap = lap
                 _racePhase.value = RacePhase.Racing(
                     order = order,
                     lapProgress = order.associateWith { newRace.lapProgress(it) },
-                    playerLap = newRace.lapOf(seat),
+                    playerLap = lap,
                     totalLaps = RACE_LAPS,
+                    lastLapMs = lapState.times.lastLapMs,
+                    bestLapMs = lapState.times.bestLapMs,
                 )
             }
         }
@@ -328,6 +357,8 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
     private fun finishRace(winner: String, order: List<String>) {
         tickJob?.cancel()
         tickJob = null
+        // Celebration buzz for every remote phone still on the grid.
+        celebrate(order)
         kartHost.host?.endRace()
         _racePhase.value = RacePhase.Results(winner = winner, order = order)
         val state = _uiState.value
@@ -344,6 +375,45 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
         }
         race = null
     }
+
+    /**
+     * Buzz the remote phones whose place worsened since the last tick. Local seats (this device
+     * plus gamepads) and AI karts are skipped before the host — its send no-ops for non-remote
+     * slots anyway, but there is no reason to ask. Callers thread [prevOrder] through ticks and
+     * let this update [lastBuzzMs] with who buzzed when.
+     */
+    private fun buzzPlaceLosers(
+        prevOrder: List<String>,
+        order: List<String>,
+        localSeats: Set<String>,
+        lastBuzzMs: MutableMap<String, Long>,
+    ) {
+        val nowMs = android.os.SystemClock.uptimeMillis()
+        val buzz = RumbleDecider.decide(
+            prevOrder = prevOrder,
+            newOrder = order,
+            localPlayerIds = localSeats,
+            lastBuzzMs = lastBuzzMs,
+            nowMs = nowMs,
+        )
+        for (id in buzz) {
+            kartHost.host?.rumble(id, RumbleFeedback(durationMs = RUMBLE_HIT_MS, highFreq = 1f))
+            lastBuzzMs[id] = nowMs
+        }
+    }
+
+    /** One short buzz to every remote phone on the grid, so the finish lands on all of them. */
+    private fun celebrate(order: List<String>) {
+        val locals = localPlayerIds()
+        for (id in order) {
+            if (id in locals || id.startsWith("ai-")) continue
+            kartHost.host?.rumble(id, RumbleFeedback(durationMs = RUMBLE_FINISH_MS, highFreq = 1f))
+        }
+    }
+
+    /** Every seat driven from this device: the touch seat plus any plugged-in gamepads. */
+    private fun localPlayerIds(): Set<String> =
+        kartHost.lobby.value.slots.filter { !it.remote }.map { it.playerId }.toSet()
 
     /**
      * One native standings row. Parsed by hand (not kotlinx.serialization): the engine emits a
@@ -461,6 +531,12 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
 
         /** Ticks per second for the placeholder race loop. */
         private const val TICK_MS = 50L
+
+        /** Buzz length for a place-loss hit. */
+        private const val RUMBLE_HIT_MS = 180
+
+        /** Buzz length for the finish-line celebration. */
+        private const val RUMBLE_FINISH_MS = 250
 
         /** Laps per race. Mirrors the placeholder's default. */
         private const val RACE_LAPS = 3
