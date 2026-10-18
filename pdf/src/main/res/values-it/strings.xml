@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
     <string name="search_label">Trova</string>
     <string name="open_pdf">Apri PDF</string>
     <string name="capture_pdf">Acquisisci PDF</string>
@@ -16,4 +16,24 @@
     <string name="safe_pdf_error">Impossibile aprire questo PDF con il visualizzatore sicuro. Potrebbe essere danneggiato o utilizzare funzionalità non supportate.</string>
     <string name="open">Apri</string>
     <string name="password">Password</string>
+    <string name="outline">Struttura</string>
+    <string name="failed_to_save_pdf">Impossibile salvare il PDF</string>
+    <string name="append_image">Aggiungi immagine</string>
+    <string name="cut_glue">Taglia e incolla</string>
+    <string name="pdf_cut_and_glue">Taglia PDF e incolla</string>
+    <string name="tap_to_append_a_pdf_or_image">Tocca + per aggiungere un PDF o un\'immagine</string>
+    <string name="red">Rosso</string>
+    <string name="green">Verde</string>
+    <string name="blue">Blu</string>
+    <string name="color">Colore</string>
+    <string name="opacity">Opacità <xliff:g id="value" example="75">%1$s</xliff:g>%</string>
+    <string name="encrypt_with_password">Crittografa con password</string>
+    <string name="incorrect_password">Password errata</string>
+    <string name="password_required">Password richiesta</string>
+    <string name="save_encrypted">Salva in formato crittografato</string>
+    <string name="style">Stile</string>
+    <string name="save_as_u2026">Salva come…</string>
+    <string name="aa">Aa</string>
+    <string name="sign">Firma</string>
+    <string name="pdf_page_failed">Questa pagina non può essere visualizzata</string>
 </resources>
