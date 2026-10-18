@@ -87,4 +87,11 @@
     <string name="sync_error_wrong_password">Fel valvlösenord. Inget ändrades lokalt.</string>
     <string name="sync_error_verify_failed">Kontrollen av det sammanfogade valvet misslyckades, så filen skrevs inte.</string>
     <string name="sync_error_generic">Synkroniseringen misslyckades: <xliff:g id="reason" example="No space left on device">%1$s</xliff:g></string>
+    <string name="cable_bluetooth_disabled_message">Bluetooth är avstängt. Slå på det för att fortsätta med begäran om passnyckel.</string>
+    <string name="cable_bluetooth_unsupported_message">Den här enheten har inte stöd för Bluetooth, så inloggning mellan enheter är inte tillgänglig.</string>
+    <string name="sync_error_quarantined">Synkroniseringen har pausats: poster försvann från filen utan borttagningsmarkeringar. Inga ändringar gjordes. Granska nedan för att lösa problemet.</string>
+    <string name="sync_quarantine_title">Granska pausad synkronisering</string>
+    <string name="sync_quarantine_description">Pausad <xliff:g id="when" example="Oct 14, 2026 9:41 PM">%1$s</xliff:g>. Dina lösenord är orörda.</string>
+    <string name="sync_quarantine_dialog">En annan app verkar ha tagit bort poster från synkroniseringsfilen (orsak: <xliff:g id="reason" example="foreign_delete">%1$s</xliff:g>). Om borttagningen var avsiktlig öppnar du filen i den appen och tar bort samma poster där eller lägger till dem här igen. När du återupptar synkroniseringen kontrolleras filen igen. Om posterna fortfarande saknas pausas synkroniseringen igen i stället för att något tas bort.</string>
+    <string name="sync_quarantine_resolve">Kontrollera igen och återuppta</string>
 </resources>
