@@ -116,4 +116,30 @@
     <string name="no_contacts_yet_message">Tryck på lägg till-knappen för att skapa din första kontakt.</string>
     <string name="no_groups_yet">Inga grupper ännu</string>
     <string name="no_groups_yet_message">Tryck på lägg till-knappen för att gruppera kontakter.</string>
+    <string name="move_to_account">Flytta till konto</string>
+    <string name="move">Flytta</string>
+    <plurals name="move_to_account_subtitle">
+        <item quantity="one">Välj vart <xliff:g id="count" example="1">%1$d</xliff:g> kontakt ska flyttas</item>
+        <item quantity="other">Välj vart <xliff:g id="count" example="3">%1$d</xliff:g> kontakter ska flyttas</item>
+    </plurals>
+    <string name="move_to_sim_warning_title">Viss information får inte plats på SIM-kortet</string>
+    <string name="move_to_sim_warning_body">Endast namn, telefonnummer och e-postadress sparas på <xliff:g id="sim_label" example="SIM 1">%1$s</xliff:g>. Följande går förlorat: <xliff:g id="dropped" example="foto, adresser">%2$s</xliff:g>.</string>
+    <string name="move_dropped_photo">foto</string>
+    <string name="move_dropped_extra_phones">ytterligare telefonnummer</string>
+    <string name="move_dropped_extra_emails">ytterligare e-postadresser</string>
+    <string name="move_dropped_addresses">adresser</string>
+    <string name="move_dropped_dates">datum</string>
+    <string name="move_dropped_organization">organisation</string>
+    <string name="move_dropped_note">anteckning</string>
+    <string name="move_dropped_nickname">smeknamn</string>
+    <string name="move_dropped_groups">grupper</string>
+    <string name="move_dropped_ringtone">ringsignal</string>
+    <string name="move_dropped_favorite">favorit</string>
+    <string name="move_anyway">Flytta ändå</string>
+    <plurals name="move_success">
+        <item quantity="one"><xliff:g id="count" example="1">%1$d</xliff:g> kontakt flyttades</item>
+        <item quantity="other"><xliff:g id="count" example="3">%1$d</xliff:g> kontakter flyttades</item>
+    </plurals>
+    <string name="move_partial_failure"><xliff:g id="moved" example="2">%1$d</xliff:g> flyttades, <xliff:g id="failed" example="1">%2$d</xliff:g> misslyckades</string>
+    <string name="move_failed">Det gick inte att flytta</string>
 </resources>
