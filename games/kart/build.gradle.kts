@@ -41,9 +41,7 @@ androidComponents {
 rustNativeLib("kart_engine", "kart", extraAbis = listOf(ABI_ARMV7))
 
 dependencies {
-    implementation(project(":sdk:games"))
     implementation(project(":sdk:controller"))
-    implementation(project(":library:work"))
     implementation(project(":library:e2ee-p2p"))
     implementation(libs.androidx.datastore.preferences)
 }

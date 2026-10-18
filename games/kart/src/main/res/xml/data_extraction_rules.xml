@@ -1,17 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Kart. Audited state: filesDir/datastore/settings.preferences_pb, holding the
-  current cup, the lifetime cleared/won counters, the best lap, and the daily
-  day it belongs to; plus filesDir/datastore_default.preferences_pb, the shared
-  DataStoreUtils file holding the DailyChallengeStore("kart_daily") streak, the
-  daily reminder settings and the AchievementsManager unlocks. No
-  SharedPreferences, no Room database, nothing written to external storage -
-  achievements.json is a read-only APK asset. Back everything up; it is a few
-  KB of pure user progress.
+  current cup, the lifetime won counter and the best lap. No
+  SharedPreferences, no Room database, nothing written to external storage.
+  Back everything up; it is a few KB of pure user progress.
   SCOPE: kart declares android:backupAgent=".platform.AppBackupAgent" and does
   NOT set android:fullBackupOnly, so Android uses key/value backup and the
   <cloud-backup> section below is NOT consulted. Cloud content is exactly
-  AppBackupAgent's datastoreNames = ["settings", "datastore_default"], which is
+  AppBackupAgent's datastoreNames = ["settings"], which is
   the same data this file would have sent. <device-transfer> IS governed here,
   and these rules become the cloud control too if the backupAgent is ever
   removed.

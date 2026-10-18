@@ -4,9 +4,10 @@ import com.vayunmathur.library.util.BaseBackupAgent
 
 class AppBackupAgent : BaseBackupAgent() {
     /**
-     * Both files, or a restore silently wipes half the player's history: "settings" holds the cup
-     * pointer and the lifetime counters, while the shared DataStoreUtils file holds the daily streak
-     * and the achievement unlocks.
+     * The "settings" file alone: it holds the cup pointer and the lifetime
+     * counters. The pairing identity lives in its own `kart_identity` file,
+     * deliberately off this list — restoring identity keys onto a different
+     * TV would let that TV impersonate this one to an already-paired phone.
      */
-    override val datastoreNames: List<String> get() = listOf("settings", "datastore_default")
+    override val datastoreNames: List<String> get() = listOf("settings")
 }

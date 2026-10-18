@@ -4,7 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.vayunmathur.games.kart.data.CUPS
-import com.vayunmathur.games.kart.data.GameMode
 import com.vayunmathur.games.kart.data.KartProgress
 import com.vayunmathur.games.kart.platform.KartGameActions
 import com.vayunmathur.games.kart.platform.KartUiState
@@ -68,7 +67,7 @@ class MetadataPreviews {
         Garage(
             KartUiState(
                 cup = CUPS[2],
-                progress = KartProgress(currentCup = 2, cupsCleared = 2, racesWon = 11),
+                progress = KartProgress(currentCup = 2, racesWon = 11),
             ),
             RacePhase.Lobby(
                 LobbyState(
@@ -79,30 +78,14 @@ class MetadataPreviews {
         )
     }
 
-    @PreviewTest
-    @Preview(name = "4-daily", device = PHONE, showSystemUi = true)
     @Composable
-    fun Preview4Daily() {
-        Garage(
-            KartUiState(
-                cup = CUPS[1],
-                mode = GameMode.DAILY,
-            ),
-            RacePhase.Lobby(LobbyState(gameId = "kart")),
-            streak = 4,
-        )
-    }
-
-    @Composable
-    private fun Garage(state: KartUiState, phase: RacePhase, streak: Long = 0) {
+    private fun Garage(state: KartUiState, phase: RacePhase) {
         // Layoutlib has no wallpaper to sample, so Material You falls back to the default palette.
         DynamicTheme(darkTheme = true) {
             KartGameScreen(
-                state = state.copy(dailyStreak = streak),
+                state = state,
                 phase = phase,
                 actions = KartGameActions.Noop,
-                onOpenSettings = {},
-                onOpenGameCenter = {},
             )
         }
     }

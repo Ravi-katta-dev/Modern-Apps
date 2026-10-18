@@ -17,7 +17,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.vayunmathur.games.kart.R
-import com.vayunmathur.games.kart.data.GameMode
 import com.vayunmathur.games.kart.platform.KartGameActions
 import com.vayunmathur.games.kart.platform.KartUiState
 import com.vayunmathur.games.kart.platform.RacePhase
@@ -30,9 +29,6 @@ import com.vayunmathur.library.ui.OutlinedButton
 import com.vayunmathur.library.ui.Spacing
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
-import com.vayunmathur.library.ui.game.DailyStreakText
-import com.vayunmathur.library.ui.game.GameModeChooser
-import com.vayunmathur.library.ui.game.GameTopBarActions
 
 /**
  * The garage and the race, with no dependency on the ViewModel so it can be rendered from a
@@ -43,43 +39,11 @@ fun KartGameScreen(
     state: KartUiState,
     phase: RacePhase,
     actions: KartGameActions,
-    onOpenSettings: () -> Unit,
-    onOpenGameCenter: () -> Unit,
 ) {
-    val daily = state.mode == GameMode.DAILY
     AppScaffold(
-        title = {
-            GameModeChooser(
-                selected = state.mode,
-                options = GameMode.entries,
-                // The ladder mode folds the cup into its label, so the bar needs no second title.
-                label = { mode ->
-                    when (mode) {
-                        GameMode.CASUAL -> state.cup?.let {
-                            stringResource(R.string.cup_title, it.name)
-                        } ?: stringResource(R.string.app_name)
-
-                        GameMode.DAILY -> stringResource(R.string.mode_daily)
-                    }
-                },
-                menuLabel = { mode ->
-                    stringResource(
-                        when (mode) {
-                            GameMode.CASUAL -> R.string.mode_casual
-                            GameMode.DAILY -> R.string.mode_daily
-                        },
-                    )
-                },
-                onSelect = actions::setGameMode,
-            )
-        },
+        title = state.cup?.let { stringResource(R.string.cup_title, it.name) }
+            ?: stringResource(R.string.app_name),
         alignment = AppBarAlignment.Center,
-        actions = {
-            GameTopBarActions(
-                onOpenGameCenter = onOpenGameCenter,
-                onOpenSettings = onOpenSettings,
-            )
-        },
         scrollBehavior = appBarScrollBehavior(),
     ) { padding ->
         Column(
@@ -91,12 +55,8 @@ fun KartGameScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
-            if (daily) {
-                DailyStreakText(state.dailyStreak)
-            }
-
             when (val p = phase) {
-                is RacePhase.Lobby -> LobbyBody(state, p, daily, actions)
+                is RacePhase.Lobby -> LobbyBody(state, p, actions)
                 is RacePhase.Countdown -> CountdownBody(p)
                 is RacePhase.Racing -> RacingBody(p)
                 is RacePhase.Results -> ResultsBody(p, actions)
@@ -109,7 +69,6 @@ fun KartGameScreen(
 private fun LobbyBody(
     state: KartUiState,
     phase: RacePhase.Lobby,
-    daily: Boolean,
     actions: KartGameActions,
 ) {
     val cup = state.cup
@@ -148,26 +107,16 @@ private fun LobbyBody(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (daily && state.dailyDone) {
-            Text(
-                stringResource(R.string.daily_come_back_tomorrow),
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-            )
-        } else {
-            Button(
-                onClick = { actions.startRace() },
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(stringResource(R.string.start_race)) }
-            if (!daily) {
-                Text(
-                    stringResource(R.string.how_to_play),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-            }
-        }
+        Button(
+            onClick = { actions.startRace() },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(stringResource(R.string.start_race)) }
+        Text(
+            stringResource(R.string.how_to_play),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
