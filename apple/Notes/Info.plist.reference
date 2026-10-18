@@ -1,0 +1,30 @@
+<!-- EverySync Notes — Info.plist reference (Phase 3, Mac fills values).
+     No camera/photo-library keys: image blocks reference shared-store files;
+     capture UI adds its own usage strings later. -->
+<plist version="1.0">
+<dict>
+    <!-- App-Group envelope IPC + blob store is via entitlements, not plist. -->
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.vayunmathur.everysync.notes.refresh</string>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+        <string>processing</string>
+    </array>
+
+    <!-- Join-link handling: everysync://join/<vault>?owner=...&type=... -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.vayunmathur.everysync.join</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>everysync</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

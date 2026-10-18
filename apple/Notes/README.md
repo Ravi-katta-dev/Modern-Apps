@@ -103,3 +103,19 @@ processing task after local edits. Scheduling only.
 Parse/serialize blocks JSON by hand, compute content hashes, run merge/LWW,
 encrypt envelopes, or invent block types. All of that is `NoteBlocks.kt` +
 `NoteKind` in the XCFramework.
+
+## Files (Phase 3)
+
+| File | Role |
+|---|---|
+| `NotesApp.swift` | SwiftUI entry + note list contract; zero sync logic |
+| `NoteBodyView.swift` | Native Text/Image/Ink block rendering over the XCFramework `NoteBody` |
+| `PencilKitMapping.swift` | `PKStroke` <-> `InkStroke` unit conversion only (no merge/hash/crypto) |
+| `ShareExtension.swift` | `com.apple.share-services` target; XCFramework parsers -> envelope IPC |
+| `Info.plist.reference` | BGTask id, `everysync://join` scheme (no camera keys in this shell) |
+| `Notes.entitlements.reference` | App Group + shared Keychain group (shared with the extension) |
+| `../Shared/EnvelopeIPC.swift` | SQLite IPC store (shared with Passwords/Hub) |
+| `../Shared/BlobStore.swift` | Blob sidecar: image bytes by `fileName` (shared) |
+| `../Shared/KeychainSecureStore.swift` | Keychain layout contract (Kotlin implements) |
+| `../Shared/EverysyncCoreCrypto.swift` | CryptoKit AES-GCM C bridge (fills the Rust AES gap) |
+| `../Shared/BackgroundSync.swift` | BGTask registration helpers |

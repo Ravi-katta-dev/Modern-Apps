@@ -49,6 +49,29 @@ envelopes here; the Credential Provider extension reads over XPC.
 Contacts/calendar rows are hub-internal (system stores are the UI); shells
 for those types do not exist in Phase 3a.
 
+## Appendix — Phase 3 conformance (no drift)
+
+Reviewed against the Phase 3 Swift (`Shared/EnvelopeIPC.swift`,
+`Shared/BlobStore.swift`, `Passwords/PasswordsXPCService.swift`,
+`Hub/IPCRelayStore.swift`, `Hub/SyncIdMap.swift`) — contract holds verbatim:
+
+- 3 ops (`querySince` / `upsertRaw` / `deleteByVault`) with identical
+  columns (`syncId / updatedAt / deleted / payloadJson / contentHash`).
+- 5 tables (`passwords` HARD / `notes`, `todos` SOFT / hub-internal
+  `contacts`, `calendars` with kind-driven delete semantics).
+- App-Group container + `NSFileCoordinator` + XPC (exactly the 3 ops;
+  extension never touches the relay); `blobs/` sidecar keyed by `fileName`.
+- Cursor keys in Keychain `SecureStore`, never in these tables; vault keys
+  never appear here or in share links.
+- WAL + `busy_timeout=5000` so the Kotlin `RelayStore` shims (specified in
+  `Hub/IPCRelayStore.swift`, owned by `XCFramework/IOS_ACTUALS_NOTES.md`)
+  share the same files; schema v1.
+
+Build-note drift (NOT contract drift): `XCFramework/BUILD_NOTES.md` uses the
+`aarch64-apple-ios-sim` Rust target for Apple-Silicon simulators where
+`library/everysync-core/IOS_PQC_NOTES.md` says `x86_64-apple-ios`
+(Intel-only). Relay/channel/table semantics are unaffected.
+
 ## Concurrency rules
 
 1. Single writer to the relay: the hub. Shells only touch the IPC store.

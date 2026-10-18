@@ -1,0 +1,42 @@
+<!-- EverySync Hub — Info.plist reference (Phase 3, Mac fills values). -->
+<plist version="1.0">
+<dict>
+    <!-- System-sink usage strings (one per store the hub writes). -->
+    <key>NSRemindersUsageDescription</key>
+    <string>EverySync syncs shared task lists into Reminders.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>EverySync syncs shared calendars into Calendar.</string>
+    <key>NSContactsUsageDescription</key>
+    <string>EverySync syncs shared contacts into Contacts.</string>
+    <key>NSFaceIDUsageDescription</key>
+    <string>EverySync uses Face ID to unlock vault keys in Keychain.</string>
+
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.vayunmathur.everysync.hub.refresh</string>
+        <string>com.vayunmathur.everysync.hub.upload</string>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+        <string>processing</string>
+        <!-- APNs pull-trigger only, never payload (see ../Shared/BackgroundSync.swift).
+             `remote-notification` mode is declared here so a silent push can wake
+             the hub to PULL the relay; no vault data rides the push itself. -->
+        <string>remote-notification</string>
+    </array>
+
+    <!-- Join-link handling: everysync://join/<vault>?owner=...&type=... -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.vayunmathur.everysync.join</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>everysync</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

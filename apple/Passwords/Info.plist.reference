@@ -1,0 +1,35 @@
+<!-- EverySync Passwords — Info.plist reference (Phase 3, Mac fills values).
+     Copy into the Xcode target's Info.plist; replace <team> with the real
+     team prefix. Kept as a reference file (not a live plist) because
+     xcodebuild cannot run on this Windows box. -->
+<plist version="1.0">
+<dict>
+    <!-- Face ID gate for vault unlock (no password material leaves Keychain). -->
+    <key>NSFaceIDUsageDescription</key>
+    <string>EverySync uses Face ID to unlock your password vaults.</string>
+
+    <!-- Background sync triggers (see ../Shared/BackgroundSync.swift). -->
+    <key>BGTaskSchedulerPermittedIdentifiers</key>
+    <array>
+        <string>com.vayunmathur.everysync.passwords.refresh</string>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>fetch</string>
+        <string>processing</string>
+    </array>
+
+    <!-- Join-link handling: everysync://join/<vault>?owner=...&type=... -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.vayunmathur.everysync.join</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>everysync</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

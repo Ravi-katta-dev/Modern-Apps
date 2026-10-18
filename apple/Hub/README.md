@@ -102,3 +102,21 @@ Scheduling only — cycles run in the XCFramework.
 Run merge/LWW, compute content hashes, encrypt envelopes, parse join links,
 check roles, or re-implement TOTP/block parsing. Driver output in, system
 stores out — nothing else.
+
+## Files (Phase 3)
+
+| File | Role |
+|---|---|
+| `HubSync.swift` | Hub entry: BGTask registration + per-vault cycle fan-out; no Todo UI |
+| `IPCRelayStore.swift` | `RelayStore` shim spec over the envelope IPC + baseline sidecar schema |
+| `TodoReminderSink.swift` | `RemoteTodo` -> `EKReminder` mapping + healthy-read tombstone detection |
+| `ContactSink.swift` | `RemoteContact` -> `CNContactStore` + shared type-int label tables |
+| `CalendarSink.swift` | `RemoteEvent` -> `EKEvent` + composite `uid␀recurrenceId` sync keys |
+| `SyncIdMap.swift` | Hub-local syncId<->system-identifier map + known-set (tombstone detection) |
+| `Info.plist.reference` | Reminders/Calendars/Contacts/FaceID strings, BGTask ids, `remote-notification` (pull trigger only), `everysync://join` scheme |
+| `Hub.entitlements.reference` | App Group + shared Keychain group + `aps-environment` |
+| `../Shared/EnvelopeIPC.swift` | SQLite IPC store (owned by the hub, read by shells) |
+| `../Shared/BlobStore.swift` | Blob sidecar (shared) |
+| `../Shared/KeychainSecureStore.swift` | Keychain layout contract (Kotlin implements) |
+| `../Shared/EverysyncCoreCrypto.swift` | CryptoKit AES-GCM C bridge |
+| `../Shared/BackgroundSync.swift` | BGTask registration helpers |

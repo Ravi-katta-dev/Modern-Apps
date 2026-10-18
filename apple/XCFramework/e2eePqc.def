@@ -1,0 +1,26 @@
+# cinterop .def against c_bridge.rs headers (verbatim per IOS_PQC_NOTES.md).
+#
+# Phase 3 creates this file at
+# `library/everysync-core/src/nativeInterop/cinterop/e2eePqc/e2eePqc.def`
+# next to the cbindgen-generated `e2ee_pqc.h`. This copy documents the exact
+# surface: bind EXACTLY the 10 fns below. Swift never calls Rust directly —
+# only via the shared XCFramework.
+#
+# Bound (10):
+#   pqc_kem_keygen / pqc_kem_encaps / pqc_kem_decaps
+#   pqc_dsa_keygen / pqc_dsa_sign / pqc_dsa_verify (1 valid / 0 invalid / -1 parse error)
+#   pqc_bundle_build / pqc_bundle_split
+#   pqc_free / pqc_secure_zero
+# Explicitly NOT bound:
+#   pqc_identity_keygen (identity assembly stays in Kotlin:
+#     PqcIdentityHandle.loadOrCreate over SecureStore)
+#   pqc_link_keygen / pqc_link_pub_from_seed (FindFamily link keys)
+#   pqc_security_code (pure SHA-256 — SyncDigest in Kotlin)
+#   pqc_bundle_is_valid / pqc_bundle_inspect (diagnostics only; the Kotlin
+#     splitBundle null-check covers validity)
+
+headers = e2ee_pqc.h
+headerFilter = e2ee_pqc/*
+package = e2ee.pqc.native
+compilerOpts = -Ie2ee_pqc
+linkerOpts = -le2ee_pqc

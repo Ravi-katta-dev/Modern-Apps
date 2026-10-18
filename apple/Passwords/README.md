@@ -74,3 +74,19 @@ in the XCFramework.
 Re-implement merge pairing, TOTP framing/math, canonical JSON/hash, envelope
 Base64/AES, role checks, or link parsing. If logic exists in Swift that also
 exists in `everysync-core`, delete the Swift copy.
+
+## Files (Phase 3)
+
+| File | Role |
+|---|---|
+| `PasswordsApp.swift` | SwiftUI entry + vault list/detail contract; zero sync logic |
+| `CredentialProvider.swift` | `ASCredentialProviderViewController`; reads over XPC, ranks via `DomainMatch` |
+| `PasswordsXPCService.swift` | `com.vayunmathur.everysync.envelope-ipc` — exactly the 3 IPC ops |
+| `Info.plist.reference` | Face ID string, BGTask id, `everysync://join` scheme |
+| `Passwords.entitlements.reference` | App Group + shared Keychain group |
+| `CredentialProvider.entitlements.reference` | Autofill entitlement (extension target only) |
+| `../Shared/EnvelopeIPC.swift` | SQLite IPC store (shared with Notes/Hub) |
+| `../Shared/BlobStore.swift` | Blob sidecar (shared) |
+| `../Shared/KeychainSecureStore.swift` | Keychain layout contract (Kotlin implements) |
+| `../Shared/EverysyncCoreCrypto.swift` | CryptoKit AES-GCM C bridge (fills the Rust AES gap) |
+| `../Shared/BackgroundSync.swift` | BGTask registration helpers |

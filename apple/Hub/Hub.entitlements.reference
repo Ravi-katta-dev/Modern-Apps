@@ -1,0 +1,18 @@
+<!-- EverySync Hub — entitlements reference (Phase 3, Mac fills values).
+     App-Group envelope IPC + shared Keychain group. No autofill entitlement
+     (hub has no Credential Provider). -->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.&lt;team&gt;.everysync.shared</string>
+    </array>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.vayunmathur.everysync.shared</string>
+    </array>
+    <!-- Silent-push pull trigger (APNs carries no payload — see BackgroundSync). -->
+    <key>aps-environment</key>
+    <string>development</string>
+</dict>
+</plist>

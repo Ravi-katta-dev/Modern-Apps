@@ -1,0 +1,14 @@
+<!-- EverySync Notes — entitlements reference (Phase 3, Mac fills values).
+     App-Group envelope IPC + blob store, shared with the Share extension. -->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.&lt;team&gt;.everysync.shared</string>
+    </array>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.vayunmathur.everysync.shared</string>
+    </array>
+</dict>
+</plist>
