@@ -82,4 +82,16 @@
     <string name="saf_use_this_folder">Använd den här mappen</string>
     <string name="saf_save">Spara</string>
     <string name="saf_select_count">Välj (<xliff:g id="count" example="3">%1$d</xliff:g>)</string>
+    <string name="trash">Papperskorg</string>
+    <string name="trash_empty">Papperskorgen är tom</string>
+    <string name="trash_auto_delete_note">Objekt raderas permanent efter 30 dagar</string>
+    <string name="restore">Återställ</string>
+    <string name="delete_forever">Radera permanent</string>
+    <string name="empty_trash">Töm papperskorgen</string>
+    <string name="delete_permanently_title">Radera <xliff:g id="count" example="3">%1$d</xliff:g> objekt permanent?</string>
+    <string name="delete_permanently_message">Detta kan inte ångras. Mappar och vissa filer kan inte flyttas till papperskorgen.</string>
+    <string name="moved_to_trash">Flyttade <xliff:g id="count" example="3">%1$d</xliff:g> objekt till papperskorgen</string>
+    <string name="restored_n">Återställde <xliff:g id="count" example="3">%1$d</xliff:g> objekt</string>
+    <string name="deleted_forever_n">Raderade <xliff:g id="count" example="3">%1$d</xliff:g> objekt permanent</string>
+    <string name="trash_request_failed">Kunde inte öppna begäran om papperskorgen</string>
 </resources>
