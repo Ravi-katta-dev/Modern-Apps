@@ -174,4 +174,14 @@
     <string name="calendar_not_found">Kalendrit ei leidu</string>
     <string name="save_this_and_following_events">Salvesta see ja järgmised sündmused</string>
     <string name="edit_occurrence_not_found">Selle korduvuse leidmine ei õnnestunud - mitte midagi ei saanud salvestatud</string>
+    <string name="event_delete_failed">Sündmuse kustutamine ei õnnestunud</string>
+    <string name="reminders">Meeldetuletused</string>
+    <string name="reminder_custom">Sinu seadistatud</string>
+    <string name="reminder_custom_title">Sinu koostatud meeldetuletus</string>
+    <string name="reminder_custom_amount">Kogus</string>
+    <string name="reminder_custom_unit">Ühik</string>
+    <string name="reminder_unit_minutes">Minutid</string>
+    <string name="reminder_unit_hours">Tunnid</string>
+    <string name="reminder_unit_days">Päevad</string>
+    <string name="reminder_unit_weeks">Nädalad</string>
 </resources>
