@@ -61,6 +61,17 @@ private fun currentLensFacing(selectorInt: Int): com.vayunmathur.camera.domain.L
     else com.vayunmathur.camera.domain.LensFacing.BACK
 
 /**
+ * The still-crop ratios in [CameraScreenState.previewAspectRatio] are portrait (3:4, 9:16,
+ * ...). In a landscape window the sensor frame rotates with the device, so the preview
+ * box uses the reciprocal — otherwise a portrait box in a wide window collapses to a
+ * narrow strip down the middle (#827). Pure so it stays unit-testable.
+ */
+internal fun previewRatioForWindow(baseRatio: Float, maxWidth: Float, maxHeight: Float): Float {
+    val isLandscape = maxWidth > maxHeight
+    return if (isLandscape && baseRatio > 0f) 1f / baseRatio else baseRatio
+}
+
+/**
  * The letterboxed viewfinder plus its gesture handling, bokeh/color RenderEffects,
  * grid/level/night overlays, settings column and panorama overlay. Extracted verbatim
  * from [CameraScreen]; behavior identical.
@@ -77,11 +88,15 @@ internal fun BoxWithConstraintsScope.CameraPreviewBox(
 
     // Fit the preview inside the available area (letterboxed) so a tall ratio never
     // overflows onto the top/bottom bars and steals their touch events.
+    // The still-crop ratios in state are portrait (3:4, 9:16, ...). In a landscape
+    // window the sensor frame rotates with the device, so use the reciprocal —
+    // otherwise a portrait box in a wide window collapses to a narrow strip (#827).
+    val previewRatio = previewRatioForWindow(state.previewAspectRatio, maxWidth.value, maxHeight.value)
     val boxAspect = if (maxHeight.value > 0f) maxWidth.value / maxHeight.value else 1f
-    val previewSize = if (state.previewAspectRatio > boxAspect) {
-        Modifier.fillMaxWidth().aspectRatio(state.previewAspectRatio)
+    val previewSize = if (previewRatio > boxAspect) {
+        Modifier.fillMaxWidth().aspectRatio(previewRatio)
     } else {
-        Modifier.fillMaxHeight().aspectRatio(state.previewAspectRatio)
+        Modifier.fillMaxHeight().aspectRatio(previewRatio)
     }
     // RuntimeShader and the runtime-shader RenderEffect are API 33+. On older
     // releases the portrait preview renders without the background blur.
