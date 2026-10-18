@@ -66,6 +66,27 @@ impl GlesRenderer {
         height: u32,
     ) -> Result<Self, String> {
         let egl = unsafe { Egl::new(window)? };
+        // Validate the loader BEFORE the first real GL call: glow loads
+        // lazily, so a null entry point only explodes inside the driver
+        // (SIGSEGV in libGLES_mali, no EGL error). Fail to Err here and the
+        // caller keeps the placeholder instead of crashing.
+        for name in [
+            "glCreateShader",
+            "glShaderSource",
+            "glCompileShader",
+            "glCreateProgram",
+            "glLinkProgram",
+            "glGenBuffers",
+            "glBindBuffer",
+            "glBufferData",
+            "glGenVertexArrays",
+            "glBindVertexArray",
+            "glViewport",
+            "glClearColor",
+            "glClear",
+        ] {
+            egl.require_proc(name)?;
+        }
         let gl = unsafe {
             glow::Context::from_loader_function(|name| egl.proc_address(name) as *const _)
         };

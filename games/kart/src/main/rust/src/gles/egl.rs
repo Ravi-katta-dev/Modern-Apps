@@ -22,7 +22,7 @@ use std::os::raw::c_void;
 type Api = egl::DynamicInstance<egl::EGL1_4>;
 
 /// Config attributes: 8-bit RGBA, 24-bit depth, ES3-renderable window surface.
-const CONFIG_ATTRIBS: &[egl::Int] = &[
+const CONFIG_ATTRIBS_D24: &[egl::Int] = &[
     egl::RED_SIZE,
     8,
     egl::GREEN_SIZE,
@@ -33,6 +33,44 @@ const CONFIG_ATTRIBS: &[egl::Int] = &[
     8,
     egl::DEPTH_SIZE,
     24,
+    egl::RENDERABLE_TYPE,
+    egl::OPENGL_ES3_BIT,
+    egl::SURFACE_TYPE,
+    egl::WINDOW_BIT,
+    egl::NONE,
+];
+
+/// Fallback: same color, 16-bit depth (some Mali drivers only back D16
+/// window configs despite advertising D24).
+const CONFIG_ATTRIBS_D16: &[egl::Int] = &[
+    egl::RED_SIZE,
+    8,
+    egl::GREEN_SIZE,
+    8,
+    egl::BLUE_SIZE,
+    8,
+    egl::ALPHA_SIZE,
+    8,
+    egl::DEPTH_SIZE,
+    16,
+    egl::RENDERABLE_TYPE,
+    egl::OPENGL_ES3_BIT,
+    egl::SURFACE_TYPE,
+    egl::WINDOW_BIT,
+    egl::NONE,
+];
+
+/// Last resort: RGB565 + D16. The shaders carry no alpha dependency, so this
+/// renders identically on a TV.
+const CONFIG_ATTRIBS_565: &[egl::Int] = &[
+    egl::RED_SIZE,
+    5,
+    egl::GREEN_SIZE,
+    6,
+    egl::BLUE_SIZE,
+    5,
+    egl::DEPTH_SIZE,
+    16,
     egl::RENDERABLE_TYPE,
     egl::OPENGL_ES3_BIT,
     egl::SURFACE_TYPE,
@@ -76,13 +114,23 @@ impl Egl {
             .ok_or_else(|| "eglGetDisplay failed".to_string())?;
         api.initialize(display)
             .map_err(|e| format!("eglInitialize: {e:?}"))?;
+        // Try configs richest-first: a single hard-coded config dies inside
+        // some Mali drivers when the window system cannot back it (SIGSEGV in
+        // libGLES_mali, not an EGL error). First config that yields BOTH a
+        // config AND a live window surface wins.
         let mut configs = Vec::with_capacity(1);
-        api.choose_config(display, CONFIG_ATTRIBS, &mut configs)
-            .map_err(|e| format!("eglChooseConfig: {e:?}"))?;
-        let config = configs
-            .first()
-            .copied()
-            .ok_or_else(|| "no ES3 window EGL config".to_string())?;
+        let mut config = None;
+        for attribs in [CONFIG_ATTRIBS_D24, CONFIG_ATTRIBS_D16, CONFIG_ATTRIBS_565] {
+            configs.clear();
+            if api.choose_config(display, attribs, &mut configs).is_err() {
+                continue;
+            }
+            if let Some(&c) = configs.first() {
+                config = Some(c);
+                break;
+            }
+        }
+        let config = config.ok_or_else(|| "no ES3 window EGL config".to_string())?;
         let mut egl = Self {
             api,
             display,
@@ -143,6 +191,18 @@ impl Egl {
             .get_proc_address(name)
             .map(|f| f as *const c_void)
             .unwrap_or(std::ptr::null())
+    }
+
+    /// Fail cleanly when the driver did not resolve a core entry point.
+    /// Some 32-bit Mali drivers return null from `eglGetProcAddress` for
+    /// functions they only expose via versioned lookup; calling through null
+    /// SIGSEGVs inside `libGLES_mali` (fault addr near zero) with no EGL
+    /// error to catch. Probe before the first real GL call instead.
+    pub fn require_proc(&self, name: &str) -> Result<(), String> {
+        if self.proc_address(name).is_null() {
+            return Err(format!("eglGetProcAddress({name}) returned null"));
+        }
+        Ok(())
     }
 
     /// Unbind, destroy surface/context, terminate the display. Idempotent.
