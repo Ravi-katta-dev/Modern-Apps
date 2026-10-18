@@ -48,4 +48,27 @@
     <string name="lens_mono">Mono</string>
     <string name="lens_front">Främre</string>
     <string name="lens_picker_description">Kameralins</string>
+    <string name="mode_photo">Foto</string>
+    <string name="mode_portrait">Porträtt</string>
+    <string name="mode_panorama">Panorama</string>
+    <string name="mode_photosphere">Sfär</string>
+    <string name="mode_video">Video</string>
+    <string name="mode_slo_mo">Slow motion</string>
+    <string name="mode_cinematic">Filmisk</string>
+    <string name="mode_timelapse">Intervallfilm</string>
+    <string name="settings_noise_reduction">Brusreducering</string>
+    <string name="settings_noise_reduction_description">Minska brus i foton och videor (stäng av för obehandlade detaljer)</string>
+    <string name="settings_edge_sharpening">Kantskärpning</string>
+    <string name="settings_edge_sharpening_description">Gör kanterna skarpare i foton och videor (stäng av för ett naturligt utseende)</string>
+    <string name="settings_motion_duration">Längd på rörligt foto</string>
+    <string name="motion_duration_1s">%1$d sekund</string>
+    <string name="motion_duration_ns">%1$d sekunder</string>
+    <string name="esim_qr_result">QR-kod för eSIM</string>
+    <string name="add_esim">Lägg till eSIM</string>
+    <string name="no_app_to_add_esim">Ingen app kan lägga till detta eSIM</string>
+    <string name="settings_save_location">Sparplats</string>
+    <string name="settings_save_location_default">DCIM/Kamera</string>
+    <string name="settings_save_location_choose">Välj mapp</string>
+    <string name="settings_save_location_reset">Återställ till standard</string>
+    <string name="settings_save_location_error">Det gick inte att använda den mappen</string>
 </resources>
