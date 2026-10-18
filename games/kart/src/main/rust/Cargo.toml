@@ -15,3 +15,11 @@ ash = { workspace = true, default-features = false, features = ["loaded"] }
 glam = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+# GLES fallback for Vulkan-less devices (ONN 4K box, Mali-G31, armeabi-v7a):
+# glow 0.13 loads GL symbols via eglGetProcAddress; khronos-egl 6 (the plan's
+# "0.1" pin was never published) provides the EGL display/surface/context
+# wrappers. `dynamic` (dlopen at runtime) — NOT `static`: that feature probes
+# pkg-config for egl at build time, which fails for Android cross-compiles and
+# on hosts without system EGL (e.g. Windows dev machines).
+glow = "0.13"
+khronos-egl = { version = "6", features = ["dynamic"] }

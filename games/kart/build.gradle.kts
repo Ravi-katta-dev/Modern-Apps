@@ -15,6 +15,13 @@ android {
     }
 }
 
+// ONN 4K box (32-bit armeabi-v7a userspace, Mali-G31, no Vulkan): the GLES
+// fallback in src/main/rust/gles renders 3D there. Same arrangement as
+// :cast:tv + :library:e2ee-p2p (the only armv7 precedent in the tree).
+nativeAbis {
+    armv7 = true
+}
+
 androidComponents {
     onVariants { variant ->
         variant.sources.jniLibs?.addStaticSourceDirectory(
@@ -28,7 +35,10 @@ androidComponents {
 // KartNative.isAvailable gates every call, so devices without the .so run the
 // placeholder race. Listing images are hand-captured (Layoutlib can't render
 // the Vulkan surface); see the plan's verification notes.
-rustNativeLib("kart_engine", "kart")
+// armeabi-v7a as well as arm64: the ONN box runs this app directly on 32-bit
+// Google TV hardware. Only kart_engine opts in (:library:e2ee-p2p precedent) —
+// no other native module changes.
+rustNativeLib("kart_engine", "kart", extraAbis = listOf(ABI_ARMV7))
 
 dependencies {
     implementation(project(":sdk:games"))

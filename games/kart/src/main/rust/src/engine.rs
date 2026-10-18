@@ -6,9 +6,11 @@
 //! chase camera, draw. Everything fallible returns `Option`/`Result` — the
 //! JNI boundary logs and keeps the placeholder running rather than crashing.
 
+use crate::gles::renderer::GlesRenderer;
 use crate::mesh::{self, KartVertex};
 use crate::physics::DriveInput;
 use crate::race::Race;
+use crate::renderer::Renderer;
 use crate::vulkan::context::{ANativeWindow, VulkanContext};
 use crate::vulkan::renderer::KartRenderer;
 use std::sync::{Mutex, OnceLock};
@@ -22,7 +24,7 @@ pub struct EngineState {
     /// The live race (created by `start_race`).
     pub race: Option<Race>,
     /// The renderer (created by `create_renderer`).
-    pub renderer: Option<KartRenderer>,
+    pub renderer: Option<Renderer>,
     /// Static track vertex count (from the last `upload_track`).
     pub track_count: usize,
     /// Pending human inputs by seat, written by the JNI setters and consumed
@@ -153,8 +155,10 @@ fn escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// Create the renderer for a live window. Fails cleanly (None) — the Kotlin
-/// side keeps the placeholder when this returns false.
+/// Create the renderer for a live window. Tries Vulkan first, then GLES;
+/// fails cleanly (None) — the Kotlin side keeps the placeholder when this
+/// returns false. The winning backend is logged to logcat (`kart_engine` tag)
+/// so device triage can see which path engaged.
 ///
 /// # Safety
 /// `window` must be a live `ANativeWindow` adopted from the JNI surface (the
@@ -164,15 +168,25 @@ pub unsafe fn create_renderer(window: *mut ANativeWindow, width: i32, height: i3
         state.window_ptr = Some(window);
         state.width = width.max(1) as u32;
         state.height = height.max(1) as u32;
-        let ctx = match unsafe { VulkanContext::new(window, width, height) } {
-            Ok(c) => c,
-            Err(_) => return false,
-        };
-        let renderer = match unsafe {
-            KartRenderer::new(ctx, state.width, state.height)
-        } {
-            Ok(r) => r,
-            Err(_) => return false,
+        let mut renderer = match try_vulkan(window, width, height, state.width, state.height) {
+            Ok(r) => {
+                log_backend("Vulkan");
+                r
+            }
+            Err(vulkan_err) => match unsafe {
+                GlesRenderer::new(window, state.width, state.height)
+            } {
+                Ok(r) => {
+                    log_backend(&format!("GLES (Vulkan init failed: {vulkan_err})"));
+                    Renderer::Gles(r)
+                }
+                Err(gles_err) => {
+                    log_backend(&format!(
+                        "no renderer (Vulkan: {vulkan_err}; GLES: {gles_err})"
+                    ));
+                    return false;
+                }
+            },
         };
         // A race may already be live (surface recreated on rotation): upload.
         if state.race.is_some() {
@@ -187,8 +201,59 @@ pub unsafe fn create_renderer(window: *mut ANativeWindow, width: i32, height: i3
     .unwrap_or(false)
 }
 
-/// Resize: recreate the swapchain at the new size. If recreation fails the
-/// renderer is dropped and the next frame re-creates it (placeholder covers).
+/// Try the Vulkan path, returning the error string on failure (for the
+/// logcat fallback line). Ownership of `window` stays with the engine either
+/// way — the caller releases it when creation fails overall.
+///
+/// # Safety
+/// Same contract as [`create_renderer`].
+unsafe fn try_vulkan(
+    window: *mut ANativeWindow,
+    width: i32,
+    height: i32,
+    state_width: u32,
+    state_height: u32,
+) -> Result<Renderer, String> {
+    let ctx = match unsafe { VulkanContext::new(window, width, height) } {
+        Ok(c) => c,
+        Err(e) => return Err(format!("context: {e}")),
+    };
+    match unsafe { KartRenderer::new(ctx, state_width, state_height) } {
+        Ok(r) => Ok(Renderer::Vulkan(r)),
+        Err(e) => Err(format!("renderer: {e}")),
+    }
+}
+
+/// One logcat line naming the winning backend (the `kart_engine` tag the
+/// plan's triage filters on). `__android_log_print` on device; `eprintln` on
+/// host builds and tests so the selection stays visible off-device.
+fn log_backend(msg: &str) {
+    #[cfg(target_os = "android")]
+    unsafe {
+        use std::ffi::CString;
+        use std::os::raw::{c_char, c_int};
+        extern "C" {
+            fn __android_log_print(prio: c_int, tag: *const c_char, fmt: *const c_char, ...) -> c_int;
+        }
+        // ANDROID_LOG_INFO = 4.
+        if let (Ok(tag), Ok(line), Ok(fmt)) = (
+            CString::new("kart_engine"),
+            CString::new(format!("backend: {msg}")),
+            CString::new("%s"),
+        ) {
+            __android_log_print(4, tag.as_ptr(), fmt.as_ptr(), line.as_ptr());
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        eprintln!("kart_engine backend: {msg}");
+    }
+}
+
+/// Resize: Vulkan recreates the swapchain at the new size; GLES re-creates
+/// the EGL surface on the same context (GL objects survive, no re-upload).
+/// If recreation fails the renderer is dropped and the next frame re-creates
+/// it (placeholder covers).
 pub fn resize_renderer(width: i32, height: i32) {
     with_engine(|state| {
         state.width = width.max(1) as u32;
@@ -201,6 +266,20 @@ pub fn resize_renderer(width: i32, height: i32) {
                     return;
                 }
             };
+            match &mut r {
+                Renderer::Gles(g) => {
+                    match unsafe { g.resize(window, state.width, state.height) } {
+                        Ok(()) => {
+                            state.renderer = Some(r);
+                        }
+                        Err(_) => {
+                            unsafe { r.destroy() };
+                        }
+                    }
+                    return;
+                }
+                Renderer::Vulkan(_) => {}
+            }
             let ctx = match unsafe { VulkanContext::new(window, width, height) } {
                 Ok(c) => c,
                 Err(_) => {
@@ -210,6 +289,7 @@ pub fn resize_renderer(width: i32, height: i32) {
             };
             match unsafe { KartRenderer::new(ctx, state.width, state.height) } {
                 Ok(fresh) => {
+                    let mut fresh = Renderer::Vulkan(fresh);
                     let mesh = mesh::build_track_mesh();
                     state.track_count = mesh.len();
                     unsafe { fresh.upload_track(&mesh) };
@@ -247,8 +327,8 @@ pub fn destroy_engine() {
     if let Some(mut state) = guard.take() {
         if let Some(mut r) = state.renderer.take() {
             unsafe { r.destroy() };
-            // The context owns instance/device; release them too.
-            r.ctx.destroy();
+            // The context owns instance/device; release them too (GLES: no-op).
+            r.destroy_context();
         }
         if let Some(win) = state.window_ptr.take() {
             unsafe { crate::vulkan::context::ANativeWindow_release(win) };
@@ -306,9 +386,9 @@ pub fn tick_and_render() {
         let view_proj = view_proj_for(
             cam_pos,
             look,
-            renderer.width,
-            renderer.height,
-            renderer.swap.pre_rotation(),
+            renderer.width(),
+            renderer.height(),
+            renderer.pre_rotation(),
         );
         let track_count = s.track_count;
         let _ = unsafe { renderer.draw(view_proj, cam_pos, track_count, &dynamic) };

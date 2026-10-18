@@ -6,10 +6,12 @@
 //! native methods receive `EnvUnowned` and adapt via `with_env`.
 
 pub mod engine;
+pub mod gles;
 pub mod items;
 pub mod mesh;
 pub mod physics;
 pub mod race;
+pub mod renderer;
 pub mod track;
 pub mod vulkan;
 
