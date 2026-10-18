@@ -196,4 +196,14 @@
     <string name="calendar_not_found">Nie znaleziono kalendarza</string>
     <string name="save_this_and_following_events">Zapisz to i przyszłe wydarzenia</string>
     <string name="edit_occurrence_not_found">Nie znaleziono tego powtórzenia — nic nie zapisano</string>
+    <string name="event_delete_failed">Nie udało się usunąć wydarzenia</string>
+    <string name="reminders">Przypomnienia</string>
+    <string name="reminder_custom">Niestandardowy</string>
+    <string name="reminder_custom_title">Niestandardowe przypomnienie</string>
+    <string name="reminder_custom_amount">Wartość</string>
+    <string name="reminder_custom_unit">Jednostka</string>
+    <string name="reminder_unit_minutes">Minuty</string>
+    <string name="reminder_unit_hours">Godziny</string>
+    <string name="reminder_unit_days">Dni</string>
+    <string name="reminder_unit_weeks">Tygodnie</string>
 </resources>
