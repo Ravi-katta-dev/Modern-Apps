@@ -74,7 +74,7 @@
     <string name="repeat_add_date">Lägg till datum</string>
     <plurals name="repeat_dates_summary">
         <item quantity="one">På <xliff:g id="count" example="1">%1$d</xliff:g> datum</item>
-        <item quantity="other">På <xliff:g id="count" example="1">%1$d</xliff:g> datum</item>
+        <item quantity="other">På <xliff:g id="count" example="4">%1$d</xliff:g> datum</item>
     </plurals>
     <string name="new_local_calendar">Ny lokal kalender</string>
     <string name="calendar_name">Kalendernamn</string>
@@ -118,40 +118,40 @@
     <string name="apply_to_existing_events">Tillämpa på befintliga händelser</string>
     <plurals name="reminder_days_before">
         <item quantity="one"><xliff:g id="count" example="1">%1$d</xliff:g> dag före</item>
-        <item quantity="other"><xliff:g id="count" example="1">%1$d</xliff:g> dagar före</item>
+        <item quantity="other"><xliff:g id="count" example="3">%1$d</xliff:g> dagar före</item>
     </plurals>
     <plurals name="reminder_hours_before">
         <item quantity="one"><xliff:g id="count" example="1">%1$d</xliff:g> timme före</item>
-        <item quantity="other"><xliff:g id="count" example="1">%1$d</xliff:g> timmar före</item>
+        <item quantity="other"><xliff:g id="count" example="5">%1$d</xliff:g> timmar före</item>
     </plurals>
     <plurals name="reminder_minutes_before">
         <item quantity="one"><xliff:g id="count" example="1">%1$d</xliff:g> minut före</item>
-        <item quantity="other"><xliff:g id="count" example="1">%1$d</xliff:g> minuter före</item>
+        <item quantity="other"><xliff:g id="count" example="15">%1$d</xliff:g> minuter före</item>
     </plurals>
     <string name="rrule_daily">Dagligen</string>
     <plurals name="rrule_every_days">
         <item quantity="one">Var <xliff:g id="count" example="1">%1$d</xliff:g>:e dag</item>
-        <item quantity="other">Var <xliff:g id="count" example="1">%1$d</xliff:g>:e dag</item>
+        <item quantity="other">Var <xliff:g id="count" example="3">%1$d</xliff:g>:e dag</item>
     </plurals>
     <string name="rrule_weekly">Veckovis</string>
     <plurals name="rrule_every_weeks">
         <item quantity="one">Var <xliff:g id="count" example="1">%1$d</xliff:g>:e vecka</item>
-        <item quantity="other">Var <xliff:g id="count" example="1">%1$d</xliff:g>:e vecka</item>
+        <item quantity="other">Var <xliff:g id="count" example="2">%1$d</xliff:g>:e vecka</item>
     </plurals>
     <string name="rrule_monthly">Månadsvis</string>
     <plurals name="rrule_every_months">
         <item quantity="one">Var <xliff:g id="count" example="1">%1$d</xliff:g>:e månad</item>
-        <item quantity="other">Var <xliff:g id="count" example="1">%1$d</xliff:g>:e månad</item>
+        <item quantity="other">Var <xliff:g id="count" example="6">%1$d</xliff:g>:e månad</item>
     </plurals>
     <string name="rrule_yearly">Årligen</string>
     <plurals name="rrule_every_years">
         <item quantity="one">Var <xliff:g id="count" example="1">%1$d</xliff:g>:e år</item>
-        <item quantity="other">Var <xliff:g id="count" example="1">%1$d</xliff:g>:e år</item>
+        <item quantity="other">Var <xliff:g id="count" example="2">%1$d</xliff:g>:e år</item>
     </plurals>
     <string name="rrule_on_days"><xliff:g id="frequency" example="Weekly">%1$s</xliff:g> på <xliff:g id="days" example="Mon, Wed">%2$s</xliff:g></string>
     <plurals name="rrule_count_suffix">
         <item quantity="one">, <xliff:g id="count" example="1">%1$d</xliff:g> gång</item>
-        <item quantity="other">, <xliff:g id="count" example="1">%1$d</xliff:g> gånger</item>
+        <item quantity="other">, <xliff:g id="count" example="5">%1$d</xliff:g> gånger</item>
     </plurals>
     <string name="rrule_until_suffix">, till och med <xliff:g id="date" example="Dec 31, 2025">%1$s</xliff:g></string>
     <string name="widget_preview_event_1_title">Daglig avstämning</string>
@@ -169,4 +169,19 @@
         <item quantity="one">+<xliff:g id="count" example="1">%1$d</xliff:g> till</item>
         <item quantity="other">+<xliff:g id="count" example="3">%1$d</xliff:g> till</item>
     </plurals>
+    <string name="event_delete_failed">Det gick inte att ta bort händelsen</string>
+    <string name="save_this_event">Spara den här händelsen</string>
+    <string name="save_this_and_following_events">Spara den här och följande händelser</string>
+    <string name="save_all_events">Spara alla händelser</string>
+    <string name="edit_occurrence_not_found">Det gick inte att hitta den här förekomsten – inget sparades</string>
+    <string name="calendar_not_found">Kalendern hittades inte</string>
+    <string name="reminders">Påminnelser</string>
+    <string name="reminder_custom">Anpassad</string>
+    <string name="reminder_custom_title">Anpassad påminnelse</string>
+    <string name="reminder_custom_amount">Antal</string>
+    <string name="reminder_custom_unit">Enhet</string>
+    <string name="reminder_unit_minutes">Minuter</string>
+    <string name="reminder_unit_hours">Timmar</string>
+    <string name="reminder_unit_days">Dagar</string>
+    <string name="reminder_unit_weeks">Veckor</string>
 </resources>
