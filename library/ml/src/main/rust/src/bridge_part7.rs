@@ -1,15 +1,17 @@
 fn encode_gemma4<'l>(
-    env: &Env,
+    env: &mut Env,
     handle: &Gemma4Handle,
     text: &str,
     specials: &JObjectArray<'l>,
 ) -> Result<Vec<i32>, String> {
     let table = Table::parse_with(&handle.tokenizer, GEMMA)?;
-    let count = env.get_array_length(specials).map_err(|e| format!("{e}"))?;
-    let mut owned = Vec::with_capacity(count as usize);
+    let count = specials.len(env).map_err(|e| format!("{e}"))?;
+    let mut owned = Vec::with_capacity(count);
     for index in 0..count {
-        let item = env.get_object_array_element(specials, index).map_err(|e| format!("{e}"))?;
-        let item: JString = item.into();
+        let item = specials.get_element(env, index).map_err(|e| format!("{e}"))?;
+        // Convert to an owned String within this statement so the borrowing
+        // `JavaStr` is dropped before the next `get_element` call.
+        let item: JString = env.cast_local::<JString>(item).map_err(|e| format!("{e}"))?;
         let text = item.try_to_string(env).map_err(|e| format!("{e}"))?;
         owned.push(text);
     }

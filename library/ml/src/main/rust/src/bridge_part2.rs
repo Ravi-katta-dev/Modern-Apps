@@ -192,10 +192,10 @@ pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_setSupert
     _class: JClass<'l>,
     handle: jlong,
     style: JByteArray<'l>,
-) -> jni::sys::jboolean {
-    env.with_env(|env| -> jni::errors::Result<jni::sys::jboolean> {
+) -> bool {
+    env.with_env(|env| -> jni::errors::Result<bool> {
         if handle == 0 {
-            return Ok(0);
+            return Ok(false);
         }
         // SAFETY: as `synthesizeSupertonic` — the caller guarantees the handle is live and serialises
         // this against `destroySupertonic`.
@@ -207,11 +207,11 @@ pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_setSupert
         Ok(match read {
             Ok(voice) => {
                 state.voice = voice;
-                1
+                true
             }
             Err(e) => {
                 log(&format!("cannot change voice: {e}"));
-                0
+                false
             }
         })
     })

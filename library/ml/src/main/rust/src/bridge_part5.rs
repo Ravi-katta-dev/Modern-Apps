@@ -332,9 +332,9 @@ pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_destroyWh
     drop(unsafe { Box::from_raw(handle as *mut WhisperHandle) });
 }
 
-fn new_int_array(env: &Env, values: &[i32]) -> Result<jintArray, String> {
+fn new_int_array(env: &mut Env, values: &[i32]) -> Result<jintArray, String> {
     let array: JIntArray = env
-        .new_int_array(values.len() as jint)
+        .new_int_array(values.len())
         .map_err(|e| format!("new_int_array: {e}"))?;
     env.set_int_array_region(&array, 0, values)
         .map_err(|e| format!("set_int_array_region: {e}"))?;
@@ -342,32 +342,32 @@ fn new_int_array(env: &Env, values: &[i32]) -> Result<jintArray, String> {
 }
 
 fn read_float_array(env: &Env, array: &JFloatArray) -> Result<Vec<f32>, String> {
-    let len = env.get_array_length(array).map_err(|e| format!("array length: {e}"))?;
-    let mut out = vec![0.0f32; len.max(0) as usize];
+    let len = array.len(env).map_err(|e| format!("array length: {e}"))?;
+    let mut out = vec![0.0f32; len];
     env.get_float_array_region(array, 0, &mut out)
         .map_err(|e| format!("get_float_array_region: {e}"))?;
     Ok(out)
 }
 
 fn read_int_array(env: &Env, array: &JIntArray) -> Result<Vec<i32>, String> {
-    let len = env.get_array_length(array).map_err(|e| format!("array length: {e}"))?;
-    let mut out = vec![0i32; len.max(0) as usize];
+    let len = array.len(env).map_err(|e| format!("array length: {e}"))?;
+    let mut out = vec![0i32; len];
     env.get_int_array_region(array, 0, &mut out)
         .map_err(|e| format!("get_int_array_region: {e}"))?;
     Ok(out)
 }
 
 fn read_short_array(env: &Env, array: &JShortArray) -> Result<Vec<i16>, String> {
-    let len = env.get_array_length(array).map_err(|e| format!("array length: {e}"))?;
-    let mut out = vec![0i16; len.max(0) as usize];
+    let len = array.len(env).map_err(|e| format!("array length: {e}"))?;
+    let mut out = vec![0i16; len];
     env.get_short_array_region(array, 0, &mut out)
         .map_err(|e| format!("get_short_array_region: {e}"))?;
     Ok(out)
 }
 
-fn new_float_array(env: &Env, values: &[f32]) -> Result<jfloatArray, String> {
+fn new_float_array(env: &mut Env, values: &[f32]) -> Result<jfloatArray, String> {
     let array: JFloatArray = env
-        .new_float_array(values.len() as jint)
+        .new_float_array(values.len())
         .map_err(|e| format!("new_float_array: {e}"))?;
     env.set_float_array_region(&array, 0, values)
         .map_err(|e| format!("set_float_array_region: {e}"))?;
