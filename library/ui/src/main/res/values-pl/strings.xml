@@ -67,4 +67,115 @@
     <string name="continue_label">Kontynuuj</string>
     <string name="retry">Ponów</string>
     <string name="back">Wstecz</string>
+    <string name="play">Odtwórz</string>
+    <string name="next">Dalej</string>
+    <string name="none">Brak</string>
+    <string name="location">Lokalizacja</string>
+    <string name="call">Zadzwoń</string>
+    <string name="home">Domowy</string>
+    <string name="easy">Łatwy</string>
+    <string name="medium">Średni</string>
+    <string name="hard">Trudny</string>
+    <string name="next_level">Następny poziom</string>
+    <string name="daily_challenge">Codzienne wyzwanie</string>
+    <string name="new_game">Nowa gra</string>
+    <string name="restart">Restart</string>
+    <string name="dismiss">Odrzuć</string>
+    <string name="off">Wyłączone</string>
+    <string name="settings_reminders">Przypomnienia</string>
+    <string name="setting_daily_reminder">Codzienne przypomnienie o łamigłówce</string>
+    <string name="setting_daily_reminder_hint">Powiadamiaj mnie, jeśli nie zagram w dzisiejszą łamigłówkę</string>
+    <string name="setting_daily_reminder_time">Czas przypomnienia</string>
+    <string name="compass_low_accuracy_title">Niska dokładność kompasu</string>
+    <string name="compass_calibrate_figure_8">Poruszaj telefonem na kształt cyfry 8, aby skalibrować</string>
+    <string name="ringtone_default_named"><xliff:g id="default_label" example="Domyślny">%1$s</xliff:g> (<xliff:g id="sound_name" example="Marimba">%2$s</xliff:g>)</string>
+    <string name="share_vault_title">Udostępnij sejf</string>
+    <string name="share_vault_members">Członkowie</string>
+    <string name="share_vault_you">ty</string>
+    <string name="share_vault_viewer_note">Masz dostęp. Tylko właściciel może zmieniać ustawienia udostępniania.</string>
+    <string name="share_vault_link">Udostępnij link</string>
+    <string name="share_vault_link_copied">Link do udostępniania skopiowany</string>
+    <string name="share_vault_add_by_device">Dodaj użytkownika za pomocą identyfikatora urządzenia. Osoba ta zatwierdza dodanie poza głównym kanałem komunikacji, a następnie występuje o dostęp za pośrednictwem przesłanego linku.</string>
+    <string name="share_vault_recipient">Identyfikator urządzenia odbiorczego</string>
+    <string name="share_vault_role">Rola</string>
+    <string name="share_vault_role_editor">edytor</string>
+    <string name="share_vault_send_invite">Wyślij zaproszenie</string>
+    <string name="share_vault_requests">Prośby</string>
+    <string name="share_vault_approve">Zatwierdź</string>
+    <string name="share_vault_deny">Odrzuć</string>
+    <string name="share_vault_show_code">Pokaż kod bezpieczeństwa</string>
+    <string name="share_vault_computing">Obliczanie…</string>
+    <string name="share_vault_code_hint">Przed wysłaniem zaproszenia dokonaj weryfikacji z odbiorcą za pomocą niezależnego kanału komunikacji.</string>
+    <string name="share_vault_your_device">Identyfikator urządzenia</string>
+    <string name="share_vault_device_copied">Identyfikator urządzenia skopiowany</string>
+    <plurals name="game_hearts_left">
+        <item quantity="one">Zostało <xliff:g id="count" example="1">%1$d</xliff:g> serce</item>
+        <item quantity="few">Zostały <xliff:g id="count" example="2">%1$d</xliff:g> serca</item>
+        <item quantity="many">Zostało <xliff:g id="count" example="2">%1$d</xliff:g> serc</item>
+        <item quantity="other">Zostało <xliff:g id="count" example="2">%1$d</xliff:g> serc</item>
+    </plurals>
+    <plurals name="game_daily_streak">
+        <item quantity="one">Seria: <xliff:g id="days" example="1">%1$d</xliff:g> dnia</item>
+        <item quantity="few">Seria: <xliff:g id="days" example="2">%1$d</xliff:g> dni</item>
+        <item quantity="many">Seria: <xliff:g id="days" example="5">%1$d</xliff:g> dni</item>
+        <item quantity="other">Seria: <xliff:g id="days" example="5">%1$d</xliff:g> dni</item>
+    </plurals>
+    <string name="game_play_again">Zagraj ponownie</string>
+    <string name="game_back">Wróć</string>
+    <string name="game_time">Czas</string>
+    <string name="game_level">Poziom</string>
+    <string name="game_moves">Ruchy</string>
+    <string name="game_completed">Ukończono</string>
+    <string name="game_daily_challenge">Codzienne wyzwanie</string>
+    <string name="map_unavailable">Mapy nie można wyświetlić na tym urządzeniu.</string>
+    <string name="permission_gate_title">Przyznaj wymagane uprawnienia</string>
+    <string name="permission_grant">Przyznaj</string>
+    <string name="permission_name_other">Uprawnienia</string>
+    <string name="permission_purpose_other">Funkcje aplikacji</string>
+    <string name="permission_name_location">Lokalizacja</string>
+    <string name="permission_purpose_location">Aktualna pozycja</string>
+    <string name="permission_name_background_location">Lokalizacja w tle</string>
+    <string name="permission_purpose_background_location">Pozycja przy zamkniętej aplikacji</string>
+    <string name="permission_name_bluetooth">Bluetooth</string>
+    <string name="permission_purpose_bluetooth">Pobliskie urządzenia Bluetooth</string>
+    <string name="permission_name_wifi">Pobliskie sieci Wi-Fi</string>
+    <string name="permission_purpose_wifi">Pobliskie urządzenia Wi-Fi</string>
+    <string name="permission_name_local_network">Sieć lokalna</string>
+    <string name="permission_purpose_local_network">Urządzenia w sieci lokalnej</string>
+    <string name="permission_name_camera">Aparat</string>
+    <string name="permission_purpose_camera">Zdjęcia i filmy</string>
+    <string name="permission_name_microphone">Mikrofon</string>
+    <string name="permission_purpose_microphone">Nagrywanie dźwięku</string>
+    <string name="permission_name_contacts">Kontakty</string>
+    <string name="permission_purpose_contacts">Nazwy i numery kontaktów</string>
+    <string name="permission_name_phone">Telefon</string>
+    <string name="permission_purpose_phone">Nawiązywanie połączeń</string>
+    <string name="permission_name_calendar">Kalendarz</string>
+    <string name="permission_purpose_calendar">Wydarzenia z kalendarza</string>
+    <string name="permission_name_notifications">Powiadomienia</string>
+    <string name="permission_purpose_notifications">Alerty i aktualizacje</string>
+    <string name="permission_name_audio">Pliki dźwiękowe</string>
+    <string name="permission_purpose_audio">Muzyka na tym urządzeniu</string>
+    <string name="permission_name_photos">Zdjęcia i filmy</string>
+    <string name="permission_purpose_photos">Zdjęcia i filmy na tym urządzeniu</string>
+    <string name="permission_purpose_photos_with_location">Obrazy, wideo oraz ich lokalizacje</string>
+    <string name="permission_name_photo_locations">Lokalizacje zdjęć</string>
+    <string name="permission_purpose_photo_locations">Lokalizacje zapisane wraz ze zdjęciami</string>
+    <string name="permission_name_storage">Pliki</string>
+    <string name="permission_purpose_storage">Pliki na tym urządzeniu</string>
+    <string name="permission_name_exact_alarms">Dokładne alarmy</string>
+    <string name="permission_purpose_exact_alarms">Przypomnienia w określonych momentach</string>
+    <string name="permission_exact_alarms_rationale">Dokładne alarmy są wymagane do przypomnień, które muszą włączać się o precyzyjnie określonej godzinie. Otwórz ustawienia, aby na to zezwolić.</string>
+    <string name="permission_name_all_files">Wszystkie pliki</string>
+    <string name="permission_purpose_all_files">Pliki spoza kolekcji multimediów</string>
+    <string name="permission_name_notification_listener">Dostęp do powiadomień</string>
+    <string name="permission_purpose_notification_listener">Powiadomienia z innych aplikacji</string>
+    <string name="permission_name_vpn">VPN</string>
+    <string name="permission_purpose_vpn">Zatwierdź połączenie VPN</string>
+    <string name="permission_name_full_screen_intent">Alerty pełnoekranowe</string>
+    <string name="permission_purpose_full_screen_intent">Alarmy nad ekranem blokady</string>
+    <string name="permission_name_manage_media">Zarządzanie multimediami</string>
+    <string name="permission_purpose_manage_media">Edytowanie i usuwanie zdjęć oraz filmów</string>
+    <string name="permission_name_health_connect">Dane o zdrowiu</string>
+    <string name="permission_purpose_health_connect">Odczytywanie i zapisywanie danych medycznych</string>
 </resources>
