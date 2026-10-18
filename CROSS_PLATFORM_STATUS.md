@@ -10,9 +10,10 @@ target re-derives them.
 |-------|-------|--------|
 | 1 — core | Shared KMP sync brain (`library/everysync-core`): relay merge, vault policy, DTOs, iCal/vCard formats, PQC transport surface | DONE (`6eb6023d2`, `5ff387959`, `82a121367`) |
 | 1D — bindings | Platform actuals: OkHttp (Android/JVM), Darwin (Apple), JNI/JNA PQC, secure stores, scheduler | DONE |
-| 2 — desktop shells | JVM providers binding `sinks/` interfaces to EDS `libecal`/`libebook` (Linux) and `AppointmentStore`/`ContactStore` read-only v1 + Notes-view todos (Windows) | planned (`desktop/`) |
+| 2 — desktop providers | JVM `sinks/` over EDS `libecal`/`libebook` (Linux, file-backed + JNA stub) and read-only `AppointmentStore`/`ContactStore` + Notes-view todos (Windows v1); KDBX round-trip + todos-in-Notes + EDS sink tests green (`6cbdeaaab`); pre-existing `NoteSync.syncChannel` log-fold bug fixed in the same commit | DONE (device runs open: native EDS link, Windows store wiring, live-relay per target) |
 | 2c/3b — system sinks (this change) | `sinks/SystemSinks.kt` interface docs: `CalendarSystemSink`, `ContactsSystemSink`, `TodoSystemSink` over existing `SyncSink<T>` | DONE |
-| 3 — Apple shells | Swift/KMP providers binding `sinks/` to EventKit `EKEvent`/`EKReminder` + `CNContactStore` | planned (`apple/`) |
+| 3 — Apple providers | Swift shells + `Shared/` IPC/crypto/scheduler + `XCFramework/` build spec (cinterop `.def`, ref header, build script, iOS-actuals notes) + sink bindings (`EKReminder`/`CNContactStore`/`EKEvent`) + E2E checklist (`5c3d6ef20`); Kotlin `iosMain` actuals + `xcodebuild` + simulator conformance need a Mac | DONE (Mac-side work open) |
+| live-relay | scripted `LiveRelayConformanceTest` runner + sign-off table (`595d3d714`); staging `POST /personal/*` returns 404 (routes undeployed) — 6 local steps PASS, 6 relay steps BLOCKED with exact evidence | PARTIAL (needs relay redeploy, then re-run) |
 
 ## Relay contract
 
