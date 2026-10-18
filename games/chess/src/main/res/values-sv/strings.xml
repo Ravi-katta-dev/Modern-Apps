@@ -18,7 +18,7 @@
     <string name="white_wins">Schackmatt! Vit vinner.</string>
     <string name="black_wins">Schackmatt! Svart vinner.</string>
     <string name="stalemate">Patt! Partiet är remi.</string>
-    <string name="draw_insufficient_material">Remi — otillräckligt material.</string>
+    <string name="draw_insufficient_material">Remi: otillräckligt material.</string>
     <string name="piece_white_king">Vit kung</string>
     <string name="piece_white_queen">Vit dam</string>
     <string name="piece_white_rook">Vitt torn</string>
@@ -34,23 +34,23 @@
     <string name="tab_play">Spela</string>
     <string name="tab_puzzles">Problem</string>
     <string name="tab_learn">Lär dig</string>
-    <string name="learn_stage_number">Nivå %1$d: %2$s</string>
+    <string name="learn_stage_number">Nivå <xliff:g id="stage_id" example="1">%1$d</xliff:g>: <xliff:g id="stage_title" example="Basics">%2$s</xliff:g></string>
     <string name="learn_lets_go">Kör!</string>
     <string name="learn_next">Nästa</string>
     <string name="learn_retry">Försök igen</string>
     <string name="learn_completed">Bra jobbat!</string>
     <string name="learn_failed">Inte riktigt — försök igen.</string>
-    <string name="learn_stage_complete_n">Nivå %1$d klar</string>
-    <string name="learn_your_score">Din poäng: %1$d</string>
-    <string name="learn_next_stage">Nästa: %1$s</string>
+    <string name="learn_stage_complete_n">Nivå <xliff:g id="stage_id" example="2">%1$d</xliff:g> klar</string>
+    <string name="learn_your_score">Din poäng: <xliff:g id="score" example="350">%1$d</xliff:g></string>
+    <string name="learn_next_stage">Nästa: <xliff:g id="next_stage" example="Tactics">%1$s</xliff:g></string>
     <string name="learn_back_to_menu">Tillbaka till menyn</string>
-    <string name="learn_progress">%1$d/%2$d</string>
-    <string name="puzzle_rating">Betyg %1$d</string>
-    <string name="puzzle_your_move">Din tur — hitta bästa draget.</string>
+    <string name="learn_progress"><xliff:g id="done" example="3">%1$d</xliff:g>/<xliff:g id="total" example="5">%2$d</xliff:g></string>
+    <string name="puzzle_rating">Betyg <xliff:g id="rating" example="1200">%1$d</xliff:g></string>
+    <string name="puzzle_your_move">Din tur. Hitta bästa draget.</string>
     <string name="puzzle_white_to_move">Vit vid draget.</string>
     <string name="puzzle_black_to_move">Svart vid draget.</string>
     <string name="puzzle_solved">Löst!</string>
-    <string name="puzzle_failed">Inte riktigt — försök igen.</string>
+    <string name="puzzle_failed">Inte riktigt. Försök igen.</string>
     <string name="puzzle_next">Nästa problem</string>
     <string name="puzzle_retry">Försök igen</string>
     <string name="puzzle_show_solution">Visa lösning</string>
@@ -58,4 +58,36 @@
     <string name="puzzle_difficulty_medium">Medelsvår</string>
     <string name="puzzle_difficulty_hard">Svår</string>
     <string name="puzzle_loading">Läser in problem …</string>
+    <string name="tab_offline">Spela offline</string>
+    <string name="tab_online">Spela online</string>
+    <string name="online_sign_in">Logga in med Lichess</string>
+    <string name="online_signed_in_as">Inloggad som <xliff:g id="username" example="alice">%1$s</xliff:g></string>
+    <string name="online_sign_out">Logga ut</string>
+    <string name="online_tc_1_0">1+0</string>
+    <string name="online_tc_3_2">3+2</string>
+    <string name="online_tc_5_3">5+3</string>
+    <string name="online_tc_10_0">10+0</string>
+    <string name="online_quick_seek">Snabbsökning</string>
+    <string name="online_seeking">Söker <xliff:g id="time_control" example="3+2">%1$s</xliff:g>…</string>
+    <string name="online_challenge_username">Utmana via användarnamn</string>
+    <string name="online_challenge">Utmaning</string>
+    <string name="online_challenge_sent">Utmaning skickad till <xliff:g id="username" example="alice">%1$s</xliff:g>.</string>
+    <string name="online_challenge_declined">Utmaning avvisad.</string>
+    <string name="online_signing_in">Väntar på godkännande från Lichess…</string>
+    <string name="online_result_resigned">Du gav upp.</string>
+    <string name="online_result_opponent_resigned">Motståndaren gav upp. Du vinner!</string>
+    <string name="online_result_win">Du vinner!</string>
+    <string name="online_result_draw">Remi.</string>
+    <string name="online_result_loss">Du förlorar.</string>
+    <string name="online_back_to_lobby">Tillbaka till lobbyn</string>
+    <string name="online_resign_title">Ge upp det här partiet?</string>
+    <string name="online_resign_confirm">Ge upp</string>
+    <string name="online_abort_title">Avbryt det här partiet?</string>
+    <string name="online_abort_confirm">Avbryt</string>
+    <string name="online_reconnecting">Återansluter…</string>
+    <string name="online_auth_expired">Du loggades ut av Lichess. Logga in igen.</string>
+    <string name="online_matchmaking_failed">Kunde inte starta ett parti. Försök igen.</string>
+    <string name="online_move_failed">Draget skickades inte. Försök igen.</string>
+    <string name="online_sign_in_failed">Det gick inte att logga in. Försök igen.</string>
+    <string name="online_opponent"><xliff:g id="username" example="alice">%1$s</xliff:g></string>
 </resources>
