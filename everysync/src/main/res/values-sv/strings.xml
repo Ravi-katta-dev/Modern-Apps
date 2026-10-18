@@ -17,5 +17,38 @@
     <string name="conflict_lww">Senaste ändringen vinner</string>
     <string name="conflict_remote">Föredra servern</string>
     <string name="conflict_local">Föredra enheten</string>
-    <string name="need_permissions">EverySync behöver åtkomst till kontakter och kalender för att synkronisera dina konton.</string>
+    <string name="need_permissions">EverySync behöver åtkomst till kontakter och kalender för att synkronisera dina valv.</string>
+    <string name="sync_passwords">Synkronisera lösenord</string>
+    <string name="sync_notes">Synkronisera anteckningar</string>
+    <string name="sync_todos">Synkronisera uppgifter</string>
+    <string name="vaults_title">Personliga valv</string>
+    <string name="vault_new_title">Nytt valvnamn</string>
+    <string name="vault_create_contacts">Kontaktvalv</string>
+    <string name="vault_create_calendar">Kalendervalv</string>
+    <string name="vaults_empty">Inga valv ännu. Ange ett namn ovan för att skapa ett ände-till-ände-krypterat valv.</string>
+    <string name="vault_share">Dela</string>
+    <string name="share_link_chooser">Dela länk till valv</string>
+    <string name="invite_sent">Inbjudan skickad</string>
+    <string name="invite_failed">Kunde inte skicka inbjudan</string>
+    <string name="vault_created">Valv skapat</string>
+    <string name="vault_create_failed">Kunde inte skapa valvet</string>
+    <string name="safety_code_failed">Kunde inte beräkna säkerhetskoden</string>
+    <string name="join_request_sending">Skickar begäran om anslutning…</string>
+    <string name="join_request_sent">Begäran om anslutning skickad</string>
+    <string name="join_request_failed">Kunde inte skicka begäran om anslutning</string>
+    <string name="sync_error_pull_failed">Kunde inte nå synkroniseringsservern. Inga ändringar gjordes. Försöker automatiskt igen.</string>
+    <string name="sync_error_undecryptable">Serverdata kunde inte låsas upp med den här valvnyckeln. Inga ändringar gjordes. Kontrollera valvnyckelns epok.</string>
+    <string name="sync_error_local_read">Kunde inte läsa lokala data. Appen kan vara låst. Inga ändringar gjordes. Försöker automatiskt igen.</string>
+    <string name="sync_error_relay_unavailable">Synkroniseringsservern är otillgänglig. Inga ändringar gjordes. Försöker automatiskt igen.</string>
+    <string name="sync_error_hint">Synkroniseringen har pausats säkert: inga data raderades. Den återupptas vid nästa synkronisering.</string>
+    <string name="snapshots_title">Återställningskopior</string>
+    <string name="snapshots_description">En krypterad säkerhetskopia per dag sparas i 30 dagar. Vid återställning spelas en dags ändringar upp via synkroniseringen. Nyare ändringar får företräde vid konflikter.</string>
+    <string name="snapshot_row">%1$s · <xliff:g id="count" example="42">%2$d</xliff:g> poster</string>
+    <string name="snapshot_restore">Återställ</string>
+    <string name="snapshot_take_now">Säkerhetskopiera nu</string>
+    <string name="snapshots_empty">Inga säkerhetskopior ännu. Säkerhetskopior tas varje dag och innan synkronisering stängs av.</string>
+    <string name="snapshot_restore_title">Återställa säkerhetskopia?</string>
+    <string name="snapshot_restore_confirm">Spela upp <xliff:g id="date" example="Oct 13, 2026">%1$s</xliff:g> (<xliff:g id="type" example="passwords">%2$s</xliff:g>) via synkronisering? Nyare ändringar får företräde vid konflikter.</string>
+    <string name="snapshot_restored">Återställde <xliff:g id="count" example="42">%1$d</xliff:g> poster. Synkroniserar med servern…</string>
+    <string name="snapshot_restore_failed">Kunde inte återställa säkerhetskopian.</string>
 </resources>
