@@ -1,5 +1,50 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
     <string name="app_name">الصحة</string>
     <string name="search">البحث</string>
+    <string name="grant_permissions">منح الأذونات</string>
+    <string name="grant_permissions_rationale">هذا التطبيق يقرأ و يكتب بياناتك الصحية من خلال Health Connect. لا شئ يغادر جهازك.</string>
+    <string name="tab_day">اليوم</string>
+    <string name="tab_week">الأسبوع</string>
+    <string name="tab_month">الشهر</string>
+    <string name="tab_year">السنة</string>
+    <string name="no_data_available">لا تتوفر بيانات لهذه الفترة</string>
+    <string name="unit_per_day_avg_format"><xliff:g id="unit" example="steps">%1$s</xliff:g> في اليوم (المتوسط)</string>
+    <string name="unit_only_format"> <xliff:g id="unit" example="steps">%1$s</xliff:g></string>
+    <string name="month_year_format"><xliff:g id="month" example="January">%1$s</xliff:g> <xliff:g id="year" example="2026">%2$d</xliff:g></string>
+    <string name="value_unit_space_format"><xliff:g id="value" example="12,345">%1$s</xliff:g> <xliff:g id="unit" example="steps">%2$s</xliff:g></string>
+    <string name="k_format"><xliff:g id="thousands" example="12">%1$s</xliff:g>ألف</string>
+    <string name="metric_energy_burned">الطاقة المحروقة</string>
+    <string name="metric_active_calories">السعرات الحرارية النشطة</string>
+    <string name="metric_basal_metabolic_rate">معدل الأيض القاعدي</string>
+    <string name="metric_steps">الخطوات</string>
+    <string name="day_initial_sunday">ح</string>
+    <string name="day_initial_monday">ن</string>
+    <string name="day_initial_tuesday">ث</string>
+    <string name="day_initial_wednesday">ر</string>
+    <string name="day_initial_thursday">خ</string>
+    <string name="day_initial_friday">ج</string>
+    <string name="day_initial_saturday">س</string>
+    <string name="metric_distance">المسافة</string>
+    <string name="metric_hydration">الترطيب</string>
+    <string name="metric_height">الارتفاع</string>
+    <string name="metric_weight">الوزن</string>
+    <string name="metric_sleep">النوم</string>
+    <string name="metric_exercise_duration">التمرين</string>
+    <string name="metric_wheelchair_pushes">دفعات الكرسي المتحرك</string>
+    <string name="metric_elevation_gained">الارتفاع المكتسب</string>
+    <string name="metric_floors_climbed">الطوابق التي تم صعودها</string>
+    <string name="metric_blood_pressure">ضغط الدم</string>
+    <string name="metric_blood_glucose">جلوكوز الدم (نسبة السكر)</string>
+    <string name="metric_vo2_max">أقصى معدل استهلاك الأكسجين</string>
+    <string name="metric_breathing_rate">معدل التنفس</string>
+    <string name="metric_oxygen_saturation">تشبُّع الأكسجين</string>
+    <string name="metric_heart_rate">معدل ضربات القلب</string>
+    <string name="metric_body_fat">دهون الجسم</string>
+    <string name="metric_bone_mass">كتلة العظام</string>
+    <string name="metric_skin_temp_variation">تغير درجة حرارة الجلد</string>
+    <string name="metric_resting_heart_rate">معدل ضربات القلب عند الراحة</string>
+    <string name="metric_heart_rate_variability">تقلب معدل ضربات القلب</string>
+    <string name="metric_lean_body_mass">كتلة الجسم الخالية من الدهون</string>
+    <string name="metric_body_water_mass">كتلة ماء الجسم</string>
 </resources>
