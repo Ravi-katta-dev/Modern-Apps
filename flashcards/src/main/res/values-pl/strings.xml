@@ -2,4 +2,5 @@
 <resources>
     <string name="theme_light">Jasny</string>
     <string name="theme_dark">Ciemny</string>
+    <string name="settings_reminders">Przypomnienia</string>
 </resources>
