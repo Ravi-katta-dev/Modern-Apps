@@ -16,4 +16,10 @@
     <string name="recent_languages">Senast använda språk</string>
     <string name="all_languages">Alla språk</string>
     <string name="no_languages_match">Inga språk matchar ”%1$s”</string>
+    <string name="history">Historik</string>
+    <string name="history_empty">Översättningarna du gör visas här</string>
+    <string name="clear_history">Rensa</string>
+    <string name="history_language_pair">%1$s → %2$s</string>
+    <string name="save">Spara</string>
+    <string name="saved">Sparad</string>
 </resources>
