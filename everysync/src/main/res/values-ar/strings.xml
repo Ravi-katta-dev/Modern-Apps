@@ -22,8 +22,41 @@
     <string name="remove_account">إزالة الحساب</string>
     <string name="global_interval">الفاصل الزمني للمزامنة (دقائق)</string>
     <string name="wifi_only">المزامنة عبر Wi-Fi فقط</string>
-    <string name="need_permissions">يحتاج EverySync إلى الوصول لجهات الاتصال والتقويم لمزامنة حساباتك.</string>
+    <string name="need_permissions">EverySync يحتاج الوصول لجهات الاتصال والتقويم لمزامنة خزائنك.</string>
     <string name="everysync_privacy_policy">يقوم EverySync بمزامنة جهات الاتصال، التقويمات وبيانات الصحة بين حساباتك السحابية وهذا الجهاز. يتم تخزين البيانات فقط على هذا الجهاز والخوادم التي تقوم بتكوينها.</string>
     <string name="accounts_title">EverySync</string>
     <string name="dav_login_title">تسجيل الدخول لـ <xliff:g id="provider" example="iCloud">%1$s</xliff:g></string>
+    <string name="sync_passwords">مزامنة كلمات المرور</string>
+    <string name="sync_notes">مزامنة الملاحظات</string>
+    <string name="sync_todos">مزامنة المهام</string>
+    <string name="vaults_title">المخازن الشخصية</string>
+    <string name="vault_new_title">عنوان خزنة جديدة</string>
+    <string name="vault_create_contacts">خزنة جهات الاتصال</string>
+    <string name="vault_create_calendar">خزنة التقويم</string>
+    <string name="vaults_empty">لا خزائن حتى الآن. قم بتسمية واحدة أعلاه لإنشاء خزنة مشفرة من طرف إلى طرف.</string>
+    <string name="vault_share">مشاركة</string>
+    <string name="share_link_chooser">مشاركة رابط الخزنة</string>
+    <string name="invite_sent">تم إرسال الدعوة</string>
+    <string name="invite_failed">تعذّر إرسال الدعوة</string>
+    <string name="vault_created">تم إنشاء الخزنة</string>
+    <string name="vault_create_failed">تعذّر إنشاء الخزنة</string>
+    <string name="safety_code_failed">تعذّر حوسبة رمز الأمان</string>
+    <string name="join_request_sending">جارٍ إرسال طلب الانضمام…</string>
+    <string name="join_request_sent">تم إرسال طلب الانضمام</string>
+    <string name="join_request_failed">تعذّر إرسال طلب الانضمام</string>
+    <string name="sync_error_pull_failed">تعذّر الوصول لخادم المزامنة. لا شيء تم تغييره — ستتم إعادة المحاولة تلقائيًا.</string>
+    <string name="sync_error_undecryptable">تعذّر فتح بيانات الخادم بمفتاح الخزنة هذا. لا شيء تم تغييره — تحقق من فترة مفتاح الخزنة.</string>
+    <string name="sync_error_local_read">تعذّر قراءة البيانات المحلية (قد يكون التطبيق مقفلًا). لا شيء تم تغييره — ستتم إعادة المحاولة تلقائيًا.</string>
+    <string name="sync_error_relay_unavailable">خادم المزامنة غير متاح. لا شيء تم تغييره — ستتم إعادة المحاولة تلقائيًا.</string>
+    <string name="sync_error_hint">تم إيقاف المزامنة مؤقتًا بأمان: لا بيانات تم حذفها. ستتم استئنافه في المزامنة التالية.</string>
+    <string name="snapshots_title">لقطات الاسترداد</string>
+    <string name="snapshots_description">لقطة واحدة مشفرة في اليوم، تُحتفظ لـ ٣٠ يومًا. تؤدي الاستعادة لإعادة تشغيل يوم من خلال المزامنة — لا تزال التعديلات الأحدث هي السائدة في حالة التعارض.</string>
+    <string name="snapshot_row">%1$s · <xliff:g id="count" example="42">%2$d</xliff:g> تسجيلات</string>
+    <string name="snapshot_restore">استعادة</string>
+    <string name="snapshot_take_now">النسخ الاحتياطي الآن</string>
+    <string name="snapshots_empty">لا لقطات بعد. اللقطات تلتقط يوميًا وقبل إيقاف تشغيل المزامنة.</string>
+    <string name="snapshot_restore_title">استعادة اللقطة؟</string>
+    <string name="snapshot_restore_confirm">إعادة تشغيل <xliff:g id="date" example="Oct 13, 2026">%1$s</xliff:g> (<xliff:g id="type" example="passwords">%2$s</xliff:g>) من خلال المزامنة؟ لا تزال التعديلات الأحدث هي السائدة في حالة التعارض.</string>
+    <string name="snapshot_restored">تمت استعادة <xliff:g id="count" example="42">%1$d</xliff:g> تسجيلات. جارٍ التسوية مع الخادم…</string>
+    <string name="snapshot_restore_failed">تعذّر استعادة تلك اللقطة.</string>
 </resources>
