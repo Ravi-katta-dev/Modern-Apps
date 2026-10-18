@@ -59,7 +59,7 @@
     <string name="this_will_permanently_delete_your_browsi">Detta tar permanent bort din webbhistorik.</string>
     <string name="icon">ikon: %1$s</string>
     <string name="theme">tema: %1$s</string>
-    <string name="blank_new_tab_tap_the_address_pill_to_se">Tom ny flik — tryck på adressfältet för att söka. Hela URL:en visas i fältet. Ladda om/rensa finns i det utökade SearchBar-kortet.</string>
+    <string name="blank_new_tab_tap_the_address_pill_to_se">Tom ny flik. Tryck på adressfältet för att söka. Hela URL:en visas i fältet. Ladda om och rensa finns i det utökade SearchBar-kortet.</string>
     <plurals name="tabs">
         <item quantity="one">%1$s flik</item>
         <item quantity="other">%1$s flikar</item>
@@ -121,4 +121,6 @@
     <string name="cleartext_blocked_message">%1$s begärdes via vanlig HTTP. Okrypterade anslutningar tillåts endast till enheter i ditt lokala nätverk.</string>
     <string name="local_network_title">Tillåt åtkomst till lokalt nätverk?</string>
     <string name="local_network_message">%1$s verkar vara en enhet i ditt nätverk. Android behöver behörighet till det lokala nätverket innan sidan kan läsas in.</string>
+    <string name="open_link">Öppna länk</string>
+    <string name="go_forward">Framåt</string>
 </resources>
