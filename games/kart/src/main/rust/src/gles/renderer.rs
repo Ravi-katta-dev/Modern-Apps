@@ -91,6 +91,7 @@ impl GlesRenderer {
             glow::Context::from_loader_function(|name| egl.proc_address(name) as *const _)
         };
         let program = unsafe { shaders::compile_program(&gl)? };
+        crate::gles::egl::step_log("program compiled+linked");
         let (u_view_proj, u_sun_dir, u_cam_pos) = unsafe {
             let view = gl
                 .get_uniform_location(program, U_VIEW_PROJ)
@@ -103,8 +104,11 @@ impl GlesRenderer {
                 .ok_or_else(|| format!("missing uniform {U_CAM_POS}"))?;
             (view, sun, cam)
         };
+        crate::gles::egl::step_log("uniforms located");
         let track = unsafe { MeshBuffer::new(&gl)? };
+        crate::gles::egl::step_log("track MeshBuffer created");
         let dynamic = unsafe { MeshBuffer::new(&gl)? };
+        crate::gles::egl::step_log("dynamic MeshBuffer created");
         let renderer = Self {
             egl,
             gl,

@@ -10,8 +10,6 @@ out vec3 vColor;
 out vec3 vWorld;
 
 uniform mat4 uViewProj;
-uniform vec3 uSunDir;
-uniform vec3 uCamPos;
 
 void main() {
     vColor = inColor;

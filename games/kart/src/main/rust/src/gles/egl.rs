@@ -110,27 +110,37 @@ impl Egl {
     ) -> Result<Self, String> {
         let api =
             unsafe { Api::load_required() }.map_err(|e| format!("load libEGL: {e:?}"))?;
+        step_log("libEGL loaded");
         let display = unsafe { api.get_display(egl::DEFAULT_DISPLAY) }
             .ok_or_else(|| "eglGetDisplay failed".to_string())?;
+        step_log("eglGetDisplay ok");
         api.initialize(display)
             .map_err(|e| format!("eglInitialize: {e:?}"))?;
+        step_log("eglInitialize ok");
         // Try configs richest-first: a single hard-coded config dies inside
         // some Mali drivers when the window system cannot back it (SIGSEGV in
         // libGLES_mali, not an EGL error). First config that yields BOTH a
         // config AND a live window surface wins.
         let mut configs = Vec::with_capacity(1);
         let mut config = None;
-        for attribs in [CONFIG_ATTRIBS_D24, CONFIG_ATTRIBS_D16, CONFIG_ATTRIBS_565] {
+        let mut config_name = "none";
+        for (label, attribs) in [
+            ("D24", CONFIG_ATTRIBS_D24),
+            ("D16", CONFIG_ATTRIBS_D16),
+            ("565", CONFIG_ATTRIBS_565),
+        ] {
             configs.clear();
             if api.choose_config(display, attribs, &mut configs).is_err() {
                 continue;
             }
             if let Some(&c) = configs.first() {
                 config = Some(c);
+                config_name = label;
                 break;
             }
         }
         let config = config.ok_or_else(|| "no ES3 window EGL config".to_string())?;
+        step_log(&format!("eglChooseConfig ok ({config_name})"));
         let mut egl = Self {
             api,
             display,
@@ -140,15 +150,23 @@ impl Egl {
             terminated: false,
         };
         unsafe { egl.create_surface(window)? };
+        step_log("eglCreateWindowSurface ok");
         let context = egl
             .api
             .create_context(display, config, None, CONTEXT_ATTRIBS)
             .map_err(|e| format!("eglCreateContext (ES3): {e:?}"))?;
         egl.context = Some(context);
         egl.make_current()?;
+        step_log("eglMakeCurrent ok");
         egl.api
             .swap_interval(display, 1)
             .map_err(|e| format!("eglSwapInterval: {e:?}"))?;
+        // Prove the context is really usable BEFORE glow touches it: query
+        // the surface size and the GL version string through directly
+        // resolved pointers. If glGetString crashes here, the context (not
+        // the loader) is bad — e.g. a zero-size or format-less window the
+        // driver accepted but cannot back.
+        unsafe { egl.probe_context()? };
         Ok(egl)
     }
 
@@ -202,6 +220,45 @@ impl Egl {
         if self.proc_address(name).is_null() {
             return Err(format!("eglGetProcAddress({name}) returned null"));
         }
+        Ok(())
+    }
+
+    /// Prove the fresh context answers a direct `glGetString(GL_VERSION)`
+    /// call before glow loads. Bypasses the loader entirely so a crash here
+    /// indicts the context/surface (zero-size or unbackable window the
+    /// driver accepted), not function resolution. Logs surface size +
+    /// version on success.
+    unsafe fn probe_context(&self) -> Result<(), String> {
+        let surface = self.surface.ok_or_else(|| "probe: no surface".to_string())?;
+        let w = self
+            .api
+            .query_surface(self.display, surface, egl::WIDTH)
+            .map_err(|e| format!("eglQuerySurface WIDTH: {e:?}"))?;
+        let h = self
+            .api
+            .query_surface(self.display, surface, egl::HEIGHT)
+            .map_err(|e| format!("eglQuerySurface HEIGHT: {e:?}"))?;
+        step_log(&format!("surface {w}x{h}"));
+        if w <= 0 || h <= 0 {
+            return Err(format!("surface has zero size ({w}x{h}) — not yet laid out"));
+        }
+        // glGetString(GL_VERSION=0x1F02) through a directly resolved pointer.
+        const GL_VERSION: u32 = 0x1F02;
+        let f = self
+            .api
+            .get_proc_address("glGetString")
+            .ok_or_else(|| "eglGetProcAddress(glGetString) returned null".to_string())?;
+        let version_ptr = unsafe {
+            let callable: unsafe extern "C" fn(u32) -> *const std::os::raw::c_uchar = std::mem::transmute(f);
+            callable(GL_VERSION)
+        };
+        if version_ptr.is_null() {
+            return Err("glGetString(GL_VERSION) returned null".to_string());
+        }
+        let version = unsafe { std::ffi::CStr::from_ptr(version_ptr as *const std::os::raw::c_char) }
+            .to_string_lossy()
+            .into_owned();
+        step_log(&format!("GL_VERSION: {version}"));
         Ok(())
     }
 
@@ -259,5 +316,31 @@ impl Egl {
 impl Drop for Egl {
     fn drop(&mut self) {
         self.teardown();
+    }
+}
+
+/// One logcat line per bring-up step (`kart_egl` tag), so a driver SIGSEGV
+/// can be attributed to the exact EGL call: the last line present is the
+/// call that died inside the driver. `__android_log_print` on device.
+pub(crate) fn step_log(step: &str) {
+    #[cfg(target_os = "android")]
+    unsafe {
+        use std::ffi::CString;
+        use std::os::raw::{c_char, c_int};
+        extern "C" {
+            fn __android_log_print(prio: c_int, tag: *const c_char, fmt: *const c_char, ...) -> c_int;
+        }
+        // ANDROID_LOG_INFO = 4.
+        if let (Ok(tag), Ok(line), Ok(fmt)) = (
+            CString::new("kart_egl"),
+            CString::new(format!("egl bring-up: {step}")),
+            CString::new("%s"),
+        ) {
+            __android_log_print(4, tag.as_ptr(), fmt.as_ptr(), line.as_ptr());
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        eprintln!("kart_egl: {step}");
     }
 }

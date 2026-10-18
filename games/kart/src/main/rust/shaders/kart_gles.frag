@@ -5,13 +5,13 @@
 // line never shows. Same `ndl` lighting + `exp` fog 0.0045 to
 // SKY(0.45, 0.68, 0.94) as the Vulkan twin.
 precision mediump float;
+precision mediump sampler2D;
 
 in vec3 vColor;
 in vec3 vWorld;
 
 out vec4 outColor;
 
-uniform mat4 uViewProj;
 uniform vec3 uSunDir;
 uniform vec3 uCamPos;
 

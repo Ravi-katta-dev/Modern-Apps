@@ -23,6 +23,11 @@ pub const U_CAM_POS: &str = "uCamPos";
 /// Compile `VERT_SRC` + `FRAG_SRC`, link, return the program. On any failure
 /// the returned string carries the shader/program info log from the driver.
 pub unsafe fn compile_program(gl: &glow::Context) -> Result<glow::Program, String> {
+    // Prove the linker itself survives on this driver before feeding it the
+    // real shaders: some Mali revisions SIGSEGV inside glLinkProgram on
+    // specific source constructs (unused cross-stage uniforms, precision
+    // mismatches). A crash here indicts the driver, not our source.
+    unsafe { link_probe(gl)? };
     let vert = unsafe { compile_stage(gl, glow::VERTEX_SHADER, "kart_gles.vert", VERT_SRC)? };
     let frag = unsafe { compile_stage(gl, glow::FRAGMENT_SHADER, "kart_gles.frag", FRAG_SRC)? };
     let program = unsafe { gl.create_program() }.map_err(|e| format!("glCreateProgram: {e}"))?;
@@ -38,7 +43,35 @@ pub unsafe fn compile_program(gl: &glow::Context) -> Result<glow::Program, Strin
         unsafe { gl.delete_program(program) };
         return Err(format!("glLinkProgram kart_gles: {log}"));
     }
+    crate::gles::egl::step_log("linked kart_gles program");
     Ok(program)
+}
+
+/// Link a trivial passthrough program first: if the driver's linker cannot
+/// survive this, it is broken for all programs (fail cleanly) rather than
+/// our source being at fault.
+unsafe fn link_probe(gl: &glow::Context) -> Result<(), String> {
+    const PROBE_VERT: &str = "#version 300 es\nlayout(location=0) in vec3 p;void main(){gl_Position=vec4(p,1.0);}\n";
+    const PROBE_FRAG: &str =
+        "#version 300 es\nprecision mediump float;\nout vec4 o;\nvoid main(){o=vec4(1.0);}\n";
+    let vert = unsafe { compile_stage(gl, glow::VERTEX_SHADER, "probe.vert", PROBE_VERT)? };
+    let frag = unsafe { compile_stage(gl, glow::FRAGMENT_SHADER, "probe.frag", PROBE_FRAG)? };
+    let program = unsafe { gl.create_program() }.map_err(|e| format!("glCreateProgram (probe): {e}"))?;
+    unsafe {
+        gl.attach_shader(program, vert);
+        gl.attach_shader(program, frag);
+        gl.link_program(program);
+        gl.delete_shader(vert);
+        gl.delete_shader(frag);
+    }
+    if !unsafe { gl.get_program_link_status(program) } {
+        let log = unsafe { gl.get_program_info_log(program) };
+        unsafe { gl.delete_program(program) };
+        return Err(format!("glLinkProgram (probe): {log}"));
+    }
+    unsafe { gl.delete_program(program) };
+    crate::gles::egl::step_log("probe program linked");
+    Ok(())
 }
 
 /// Compile one shader stage; the error carries the driver's info log.
@@ -59,6 +92,7 @@ unsafe fn compile_stage(
         unsafe { gl.delete_shader(shader) };
         return Err(format!("glCompileShader {name}: {log}"));
     }
+    crate::gles::egl::step_log(&format!("compiled {name}"));
     Ok(shader)
 }
 
@@ -79,8 +113,17 @@ mod tests {
             "Vulkan Y flip must not ship on GLES"
         );
         for uniform in [U_VIEW_PROJ, U_SUN_DIR, U_CAM_POS] {
-            assert!(VERT_SRC.contains(uniform), "vert missing {uniform}");
+            assert!(
+                VERT_SRC.contains(uniform) || FRAG_SRC.contains(uniform),
+                "neither stage declares {uniform}"
+            );
         }
+        // Each stage declares only what it uses (Mali linkers dislike dead
+        // cross-stage uniforms): uViewProj is vert-only, sun/cam are frag-only.
+        assert!(VERT_SRC.contains(U_VIEW_PROJ), "vert missing {U_VIEW_PROJ}");
+        assert!(!VERT_SRC.contains(U_SUN_DIR), "vert must not declare {U_SUN_DIR}");
+        assert!(!VERT_SRC.contains(U_CAM_POS), "vert must not declare {U_CAM_POS}");
+        assert!(!FRAG_SRC.contains(U_VIEW_PROJ), "frag must not declare {U_VIEW_PROJ}");
         for uniform in [U_SUN_DIR, U_CAM_POS] {
             assert!(FRAG_SRC.contains(uniform), "frag missing {uniform}");
         }

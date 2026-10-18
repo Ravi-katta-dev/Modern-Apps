@@ -6,7 +6,6 @@
 //! chase camera, draw. Everything fallible returns `Option`/`Result` — the
 //! JNI boundary logs and keeps the placeholder running rather than crashing.
 
-use crate::gles::renderer::GlesRenderer;
 use crate::mesh::{self, KartVertex};
 use crate::physics::DriveInput;
 use crate::race::Race;
@@ -160,6 +159,14 @@ fn escape(s: &str) -> String {
 /// returns false. The winning backend is logged to logcat (`kart_engine` tag)
 /// so device triage can see which path engaged.
 ///
+/// Backend order is by pointer width: 64-bit tries Vulkan first (drivers are
+/// universal there); 32-bit tries GLES first. Rationale: 32-bit Google TV
+/// boxes ship a `libvulkan.so` loader stub in `/system/lib` with no driver
+/// behind it (`/vendor/lib/vulkan*` absent), and `Entry::load` + a stubbed
+/// `create_instance` SIGSEGVs inside the stub instead of returning an error
+/// — which no `Result` can catch. GLES-first on 32-bit never touches the
+/// stub unless GLES itself fails.
+///
 /// # Safety
 /// `window` must be a live `ANativeWindow` adopted from the JNI surface (the
 /// caller acquired it via `ANativeWindow_acquire`); ownership moves here.
@@ -168,25 +175,14 @@ pub unsafe fn create_renderer(window: *mut ANativeWindow, width: i32, height: i3
         state.window_ptr = Some(window);
         state.width = width.max(1) as u32;
         state.height = height.max(1) as u32;
-        let mut renderer = match try_vulkan(window, width, height, state.width, state.height) {
-            Ok(r) => {
-                log_backend("Vulkan");
-                r
+        let mut renderer = match unsafe {
+            Renderer::select(window, width, height, state.width, state.height)
+        } {
+            Ok(r) => r,
+            Err(e) => {
+                log_backend(&e);
+                return false;
             }
-            Err(vulkan_err) => match unsafe {
-                GlesRenderer::new(window, state.width, state.height)
-            } {
-                Ok(r) => {
-                    log_backend(&format!("GLES (Vulkan init failed: {vulkan_err})"));
-                    Renderer::Gles(r)
-                }
-                Err(gles_err) => {
-                    log_backend(&format!(
-                        "no renderer (Vulkan: {vulkan_err}; GLES: {gles_err})"
-                    ));
-                    return false;
-                }
-            },
         };
         // A race may already be live (surface recreated on rotation): upload.
         if state.race.is_some() {
@@ -207,7 +203,7 @@ pub unsafe fn create_renderer(window: *mut ANativeWindow, width: i32, height: i3
 ///
 /// # Safety
 /// Same contract as [`create_renderer`].
-unsafe fn try_vulkan(
+pub(crate) unsafe fn try_vulkan(
     window: *mut ANativeWindow,
     width: i32,
     height: i32,
@@ -227,7 +223,7 @@ unsafe fn try_vulkan(
 /// One logcat line naming the winning backend (the `kart_engine` tag the
 /// plan's triage filters on). `__android_log_print` on device; `eprintln` on
 /// host builds and tests so the selection stays visible off-device.
-fn log_backend(msg: &str) {
+pub(crate) fn log_backend(msg: &str) {
     #[cfg(target_os = "android")]
     unsafe {
         use std::ffi::CString;

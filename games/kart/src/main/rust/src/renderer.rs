@@ -92,4 +92,67 @@ impl Renderer {
             r.ctx.destroy();
         }
     }
+
+    /// Build the winning backend for `window`: GLES-first on 32-bit (where a
+    /// `libvulkan.so` loader stub with no driver behind it SIGSEGVs inside
+    /// `create_instance` instead of returning an error — no `Result` can
+    /// catch that, so never touch the stub unless GLES itself fails),
+    /// Vulkan-first on 64-bit. `Err` only when both backends fail.
+    ///
+    /// # Safety
+    /// `window` must be a live adopted `ANativeWindow`; ownership stays with
+    /// the engine (released on destroy), as on the Vulkan path.
+    pub unsafe fn select(
+        window: *mut crate::vulkan::context::ANativeWindow,
+        width: i32,
+        height: i32,
+        state_width: u32,
+        state_height: u32,
+    ) -> Result<Self, String> {
+        #[cfg(target_pointer_width = "32")]
+        {
+            match unsafe { GlesRenderer::new(window, state_width, state_height) } {
+                Ok(r) => {
+                    crate::engine::log_backend("GLES");
+                    Ok(Self::Gles(r))
+                }
+                Err(gles_err) => {
+                    match crate::engine::try_vulkan(window, width, height, state_width, state_height)
+                    {
+                        Ok(r) => {
+                            crate::engine::log_backend(&format!(
+                                "Vulkan (GLES init failed: {gles_err})"
+                            ));
+                            Ok(r)
+                        }
+                        Err(vulkan_err) => {
+                            Err(format!("no renderer (GLES: {gles_err}; Vulkan: {vulkan_err})"))
+                        }
+                    }
+                }
+            }
+        }
+        #[cfg(not(target_pointer_width = "32"))]
+        {
+            match crate::engine::try_vulkan(window, width, height, state_width, state_height) {
+                Ok(r) => {
+                    crate::engine::log_backend("Vulkan");
+                    Ok(r)
+                }
+                Err(vulkan_err) => {
+                    match unsafe { GlesRenderer::new(window, state_width, state_height) } {
+                        Ok(r) => {
+                            crate::engine::log_backend(&format!(
+                                "GLES (Vulkan init failed: {vulkan_err})"
+                            ));
+                            Ok(Self::Gles(r))
+                        }
+                        Err(gles_err) => Err(format!(
+                            "no renderer (Vulkan: {vulkan_err}; GLES: {gles_err})"
+                        )),
+                    }
+                }
+            }
+        }
+    }
 }
