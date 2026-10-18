@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="copy">Kopiuj</string>
+    <string name="save">Zapisz</string>
+    <string name="saved">Zapisano</string>
 </resources>
