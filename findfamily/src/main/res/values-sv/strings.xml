@@ -22,7 +22,7 @@
     <string name="permission_background_granted">✅ Bakgrundsbehörighet har beviljats</string>
     <string name="permission_enable_all_the_time">2. Aktivera ”Tillåt alltid”</string>
     <string name="permission_background_explanation">Välj ”Tillåt alltid” på nästa skärm för att aktivera spårning i bakgrunden.</string>
-    <string name="permission_approximate_only_explanation">Find Family fungerar bara med exakt plats. Du har bara beviljat ungefärlig plats — uppgradera till exakt plats för att fortsätta.</string>
+    <string name="permission_approximate_only_explanation">Find Family fungerar bara med exakt plats. Du har bara beviljat ungefärlig plats. Uppgradera till exakt plats för att fortsätta.</string>
     <string name="permission_reopen_upgrade_prompt">Uppgradera till exakt plats</string>
     <string name="permission_upgrade_dialog_title">Exakt plats krävs</string>
     <string name="permission_upgrade_dialog_message">Find Family behöver exakt plats för att dela din exakta position. Tillåt exakt plats.</string>
@@ -119,9 +119,9 @@
     <string name="uwb_status_unsupported">Hitta i närheten (UWB) stöds inte på den här enheten.</string>
     <string name="uwb_status_failed">Hitta i närheten (UWB) misslyckades.</string>
     <string name="security_code">Säkerhetskod</string>
-    <string name="compare_this_code_with_on_their_device_i">Jämför den här koden med <xliff:g id="person_name" example="Bob">%1$s</xliff:g> på personens enhet. Om siffrorna matchar på båda telefonerna är anslutningen verifierad från ände till ände — ingen avlyssnar den.</string>
+    <string name="compare_this_code_with_on_their_device_i">Jämför den här koden med <xliff:g id="person_name" example="Bob">%1$s</xliff:g> på personens enhet. Om siffrorna matchar på båda telefonerna är anslutningen verifierad från ände till ände. Ingen avlyssnar den.</string>
     <string name="computing">Beräknar…</string>
-    <string name="couldn_t_compute_yet_s_key_isn_t_availab">Kan inte beräkna ännu — nyckeln för <xliff:g id="person_name" example="Bob">%1$s</xliff:g> är inte tillgänglig. Kontrollera att ni båda är anslutna och försök sedan igen.</string>
+    <string name="couldn_t_compute_yet_s_key_isn_t_availab">Kan inte beräkna ännu: nyckeln för <xliff:g id="person_name" example="Bob">%1$s</xliff:g> är inte tillgänglig. Kontrollera att ni båda är anslutna och försök sedan igen.</string>
     <string name="unknown">Okänd</string>
     <string name="dist">avst:</string>
     <string name="az">az:</string>
@@ -143,7 +143,7 @@
     <string name="crowd_finding_title">Hjälp till att hitta borttappade enheter</string>
     <string name="crowd_finding_explanation">Telefonen letar i det tysta efter avstängda enheter i närheten och skickar en krypterad notis till ägaren om var du var när du passerade en. Du får aldrig veta vems enhet det var eller var den är, och notisen kan bara läsas av dess ägare. Det använder nästan inget batteri, och andras telefoner kan göra samma sak för din.</string>
     <string name="crowd_finding_needs_bluetooth">Att hitta närliggande enheter kräver behörighet att söka efter Bluetooth-enheter</string>
-    <string name="user_card_network_sighting">Sedd av en passerande telefon <xliff:g id="last_seen" example="2 hours ago">%1$s</xliff:g>\nNågonstans nära <xliff:g id="location_name" example="Home">%2$s</xliff:g> — ungefärligt</string>
+    <string name="user_card_network_sighting">Sedd av en passerande telefon <xliff:g id="last_seen" example="2 hours ago">%1$s</xliff:g>\nNågonstans nära <xliff:g id="location_name" example="Home">%2$s</xliff:g> (ungefärligt)</string>
     <string name="poweroff_finding_title">Kan hittas när den är avstängd</string>
     <string name="poweroff_finding_explanation">När du stänger av telefonen fortsätter Bluetooth-chippet att sända en kort anonym signal så att en familjemedlem som passerar kan se var den är. Signalen ändras var 17:e minut och bara din familj kan känna igen den. Ingen, inte ens vi, kan läsa var den sågs utom du.</string>
     <string name="poweroff_finding_limit">Detta fungerar i ungefär tre dagar efter att du har stängt av telefonen och upphör sedan. Det är en begränsning i Bluetooth-chippet, inte en inställning.</string>
@@ -155,7 +155,7 @@
     <string name="delete_person_content_description">Ta bort person</string>
     <string name="delete_place_content_description">Ta bort sparad plats</string>
     <string name="poweroff_grant_tracking_warning">Vem som helst du väljer kan också själv söka efter den här telefonen när som helst, så länge de finns kvar på listan. Att läsa var telefonen har setts och att söka efter den använder samma nyckel, så det går inte att ge den ena rättigheten utan den andra. Välj endast personer som du är bekväm med att låta hitta den här telefonen.</string>
-    <string name="poweroff_grant_revoke_warning">Att ta bort någon från listan hindrar personen från att se vart den här telefonen tar vägen från och med då. Det kan inte återta platser som personen redan har samlat in, och det kan inte få personen att glömma. Platser där telefonen nyligen har setts, men som ingen ännu har hämtat, kan också gå förlorade för dig.</string>
+    <string name="poweroff_grant_revoke_warning">Att ta bort någon från listan hindrar personen från att se vart den här telefonen tar vägen från och med då. Det kan inte återta platser som personen redan har samlat in och det kan inte få personen att glömma. Platser där telefonen nyligen har setts, men som ingen ännu har hämtat, kan också gå förlorade för dig.</string>
     <string name="poweroff_grant_no_peers">När du är ansluten till någon kan du välja personen här.</string>
     <string name="permission_grant_bluetooth">Tillåt Bluetooth</string>
     <string name="permission_bluetooth_granted">Bluetooth är tillåtet</string>
@@ -175,4 +175,6 @@
     </plurals>
     <string name="noshow_save">Bevaka</string>
     <string name="noshow_scheduled">Bevakning av utebliven ankomst har ställts in</string>
+    <string name="user_card_shutdown">Telefonen stängdes av <xliff:g id="shutdown_age" example="5 minutes ago">%1$s</xliff:g>\nSenaste plats <xliff:g id="last_updated" example="20 minutes ago">%2$s</xliff:g>\nVid <xliff:g id="location_name" example="Home">%3$s</xliff:g>\n<xliff:g id="since_text" example="Since today">%4$s</xliff:g></string>
+    <string name="user_card_battery_low">Rapport om låg batterinivå <xliff:g id="report_age" example="5 minutes ago">%1$s</xliff:g>\nSenaste plats <xliff:g id="last_updated" example="20 minutes ago">%2$s</xliff:g>\nVid <xliff:g id="location_name" example="Home">%3$s</xliff:g>\n<xliff:g id="since_text" example="Since today">%4$s</xliff:g></string>
 </resources>
