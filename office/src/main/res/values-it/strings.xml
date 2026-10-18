@@ -19,4 +19,24 @@
     <string name="go">Vai</string>
     <string name="discard">Scarta</string>
     <string name="enable">Abilita</string>
+    <string name="open_document">Apri documento</string>
+    <string name="document_info">Info</string>
+    <string name="meta_title">Titolo</string>
+    <string name="meta_author">Autore</string>
+    <string name="meta_created">Creato</string>
+    <string name="meta_modified">Modificato</string>
+    <string name="meta_subject">Soggetto</string>
+    <string name="meta_description">Descrizione</string>
+    <string name="meta_keywords">Parole chiave</string>
+    <string name="meta_pages">Pagine</string>
+    <string name="meta_words">Parole</string>
+    <string name="close_search">Chiudi</string>
+    <string name="search_hint">Cerca nel documento…</string>
+    <string name="outline">Struttura</string>
+    <string name="unsaved_changes">Modifiche non salvate</string>
+    <string name="unsaved_changes_message">Non hai salvato le modifiche. Vuoi salvare prima di uscire?</string>
+    <string name="replace_hint">Sostituisci con…</string>
+    <string name="print_doc">Stampa</string>
+    <string name="edit_image">Modifica immagine</string>
+    <string name="sort">Ordina</string>
 </resources>
