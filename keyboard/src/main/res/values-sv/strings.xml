@@ -28,4 +28,18 @@
     <string name="voice_busy">Taligenkännaren är upptagen</string>
     <string name="voice_audio_error">Det gick inte att spela in ljud</string>
     <string name="voice_failed">Röstinmatningen misslyckades</string>
+    <string name="subtype_keyboard">Tangentbord</string>
+    <string name="clipboard_image_unavailable">Bilden är inte längre tillgänglig</string>
+    <string name="clipboard_image_not_supported">Det här fältet accepterar inte bilder</string>
+    <string name="setting_haptic_feedback">Haptisk återkoppling</string>
+    <string name="setting_key_sound">Tangentljud</string>
+    <string name="setting_auto_capitalize">Automatisk stor bokstav</string>
+    <string name="setting_double_space_period">Dubbeltryck på mellanslag infogar punkt</string>
+    <string name="setting_show_suggestions">Visa förslag</string>
+    <string name="setting_auto_correct">Automatisk korrigering</string>
+    <string name="setting_number_row">Sifferrad</string>
+    <string name="setting_clipboard_history">Urklippshistorik</string>
+    <string name="setting_clipboard_history_desc">Kom ihåg det du kopierar och erbjud det igen ovanför tangenterna</string>
+    <string name="status_enabled">Aktiverat i systeminställningarna</string>
+    <string name="status_selected">Valt som aktivt tangentbord</string>
 </resources>
