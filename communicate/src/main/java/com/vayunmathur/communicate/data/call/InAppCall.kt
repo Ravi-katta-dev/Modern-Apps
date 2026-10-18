@@ -19,6 +19,7 @@ data class CallCapabilities(
     val video: Boolean = false,
     val dtmf: Boolean = false,
     val screenShare: Boolean = false,
+    val hold: Boolean = false,
 ) {
     companion object {
         val AudioOnly = CallCapabilities()
@@ -61,6 +62,8 @@ data class InAppCallState(
     val remoteScreenSharing: Boolean = false,
     val muted: Boolean = false,
     val speaker: Boolean = false,
+    /** Whether the carrier call is held (GSM hold / Telecom STATE_HOLDING). Only the SIM line sets this. */
+    val held: Boolean = false,
     /** When the call became [InAppCallPhase.Active], for the duration readout. 0 until then. */
     val connectedAtMs: Long = 0L,
     val endReason: String? = null,
@@ -96,6 +99,13 @@ interface InAppCallConnectionBridge {
  */
 interface InAppCallDtmfController {
     fun sendDtmf(digit: String)
+}
+
+/**
+ * Call hold, separate from [InAppCallController] because only the carrier line can act on it.
+ */
+interface InAppCallHoldController {
+    fun setHeld(held: Boolean)
 }
 
 /**
@@ -146,6 +156,10 @@ object InAppCallRegistry {
     /** Set only by lines that can send tones. */
     @Volatile
     var dtmfController: InAppCallDtmfController? = null
+
+    /** Set only by lines that can hold (the carrier line). */
+    @Volatile
+    var holdController: InAppCallHoldController? = null
 
     /** Set by the Telecom ConnectionService so state changes can be reflected into the system UI. */
     @Volatile
@@ -218,6 +232,11 @@ object InAppCallRegistry {
         _state.value = _state.value.copy(speaker = on)
     }
 
+    fun onHeld(held: Boolean) {
+        if (_state.value.phase == InAppCallPhase.Idle) return
+        _state.value = _state.value.copy(held = held)
+    }
+
     fun onRemoteVideo(enabled: Boolean) {
         if (_state.value.phase == InAppCallPhase.Idle) return
         Log.status(TAG, "remote video enabled=$enabled")
@@ -277,6 +296,7 @@ object InAppCallRegistry {
             controller = null
             videoController = null
             dtmfController = null
+            holdController = null
             connection = null
         }
     }
@@ -309,5 +329,11 @@ object InAppCallRegistry {
         val next = !_state.value.speaker
         controller?.setSpeaker(next)
         onSpeaker(next)
+    }
+
+    fun toggleHeld() {
+        val next = !_state.value.held
+        holdController?.setHeld(next)
+        onHeld(next)
     }
 }

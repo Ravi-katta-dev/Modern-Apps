@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
 import android.telecom.Call
+import android.telecom.CallAudioState
 import android.telecom.InCallService
 import android.telecom.VideoProfile
 import com.vayunmathur.communicate.MainActivity
@@ -14,13 +15,19 @@ import com.vayunmathur.communicate.data.CommunicateRepository
 import com.vayunmathur.communicate.data.findContactName
 import com.vayunmathur.library.util.ensureNotificationChannel
 
-/** In-call bridge for carrier/SIM calls that lets Communicate expose notification controls. */
+/**
+ * In-call bridge for carrier/SIM calls.
+ *
+ * Owns the system call surface (notification controls) and mirrors the call into [SimCallBridge] so the
+ * shared in-app call screen serves regular phone calls too — with the dial pad voicemail needs.
+ */
 class CommunicateInCallService : InCallService() {
 
     private val callback = object : Call.Callback() {
         override fun onStateChanged(call: Call, state: Int) {
             currentCall = call
             showOrClearNotification(call)
+            SimCallBridge.onStateChanged(call, state)
         }
 
         override fun onDetailsChanged(call: Call, details: Call.Details) {
@@ -29,18 +36,30 @@ class CommunicateInCallService : InCallService() {
         }
     }
 
+    override fun onCallAudioStateChanged(audioState: CallAudioState) {
+        super.onCallAudioStateChanged(audioState)
+        SimCallBridge.onAudioStateChanged(audioState)
+    }
+
     override fun onCallAdded(call: Call) {
         super.onCallAdded(call)
         currentCall?.unregisterCallback(callback)
         currentCall = call
         call.registerCallback(callback)
         showOrClearNotification(call)
+        val number = call.details.handle?.schemeSpecificPart.orEmpty()
+        SimCallBridge.onCallAdded(this, call, number, callerLabel(number))
+        // Ringing must surface the screen, not just a notification: bring the app forward so the
+        // InAppCallOverlay shows the incoming call with answer / decline.
+        if (call.details.state == Call.STATE_RINGING) bringCallScreenForward()
     }
 
     override fun onCallRemoved(call: Call) {
+        val wasTracked = currentCall == call
         call.unregisterCallback(callback)
-        if (currentCall == call) currentCall = null
+        if (wasTracked) currentCall = null
         clearNotification()
+        SimCallBridge.onCallRemoved(call)
         super.onCallRemoved(call)
     }
 
@@ -55,13 +74,22 @@ class CommunicateInCallService : InCallService() {
     }
 
     private fun showOrClearNotification(call: Call) {
-        when (call.state) {
+        when (call.details.state) {
             Call.STATE_RINGING -> showNotification(call, incoming = true)
             Call.STATE_DIALING, Call.STATE_CONNECTING, Call.STATE_ACTIVE, Call.STATE_HOLDING -> showNotification(
                 call,
                 incoming = false)
             else -> clearNotification()
         }
+    }
+
+    /** Tapping the call notification opens the call screen rather than the message list. */
+    private fun bringCallScreenForward() {
+        startActivity(
+            Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            },
+        )
     }
 
     private fun showNotification(call: Call, incoming: Boolean) {

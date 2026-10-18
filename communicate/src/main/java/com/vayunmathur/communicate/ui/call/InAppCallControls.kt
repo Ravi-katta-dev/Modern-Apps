@@ -33,6 +33,7 @@ import com.vayunmathur.library.ui.IconCallEnd
 import com.vayunmathur.library.ui.IconCameraOff
 import com.vayunmathur.library.ui.IconDialpad
 import com.vayunmathur.library.ui.IconFlipCamera
+import com.vayunmathur.library.ui.IconPause
 import com.vayunmathur.library.ui.IconMic
 import com.vayunmathur.library.ui.IconMicOff
 import com.vayunmathur.library.ui.IconScreenShare
@@ -182,6 +183,13 @@ internal fun OngoingControls(
                     onClick = onToggleScreenShare,
                 ) { tint -> IconScreenShare(tint = tint) }
             }
+            if (caps.hold) {
+                CallToggle(
+                    label = stringResource(R.string.call_hold),
+                    active = state.held,
+                    onClick = { InAppCallRegistry.toggleHeld() },
+                ) { tint -> IconPause(tint = tint) }
+            }
             if (caps.dtmf) {
                 CallToggle(
                     label = stringResource(R.string.call_keypad),
@@ -302,6 +310,8 @@ internal fun callStatusText(state: InAppCallState): String {
         CommunicateLine.Signal -> stringResource(R.string.account_signal)
         CommunicateLine.WhatsApp -> stringResource(R.string.account_whatsapp)
         CommunicateLine.GoogleVoice -> stringResource(R.string.account_google_voice)
+        CommunicateLine.Sim -> stringResource(R.string.account_sim)
+        CommunicateLine.Rcs -> stringResource(R.string.account_rcs)
         else -> ""
     }
     return when (state.phase) {
@@ -312,8 +322,12 @@ internal fun callStatusText(state: InAppCallState): String {
             "${stringResource(R.string.call_state_incoming_generic)} - $lineName"
         }
         InAppCallPhase.Connecting -> stringResource(R.string.call_state_connecting)
-        // Once connected the duration carries the status, so name the line instead.
-        InAppCallPhase.Active -> lineName
+        // Once connected the duration carries the status, so name the line instead — unless held.
+        InAppCallPhase.Active -> if (state.held) {
+            stringResource(R.string.call_state_on_hold)
+        } else {
+            lineName
+        }
         InAppCallPhase.Ended -> state.endReason?.takeIf { it.isNotBlank() }
             ?: stringResource(R.string.call_state_ended)
         InAppCallPhase.Idle -> ""

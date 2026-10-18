@@ -91,6 +91,8 @@
     <string name="call_answer">Answer</string>
     <string name="call_decline">Decline</string>
     <string name="call_keypad">Keypad</string>
+    <string name="call_hold">Hold</string>
+    <string name="call_state_on_hold">On hold</string>
     <string name="call_state_dialing">Dialing…</string>
     <string name="call_state_ringing">Ringing…</string>
     <string name="call_state_active">Connected</string>
