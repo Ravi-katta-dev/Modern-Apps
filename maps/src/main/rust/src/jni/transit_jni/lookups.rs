@@ -3,8 +3,8 @@
 //! Pure move out of `super` (`transit_jni.rs`); no logic changes.
 
 use jni::objects::{JObject, JString};
-use jni::sys::{jboolean, jdouble, jstring};
-use jni::JNIEnv;
+use jni::sys::{jdouble, jstring};
+use jni::EnvUnowned;
 
 use super::cache::transit_index;
 
@@ -24,18 +24,20 @@ use super::cache::transit_index;
 pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_hasTransitArchiveNative<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _thiz: JObject<'local>,
     base_path: JString<'local>,
-) -> jboolean {
-    let base: String = match env.get_string(&base_path) {
-        Ok(s) => s.into(),
-        Err(_) => return 0,
-    };
-    let present = crate::transit::TransitIndex::has_archive_transit(
-        &crate::graph::archive_path(&base),
-    );
-    present as jboolean
+) -> bool {
+    env.with_env(|env| -> jni::errors::Result<bool> {
+        let base: String = match base_path.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(false),
+        };
+        Ok(crate::transit::TransitIndex::has_archive_transit(
+            &crate::graph::archive_path(&base),
+        ))
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
 // ---------------------------------------------------------------------------
@@ -52,37 +54,40 @@ pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_hasTransitAr
 pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_getFeedTimezoneNative<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _thiz: JObject<'local>,
     base_path: JString<'local>,
     feed: JString<'local>,
     lat: jdouble,
     lon: jdouble,
 ) -> jstring {
-    let null = std::ptr::null_mut();
-    let base: String = match env.get_string(&base_path) {
-        Ok(s) => s.into(),
-        Err(_) => return null,
-    };
-    let feed_name: String = match env.get_string(&feed) {
-        Ok(s) => s.into(),
-        Err(_) => return null,
-    };
-    let index = match transit_index(&base, &feed_name) {
-        Some(i) => i,
-        None => return null,
-    };
-    if !index.covers(lat, lon) {
-        return null;
-    }
-    let tz = index.timezone_at(lat, lon);
-    if tz.is_empty() {
-        return null;
-    }
-    match env.new_string(&tz) {
-        Ok(s) => s.into_raw(),
-        Err(_) => null,
-    }
+    env.with_env(|env| -> jni::errors::Result<jstring> {
+        let null = std::ptr::null_mut();
+        let base: String = match base_path.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(null),
+        };
+        let feed_name: String = match feed.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(null),
+        };
+        let index = match transit_index(&base, &feed_name) {
+            Some(i) => i,
+            None => return Ok(null),
+        };
+        if !index.covers(lat, lon) {
+            return Ok(null);
+        }
+        let tz = index.timezone_at(lat, lon);
+        if tz.is_empty() {
+            return Ok(null);
+        }
+        match env.new_string(&tz) {
+            Ok(s) => Ok(s.into_raw()),
+            Err(_) => Ok(null),
+        }
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
 // ---------------------------------------------------------------------------
@@ -102,34 +107,37 @@ pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_getFeedTimez
 pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_nearestStopMotisIdNative<
     'local,
 >(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _thiz: JObject<'local>,
     base_path: JString<'local>,
     feed: JString<'local>,
     lat: jdouble,
     lon: jdouble,
 ) -> jstring {
-    let null = std::ptr::null_mut();
-    let base: String = match env.get_string(&base_path) {
-        Ok(s) => s.into(),
-        Err(_) => return null,
-    };
-    let feed_name: String = match env.get_string(&feed) {
-        Ok(s) => s.into(),
-        Err(_) => return null,
-    };
-    let index = match transit_index(&base, &feed_name) {
-        Some(i) => i,
-        None => return null,
-    };
-    if !index.covers(lat, lon) {
-        return null;
-    }
-    match index.nearest_stop_motis_id(lat, lon) {
-        Some(id) => match env.new_string(&id) {
-            Ok(s) => s.into_raw(),
-            Err(_) => null,
-        },
-        None => null,
-    }
+    env.with_env(|env| -> jni::errors::Result<jstring> {
+        let null = std::ptr::null_mut();
+        let base: String = match base_path.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(null),
+        };
+        let feed_name: String = match feed.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(null),
+        };
+        let index = match transit_index(&base, &feed_name) {
+            Some(i) => i,
+            None => return Ok(null),
+        };
+        if !index.covers(lat, lon) {
+            return Ok(null);
+        }
+        match index.nearest_stop_motis_id(lat, lon) {
+            Some(id) => match env.new_string(&id) {
+                Ok(s) => Ok(s.into_raw()),
+                Err(_) => Ok(null),
+            },
+            None => Ok(null),
+        }
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }

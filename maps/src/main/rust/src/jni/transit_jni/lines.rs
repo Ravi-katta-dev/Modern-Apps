@@ -7,7 +7,7 @@
 
 use jni::objects::{JObject, JString, JValue};
 use jni::sys::{jdouble, jobjectArray};
-use jni::JNIEnv;
+use jni::{Env, EnvUnowned, jni_sig, jni_str};
 
 use super::cache::transit_index;
 
@@ -15,21 +15,21 @@ use super::cache::transit_index;
 /// and stop entries share the ctor descriptor (kept in one place so a field
 /// addition cannot update one entry and miss the other).
 fn rail_lines_to_java<'local>(
-    env: &mut JNIEnv<'local>,
+    env: &mut Env<'local>,
     lines: &[crate::transit::RailLine],
 ) -> Option<jobjectArray> {
     let class =
-        env.find_class("com/vayunmathur/maps/util/OfflineRouter$RawRailLine").ok()?;
+        env.find_class(jni_str!("com/vayunmathur/maps/util/OfflineRouter$RawRailLine")).ok()?;
     // MUST match the RawRailLine ctor: name, color, routeType (I), feed,
     // coords ([D), then the corridor slot (ordinal, lanes, taper) LAST.
-    let ctor = "(Ljava/lang/String;IILjava/lang/String;[DIII)V";
+    let ctor = jni_sig!("(Ljava/lang/String;IILjava/lang/String;[DIII)V");
     let array = env.new_object_array(lines.len() as i32, &class, JObject::null()).ok()?;
 
     for (i, l) in lines.iter().enumerate() {
         let jname: JObject = env.new_string(&l.name).ok()?.into();
         let jfeed: JObject = env.new_string(&l.feed).ok()?.into();
-        let jcoords = env.new_double_array(l.coords.len() as i32).ok()?;
-        if !l.coords.is_empty() && env.set_double_array_region(&jcoords, 0, &l.coords).is_err()
+        let jcoords = env.new_double_array(l.coords.len()).ok()?;
+        if !l.coords.is_empty() && jcoords.set_region(env, 0, &l.coords).is_err()
         {
             return None;
         }
@@ -37,7 +37,7 @@ fn rail_lines_to_java<'local>(
         let obj = env
             .new_object(
                 &class,
-                ctor,
+                &ctor,
                 &[
                     JValue::Object(&jname),
                     JValue::Int(l.color as i32),
@@ -50,7 +50,7 @@ fn rail_lines_to_java<'local>(
                 ],
             )
             .ok()?;
-        if env.set_object_array_element(&array, i as i32, &obj).is_err() {
+        if array.set_element(env, i, &obj).is_err() {
             return None;
         }
     }
@@ -69,7 +69,7 @@ fn rail_lines_to_java<'local>(
 /// on a JNI failure. Bounded natively (`MAX_RAIL_LINES`).
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_getRailLinesNative<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _thiz: JObject<'local>,
     base_path: JString<'local>,
     feed: JString<'local>,
@@ -78,30 +78,33 @@ pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_getRailLines
     max_lat: jdouble,
     max_lon: jdouble,
 ) -> jobjectArray {
-    let null = std::ptr::null_mut();
-    let base: String = match env.get_string(&base_path) {
-        Ok(s) => s.into(),
-        Err(_) => return null,
-    };
-    let feed_name: String = match env.get_string(&feed) {
-        Ok(s) => s.into(),
-        Err(_) => return null,
-    };
+    env.with_env(|env| -> jni::errors::Result<jobjectArray> {
+        let null = std::ptr::null_mut();
+        let base: String = match base_path.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(null),
+        };
+        let feed_name: String = match feed.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(null),
+        };
 
-    let index = match transit_index(&base, &feed_name) {
-        Some(i) => i,
-        None => return null,
-    };
+        let index = match transit_index(&base, &feed_name) {
+            Some(i) => i,
+            None => return Ok(null),
+        };
 
-    // No covers() gate: a line serves the bbox when any of its stops does,
-    // and the bbox centre may be nowhere near a stop. The stop-based cull in
-    // `rail_lines` is the coverage check.
-    let lines = crate::transit::rail_lines(&index, min_lat, min_lon, max_lat, max_lon);
+        // No covers() gate: a line serves the bbox when any of its stops does,
+        // and the bbox centre may be nowhere near a stop. The stop-based cull in
+        // `rail_lines` is the coverage check.
+        let lines = crate::transit::rail_lines(&index, min_lat, min_lon, max_lat, max_lon);
 
-    match rail_lines_to_java(&mut env, &lines) {
-        Some(a) => a,
-        None => null,
-    }
+        match rail_lines_to_java(&mut *env, &lines) {
+            Some(a) => Ok(a),
+            None => Ok(null),
+        }
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
 /// Every line serving the stop nearest `(lat, lon)`, with its agency colour
@@ -112,40 +115,43 @@ pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_getRailLines
 /// failure. Bounded natively (`MAX_RAIL_LINES`).
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_getStopLinesNative<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _thiz: JObject<'local>,
     base_path: JString<'local>,
     feed: JString<'local>,
     lat: jdouble,
     lon: jdouble,
 ) -> jobjectArray {
-    let null = std::ptr::null_mut();
-    let base: String = match env.get_string(&base_path) {
-        Ok(s) => s.into(),
-        Err(_) => return null,
-    };
-    let feed_name: String = match env.get_string(&feed) {
-        Ok(s) => s.into(),
-        Err(_) => return null,
-    };
-
-    let index = match transit_index(&base, &feed_name) {
-        Some(i) => i,
-        None => return null,
-    };
-
-    // Same nearest-stop resolution as the departure board (which the lines
-    // must agree with), with the pack bbox as the coverage gate.
-    if !index.covers(lat, lon) {
-        return match rail_lines_to_java(&mut env, &[]) {
-            Some(a) => a,
-            None => null,
+    env.with_env(|env| -> jni::errors::Result<jobjectArray> {
+        let null = std::ptr::null_mut();
+        let base: String = match base_path.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(null),
         };
-    }
-    let lines = crate::transit::routes_for_stop(&index, lat, lon);
+        let feed_name: String = match feed.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(null),
+        };
 
-    match rail_lines_to_java(&mut env, &lines) {
-        Some(a) => a,
-        None => null,
-    }
+        let index = match transit_index(&base, &feed_name) {
+            Some(i) => i,
+            None => return Ok(null),
+        };
+
+        // Same nearest-stop resolution as the departure board (which the lines
+        // must agree with), with the pack bbox as the coverage gate.
+        if !index.covers(lat, lon) {
+            return match rail_lines_to_java(&mut *env, &[]) {
+                Some(a) => Ok(a),
+                None => Ok(null),
+            };
+        }
+        let lines = crate::transit::routes_for_stop(&index, lat, lon);
+
+        match rail_lines_to_java(&mut *env, &lines) {
+            Some(a) => Ok(a),
+            None => Ok(null),
+        }
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }

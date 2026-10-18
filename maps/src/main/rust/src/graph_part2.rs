@@ -103,7 +103,7 @@ impl Graph {
             }
             None
         };
-        let nodes = if nodes_view.is_some() {
+        let _nodes = if nodes_view.is_some() {
             ptr::null()
         } else {
             nodes_region.base()

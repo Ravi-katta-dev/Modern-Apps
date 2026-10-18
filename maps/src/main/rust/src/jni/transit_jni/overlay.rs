@@ -3,7 +3,7 @@
 //! Pure move out of `super` (`transit_jni.rs`); no logic changes.
 
 use jni::objects::{JDoubleArray, JIntArray, JObjectArray, JString};
-use jni::JNIEnv;
+use jni::Env;
 
 /// Decode the realtime overlay's parallel arrays. `coords` is interleaved
 /// `[lat, lon, ...]` and `times` is interleaved
@@ -11,38 +11,43 @@ use jni::JNIEnv;
 /// 1 string and 3 ints. Any length mismatch yields no overlay rather than a
 /// partial one — a wrong fingerprint would silently mis-delay a trip.
 pub(super) fn read_delay_entries<'local>(
-    env: &mut JNIEnv<'local>,
+    env: &mut Env<'local>,
     coords: &JDoubleArray<'local>,
     routes: &JObjectArray<'local>,
     times: &JIntArray<'local>,
 ) -> Vec<crate::transit::DelayEntry> {
-    let n = match env.get_array_length(routes) {
-        Ok(n) if n > 0 => n as usize,
+    let n = match routes.len(env) {
+        Ok(n) if n > 0 => n,
         _ => return Vec::new(),
     };
-    if env.get_array_length(coords).unwrap_or(0) as usize != n * 2
-        || env.get_array_length(times).unwrap_or(0) as usize != n * 3
+    if coords.len(env).unwrap_or(0) != n * 2
+        || times.len(env).unwrap_or(0) != n * 3
     {
         return Vec::new();
     }
     let mut ll = vec![0f64; n * 2];
-    if env.get_double_array_region(coords, 0, &mut ll).is_err() {
+    if coords.get_region(env, 0, &mut ll).is_err() {
         return Vec::new();
     }
     let mut tv = vec![0i32; n * 3];
-    if env.get_int_array_region(times, 0, &mut tv).is_err() {
+    if times.get_region(env, 0, &mut tv).is_err() {
         return Vec::new();
     }
 
     let mut out = Vec::with_capacity(n);
     for i in 0..n {
-        let name: Option<String> = match env.get_object_array_element(routes, i as i32) {
+        let name: Option<String> = match routes.get_element(env, i) {
             Ok(obj) => {
-                let s = JString::from(obj);
-                // Convert to an owned String within this statement so the
-                // borrowing `JavaStr` is dropped before `s`.
-                let owned: Option<String> = env.get_string(&s).ok().map(|js| js.into());
-                owned
+                if obj.is_null() {
+                    None
+                } else {
+                    // Convert to an owned String within this statement so the
+                    // borrowing `JavaStr` is dropped before `s`.
+                    match env.cast_local::<JString>(obj) {
+                        Ok(s) => s.try_to_string(env).ok(),
+                        Err(_) => None,
+                    }
+                }
             }
             Err(_) => None,
         };

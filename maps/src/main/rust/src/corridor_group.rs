@@ -286,7 +286,7 @@ fn one_corridor(
         .unwrap_or(0);
     let points = canonical(candidates[pick].points);
     let cum = super::corridor_geom::cumulative(&points);
-    let mut reference = Corridor { points, cum, colours: Vec::new() };
+    let reference = Corridor { points, cum, colours: Vec::new() };
 
     let projected = |at: usize, along: f64| {
         distance_along_ref(&reference, point_at_owned(candidates[at].points, &own_cum[at], along))

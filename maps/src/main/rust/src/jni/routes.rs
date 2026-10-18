@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use jni::objects::{JObject, JString, JValue};
-use jni::sys::{jboolean, jdouble, jint, jobjectArray};
-use jni::JNIEnv;
+use jni::sys::{jdouble, jint, jobjectArray};
+use jni::{Env, EnvUnowned, jni_sig, jni_str};
 
 use crate::geometry::TrafficSpeeds;
 use crate::graph::{Graph, WALK};
@@ -58,7 +58,7 @@ fn route_state() -> &'static Mutex<RouteState> {
 /// Request the traffic square containing `(lat_e7, lon_e7)` from Kotlin if it
 /// hasn't been requested yet. Mirrors the C++ `ensure_traffic_loaded`.
 pub(crate) fn ensure_traffic_loaded(
-    env: &mut JNIEnv,
+    env: &mut Env,
     thiz: &JObject,
     lat_e7: i32,
     lon_e7: i32,
@@ -78,15 +78,15 @@ pub(crate) fn ensure_traffic_loaded(
 
     let _ = env.call_method(
         thiz,
-        "fetchTrafficData",
-        "(DDDDIZ)V",
+        jni_str!("fetchTrafficData"),
+        jni_sig!("(DDDDIZ)V"),
         &[
             JValue::Double(lat_idx as f64),
             JValue::Double(lon_idx as f64),
             JValue::Double(lat_idx as f64 + 1.0),
             JValue::Double(lon_idx as f64 + 1.0),
             JValue::Int(packed as i32),
-            JValue::Bool(force_async as u8),
+            JValue::Bool(force_async),
         ],
     );
 }
@@ -97,31 +97,34 @@ pub(crate) fn ensure_traffic_loaded(
 
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_init<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     _thiz: JObject<'local>,
     base_path: JString<'local>,
-) -> jboolean {
-    let base: String = match env.get_string(&base_path) {
-        Ok(s) => s.into(),
-        Err(_) => return 0,
-    };
+) -> bool {
+    env.with_env(|env| -> jni::errors::Result<bool> {
+        let base: String = match base_path.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(false),
+        };
 
-    // Single-archive first: one download carries tiles, graph, POI and
-    // transit, and the archive's own checks refuse a corrupt container before
-    // any section loads. Falls back to the multi-file layout.
-    let graph = Graph::load_archive(&crate::graph::archive_path(&base))
-        .or_else(|| Graph::load(&base));
-    match graph {
-        Some(g) => {
-            if let Ok(mut w) = GRAPH.write() {
-                *w = Some(Arc::new(g));
-                1
-            } else {
-                0
+        // Single-archive first: one download carries tiles, graph, POI and
+        // transit, and the archive's own checks refuse a corrupt container before
+        // any section loads. Falls back to the multi-file layout.
+        let graph = Graph::load_archive(&crate::graph::archive_path(&base))
+            .or_else(|| Graph::load(&base));
+        match graph {
+            Some(g) => {
+                if let Ok(mut w) = GRAPH.write() {
+                    *w = Some(Arc::new(g));
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
             }
+            None => Ok(false),
         }
-        None => 0,
-    }
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
 // ---------------------------------------------------------------------------
@@ -130,7 +133,7 @@ pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_init<'local>
 
 #[no_mangle]
 pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_findRouteNative<'local>(
-    mut env: JNIEnv<'local>,
+    mut env: EnvUnowned<'local>,
     thiz: JObject<'local>,
     s_lat: jdouble,
     s_lon: jdouble,
@@ -138,143 +141,146 @@ pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_findRouteNat
     e_lon: jdouble,
     mode: jint,
 ) -> jobjectArray {
-    let null = std::ptr::null_mut();
-    let g = match graph() {
-        Some(g) => g,
-        None => return null,
-    };
-
-    // Snapshot the current traffic speeds so the hot loop needs no locking and
-    // concurrent updateTrafficNative calls don't block the whole route.
-    let speeds: TrafficSpeeds = traffic_speeds().read().map(|m| m.clone()).unwrap_or_default();
-
-    let state_mutex = route_state();
-    let mut state = state_mutex.lock().unwrap();
-    let RouteState { scratch, heap } = &mut *state;
-
-    // prepare + search need the JNI env for the driving traffic prefetch.
-    let ctx = {
-        let mut ensure = |lat_e7: i32, lon_e7: i32| {
-            ensure_traffic_loaded(&mut env, &thiz, lat_e7, lon_e7, false);
+    env.with_env(|env| -> jni::errors::Result<jobjectArray> {
+        let null = std::ptr::null_mut();
+        let g = match graph() {
+            Some(g) => g,
+            None => return Ok(null),
         };
 
-        let mut ctx = match prepare_routing(
-            &g, &speeds, &mut ensure, s_lat, s_lon, e_lat, e_lon, mode, scratch, heap,
-        ) {
-            Some(c) => c,
-            None => return null,
+        // Snapshot the current traffic speeds so the hot loop needs no locking and
+        // concurrent updateTrafficNative calls don't block the whole route.
+        let speeds: TrafficSpeeds = traffic_speeds().read().map(|m| m.clone()).unwrap_or_default();
+
+        let state_mutex = route_state();
+        let mut state = state_mutex.lock().unwrap();
+        let RouteState { scratch, heap } = &mut *state;
+
+        // prepare + search need the JNI env for the driving traffic prefetch.
+        let ctx = {
+            let mut ensure = |lat_e7: i32, lon_e7: i32| {
+                ensure_traffic_loaded(&mut *env, &thiz, lat_e7, lon_e7, false);
+            };
+
+            let mut ctx = match prepare_routing(
+                &g, &speeds, &mut ensure, s_lat, s_lon, e_lat, e_lon, mode, scratch, heap,
+            ) {
+                Some(c) => c,
+                None => return Ok(null),
+            };
+            perform_search_loop(&g, &speeds, &mut ensure, mode, &mut ctx, scratch, heap);
+            ctx
         };
-        perform_search_loop(&g, &speeds, &mut ensure, mode, &mut ctx, scratch, heap);
-        ctx
-    };
 
-    // A route that never leaves the edge it snapped to reaches no node, so
-    // `target_node` stays unset; `ctx.direct` is the route in that case.
-    if ctx.target_node == 0xFFFF_FFFF && ctx.direct.is_none() {
-        return null;
-    }
+        // A route that never leaves the edge it snapped to reaches no node, so
+        // `target_node` stays unset; `ctx.direct` is the route in that case.
+        if ctx.target_node == 0xFFFF_FFFF && ctx.direct.is_none() {
+            return Ok(null);
+        }
 
-    let steps = reconstruct_path(&g, &speeds, mode, &ctx, scratch);
-    // Whole-route elevation totals (WS-G): cumulative ascent/descent in metres, computed once and
-    // carried on every RawStep so Kotlin can read them off any step.
-    let (ascent_m, descent_m) = route_ascent_descent(&steps);
+        let steps = reconstruct_path(&g, &speeds, mode, &ctx, scratch);
+        // Whole-route elevation totals (WS-G): cumulative ascent/descent in metres, computed once and
+        // carried on every RawStep so Kotlin can read them off any step.
+        let (ascent_m, descent_m) = route_ascent_descent(&steps);
 
-    // --- Marshal steps into OfflineRouter.RawStep[] ---
-    let class = match env.find_class("com/vayunmathur/maps/util/OfflineRouter$RawStep") {
-        Ok(c) => c,
-        Err(_) => return null,
-    };
-    // MUST match the descriptor at the transit call site below: one ctor, two
-    // callers. The trailing two Strings are the ride's MOTIS board/alight ids;
-    // the trailing `[DDD` is WS-G's per-coordinate elevation array (parallel to
-    // the geometry) plus the route's cumulative ascent/descent in metres.
-    let ctor = "(ILjava/lang/String;JJ[DDZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;I[ILjava/lang/String;IIILjava/lang/String;Ljava/lang/String;[DDD)V";
-
-    let array = match env.new_object_array(steps.len() as i32, &class, JObject::null()) {
-        Ok(a) => a,
-        Err(_) => return null,
-    };
-
-    for (i, step) in steps.iter().enumerate() {
-        let name = g.road_name(step.name_off).unwrap_or_else(|| "Unknown Road".to_string());
-        let jname: JObject = match env.new_string(&name) {
-            Ok(s) => s.into(),
-            Err(_) => return null,
+        // --- Marshal steps into OfflineRouter.RawStep[] ---
+        let class = match env.find_class(jni_str!("com/vayunmathur/maps/util/OfflineRouter$RawStep")) {
+            Ok(c) => c,
+            Err(_) => return Ok(null),
         };
-        let jgeom = match env.new_double_array(step.coords.len() as i32) {
+        // MUST match the descriptor at the transit call site below: one ctor, two
+        // callers. The trailing two Strings are the ride's MOTIS board/alight ids;
+        // the trailing `[DDD` is WS-G's per-coordinate elevation array (parallel to
+        // the geometry) plus the route's cumulative ascent/descent in metres.
+        let ctor = jni_sig!("(ILjava/lang/String;JJ[DDZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;I[ILjava/lang/String;IIILjava/lang/String;Ljava/lang/String;[DDD)V");
+
+        let array = match env.new_object_array(steps.len() as i32, &class, JObject::null()) {
             Ok(a) => a,
-            Err(_) => return null,
+            Err(_) => return Ok(null),
         };
-        if env.set_double_array_region(&jgeom, 0, &step.coords).is_err() {
-            return null;
-        }
-        let jgeom_obj: JObject = jgeom.into();
 
-        // Packed turn-lane guidance: one int per lane (dir * 2 + valid).
-        let jlanes = match env.new_int_array(step.lanes.len() as i32) {
-            Ok(a) => a,
-            Err(_) => return null,
-        };
-        if !step.lanes.is_empty()
-            && env.set_int_array_region(&jlanes, 0, &step.lanes).is_err()
-        {
-            return null;
-        }
-        let jlanes_obj: JObject = jlanes.into();
+        for (i, step) in steps.iter().enumerate() {
+            let name = g.road_name(step.name_off).unwrap_or_else(|| "Unknown Road".to_string());
+            let jname: JObject = match env.new_string(&name) {
+                Ok(s) => s.into(),
+                Err(_) => return Ok(null),
+            };
+            let jgeom = match env.new_double_array(step.coords.len()) {
+                Ok(a) => a,
+                Err(_) => return Ok(null),
+            };
+            if jgeom.set_region(env, 0, &step.coords).is_err() {
+                return Ok(null);
+            }
+            let jgeom_obj: JObject = jgeom.into();
 
-        // Per-coordinate elevation (metres), parallel to the geometry double[].
-        let jelev = match env.new_double_array(step.elevations.len() as i32) {
-            Ok(a) => a,
-            Err(_) => return null,
-        };
-        if !step.elevations.is_empty()
-            && env.set_double_array_region(&jelev, 0, &step.elevations).is_err()
-        {
-            return null;
-        }
-        let jelev_obj: JObject = jelev.into();
+            // Packed turn-lane guidance: one int per lane (dir * 2 + valid).
+            let jlanes = match env.new_int_array(step.lanes.len()) {
+                Ok(a) => a,
+                Err(_) => return Ok(null),
+            };
+            if !step.lanes.is_empty()
+                && jlanes.set_region(env, 0, &step.lanes).is_err()
+            {
+                return Ok(null);
+            }
+            let jlanes_obj: JObject = jlanes.into();
 
-        let obj = match env.new_object(
-            &class,
-            ctor,
-            &[
-                JValue::Int(step.maneuver),
-                JValue::Object(&jname),
-                JValue::Long(step.dist_mm as i64),
-                JValue::Long(step.time_10ms as i64),
-                JValue::Object(&jgeom_obj),
-                JValue::Double(step.speed_ratio),
-                // Transit-only tail. The ctor descriptor is shared with the
-                // RAPTOR path; the road graph has no timetable, so it fills the
-                // transit fields with nulls/zeros.
-                JValue::Bool(0),
-                JValue::Object(&JObject::null()),
-                JValue::Object(&JObject::null()),
-                JValue::Object(&JObject::null()),
-                JValue::Int(0),
-                JValue::Object(&jlanes_obj),
-                JValue::Object(&JObject::null()),
-                JValue::Int(0),
-                JValue::Int(0),
-                JValue::Int(0),
-                // No MOTIS stop ids on a road-graph step.
-                JValue::Object(&JObject::null()),
-                JValue::Object(&JObject::null()),
-                // WS-G elevation profile: per-coordinate elevations + route totals.
-                JValue::Object(&jelev_obj),
-                JValue::Double(ascent_m),
-                JValue::Double(descent_m),
-            ],
-        ) {
-            Ok(o) => o,
-            Err(_) => return null,
-        };
-        if env.set_object_array_element(&array, i as i32, &obj).is_err() {
-            return null;
-        }
-    }
+            // Per-coordinate elevation (metres), parallel to the geometry double[].
+            let jelev = match env.new_double_array(step.elevations.len()) {
+                Ok(a) => a,
+                Err(_) => return Ok(null),
+            };
+            if !step.elevations.is_empty()
+                && jelev.set_region(env, 0, &step.elevations).is_err()
+            {
+                return Ok(null);
+            }
+            let jelev_obj: JObject = jelev.into();
 
-    array.into_raw()
+            let obj = match env.new_object(
+                &class,
+                &ctor,
+                &[
+                    JValue::Int(step.maneuver),
+                    JValue::Object(&jname),
+                    JValue::Long(step.dist_mm as i64),
+                    JValue::Long(step.time_10ms as i64),
+                    JValue::Object(&jgeom_obj),
+                    JValue::Double(step.speed_ratio),
+                    // Transit-only tail. The ctor descriptor is shared with the
+                    // RAPTOR path; the road graph has no timetable, so it fills the
+                    // transit fields with nulls/zeros.
+                    JValue::Bool(false),
+                    JValue::Object(&JObject::null()),
+                    JValue::Object(&JObject::null()),
+                    JValue::Object(&JObject::null()),
+                    JValue::Int(0),
+                    JValue::Object(&jlanes_obj),
+                    JValue::Object(&JObject::null()),
+                    JValue::Int(0),
+                    JValue::Int(0),
+                    JValue::Int(0),
+                    // No MOTIS stop ids on a road-graph step.
+                    JValue::Object(&JObject::null()),
+                    JValue::Object(&JObject::null()),
+                    // WS-G elevation profile: per-coordinate elevations + route totals.
+                    JValue::Object(&jelev_obj),
+                    JValue::Double(ascent_m),
+                    JValue::Double(descent_m),
+                ],
+            ) {
+                Ok(o) => o,
+                Err(_) => return Ok(null),
+            };
+            if array.set_element(env, i, &obj).is_err() {
+                return Ok(null);
+            }
+        }
+
+        Ok(array.into_raw())
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
 // ---------------------------------------------------------------------------
