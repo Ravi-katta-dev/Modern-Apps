@@ -110,7 +110,16 @@ class NoteSync(
     ): Boolean {
         val pulled = transport.pullRecords(channel, key, 0) ?: return false
         if (pulled.fullyUndecryptable) return false
-        val remote = pulled.items.mapNotNull { store.parseRemote(it) }
+        // Fold to FULL state: last envelope per sync id wins (append-only
+        // log). Without this, a superseded envelope (e.g. a live row followed
+        // by its tombstone) reaches the merge as a duplicate id and the
+        // tombstone is adopted under a fresh id instead of reconciling.
+        val folded = LinkedHashMap<String, String>()
+        for (raw in pulled.items) {
+            val entity = store.parseRemote(raw) ?: continue
+            folded[kind.syncId(entity)] = raw
+        }
+        val remote = folded.values.mapNotNull { store.parseRemote(it) }
         return SyncDriver.drive(
             kind = kind,
             store = store,
