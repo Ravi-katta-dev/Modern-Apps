@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
     <!-- Shared across every app. Defined here so each app does not carry
          its own copy to translate; an app that needs different wording can
          still override by declaring the same name. -->
@@ -40,4 +40,31 @@
     <string name="backup_password_prompt">Wprowadź hasło główne dla pliku KDBX:</string>
     <string name="backup_export_success">Kopia zapasowa została pomyślnie wyeksportowana</string>
     <string name="backup_import_success">Kopia zapasowa pomyślnie zaimportowana. Ponowne uruchamianie aplikacji…</string>
+    <string name="backup_export_failed_format">Eksport kopii zapasowej nie powiódł się: <xliff:g id="error" example="permission denied">%1$s</xliff:g></string>
+    <string name="backup_import_failed_format">Import kopii zapasowej nie powiódł się: <xliff:g id="error" example="invalid file">%1$s</xliff:g></string>
+    <string name="time_picker_title">Wybierz godzinę</string>
+    <string name="label_now">Teraz</string>
+    <string name="title_game_center">Centrum gier</string>
+    <string name="achievement_secret_description">Graj dalej, aby odblokować to osiągnięcie</string>
+    <string name="achievement_completed">Ukończono!</string>
+    <string name="style_normal">Normalny</string>
+    <string name="style_heading1">Nagłówek 1</string>
+    <string name="style_heading2">Nagłówek 2</string>
+    <string name="style_heading3">Nagłówek 3</string>
+    <string name="style_heading4">Nagłówek 4</string>
+    <string name="link_dialog_title_edit">Edytuj link</string>
+    <string name="link_dialog_title_insert">Wstaw link</string>
+    <string name="link_field_text">Tekst</string>
+    <string name="link_field_url">Link do (URL)</string>
+    <string name="link_action_unlink">Usuń link</string>
+    <string name="link_action_open">Otwórz</string>
+    <string name="heading">Nagłówek <xliff:g id="level" example="2">%1$s</xliff:g></string>
+    <string name="achievement_unlocked">Osiągnięcie odblokowane!</string>
+    <string name="cd_link">Link</string>
+    <string name="no_app_found">Żadna aplikacja nie może otworzyć tego linku</string>
+    <string name="clear">Wyczyść</string>
+    <string name="share">Udostępnij</string>
+    <string name="continue_label">Kontynuuj</string>
+    <string name="retry">Ponów</string>
+    <string name="back">Wstecz</string>
 </resources>
