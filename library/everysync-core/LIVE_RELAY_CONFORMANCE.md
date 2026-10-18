@@ -84,10 +84,10 @@ Channel names (`RelayContract.kt`): records `passwords:<vault>` /
 
 | Step | Date | Relay build | Pass? | Notes |
 | ---- | ---- | ----------- | ----- | ----- |
-| 1 register/getkey | | | | |
-| 2 append/pull | | | | |
-| 3 B64 AES shape | | | | |
-| 4 roster/epoch | | | | |
-| 5 invite/join | | | | |
-| 6 join parse | | | | |
-| 7 invariants | | | | |
+| 1 register/getkey | 2026-10-18 | staging `https://findfamily.cc/personal` → HTTP 404 `Not Found` on all `/personal/*` routes (host serves static 200 at `/`) | BLOCKED | `POST /register` → 404 body=`Not Found` (also via pwsh `Invoke-WebRequest`, GET `/personal` → 404, trailing-slash + plain-HTTP variants → 404). `JvmRelayTransport.init()` false on both A+B. Runner: `LiveRelayConformanceTest` step 1 BLOCKED. |
+| 2 append/pull | 2026-10-18 | same 404 staging | BLOCKED | No channel reachable; step never executed. Runner step 2 BLOCKED with the same 404 evidence. |
+| 3 B64 AES shape | 2026-10-18 | same 404 staging (relay half) | partial — local half PASS | Local half genuinely executed+asserted with JVM `AesGcm`: IV-prepended `[12B iv][ct\|\|tag]` (pt+28B), random IV (two encryptions differ, both decrypt), B64 envelope round-trip (runner step 3-local PASS). Relay half BLOCKED (no `pullRaw` possible). |
+| 4 roster/epoch | 2026-10-18 | same 404 staging | BLOCKED | Never executed against staging; runner step 4 BLOCKED. Scripted: roster editor + garbage-skip, `rotateKey` → epoch 1 K2, epoch isolation (runner `phaseRosterEpoch`). |
+| 5 invite/join | 2026-10-18 | same 404 staging | BLOCKED | Never executed against staging; runner step 5 BLOCKED. Scripted: join-req `kind:req` → invite resolves vault+key → raw inbox ciphertext scan (runner `phaseInviteJoin`). |
+| 6 join parse | 2026-10-18 | n/a (pure local) | PASS | Genuinely executed+asserted: share link ids-only, parse round-trips, bad scheme/host/blank ids → null (runner step 6 PASS). |
+| 7 invariants | 2026-10-18 | same 404 staging (relay halves) | partial — local halves PASS | 7.1 PASS asserted: kill-network `pullRaw` → null → `SyncDriver.drive` false, zero writes. 7.2 merge half PASS asserted: absent-without-tombstone resurrects, `deleted=true` envelope tombstones. 7.3 local half PASS asserted: link ids-only + PQC-sealed envelope has no title/key substrings and opens for the recipient. Relay halves (live tombstone propagation) BLOCKED on the 404. |
