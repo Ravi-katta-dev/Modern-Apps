@@ -117,6 +117,7 @@ private fun HubTabs(
                 onProfileClick = { scope.launch { pagerState.animateScrollToPage(3) } },
                 onActivityClick = { backStack.add(MainRoute.Activity) },
                 onGamesClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                onControllerClick = { backStack.add(MainRoute.PlayOnTv) },
                 ownsGameMorphKeys = pagerState.settledPage == 0
             )
         },

@@ -21,6 +21,7 @@ fun DashboardPage(
     onProfileClick: () -> Unit,
     onActivityClick: () -> Unit,
     onGamesClick: () -> Unit,
+    onControllerClick: () -> Unit,
     modifier: Modifier = Modifier,
     ownsGameMorphKeys: Boolean = true
 ) {
@@ -76,6 +77,7 @@ fun DashboardPage(
             override fun openActivity() = onActivityClick()
             override fun openGamesList() = onGamesClick()
             override fun playGame(game: HubGameEntity) = launchGame(context, game)
+            override fun openController() = onControllerClick()
         },
         iconFor = { game -> iconCache.getOrPut(game.packageName) { GameIconResolver.resolveAppIcon(context, game.packageName) } },
         ownsGameMorphKeys = ownsGameMorphKeys,

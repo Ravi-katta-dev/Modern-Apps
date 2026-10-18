@@ -69,6 +69,7 @@ interface DashboardActions {
     fun openActivity() {}
     fun openGamesList() {}
     fun playGame(game: HubGameEntity) {}
+    fun openController() {}
 
     companion object {
         val Noop: DashboardActions = object : DashboardActions {}

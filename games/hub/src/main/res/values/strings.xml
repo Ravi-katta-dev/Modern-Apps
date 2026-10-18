@@ -127,4 +127,8 @@
 
     <!-- Kart detail: opens the hub-hosted phone controller for the TV game. -->
     <string name="play_on_tv">Play on TV</string>
+    <!-- Dashboard: generic phone-as-controller entry; lists any TV game lobby on the LAN. -->
+    <string name="connect_to_tv">Connect to TV</string>
+    <!-- Dashboard: explains the generic controller entry. -->
+    <string name="connect_to_tv_subtitle">Use this phone as a controller for games on your TV</string>
 </resources>
