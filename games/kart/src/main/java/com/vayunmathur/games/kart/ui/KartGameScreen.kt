@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -13,6 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.vayunmathur.games.kart.R
 import com.vayunmathur.games.kart.data.GameMode
 import com.vayunmathur.games.kart.platform.KartGameActions
@@ -185,6 +188,20 @@ private fun CountdownBody(phase: RacePhase.Countdown) {
 
 @Composable
 private fun RacingBody(phase: RacePhase.Racing) {
+    // The native 3D viewport sits behind the standings HUD. With no
+    // libkart_engine it is never composed and the HUD is the whole screen;
+    // in a @Preview (Layoutlib) a SurfaceView is a blank rect, so listing
+    // images keep rendering the HUD exactly as before.
+    if (com.vayunmathur.games.kart.util.KartNative.isAvailable) {
+        AndroidView(
+            factory = { ctx ->
+                // No opaque background: a SurfaceView shows its Vulkan layer
+                // through a transparent hole in the window.
+                KartSurfaceView(ctx)
+            },
+            modifier = Modifier.fillMaxWidth().height(240.dp),
+        )
+    }
     Text(
         stringResource(R.string.race_lap, phase.playerLap + 1, phase.totalLaps),
         style = MaterialTheme.typography.titleLarge,

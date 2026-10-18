@@ -124,4 +124,7 @@
     <string name="best_streak">Best streak</string>
     <string name="last">Last</string>
     <string name="search_games">Search games</string>
+
+    <!-- Kart detail: opens the hub-hosted phone controller for the TV game. -->
+    <string name="play_on_tv">Play on TV</string>
 </resources>

@@ -39,6 +39,7 @@ import com.vayunmathur.games.hub.viewmodel.GameHubViewModel
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.EmptyState
 import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.OutlinedButton
 import com.vayunmathur.library.ui.Card
 import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.MaterialTheme
@@ -50,6 +51,9 @@ import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.sharedContainer
 import androidx.compose.ui.res.stringResource
 import com.vayunmathur.games.hub.R
+
+/** The game id whose detail offers the hub-hosted phone controller. */
+private const val KART_GAME_ID = "kart"
 
 @Composable
 fun GameDetailScreen(
@@ -100,6 +104,10 @@ fun GameDetailScreen(
                 }
             }
             item { Button(onClick = { launchGame(context, g) }, enabled = isInstalled, modifier = Modifier.fillMaxWidth()) { Text(if (isInstalled) stringResource(R.string.play_1, g.displayName) else stringResource(R.string.not_installed)) } }
+            // Kart runs on TV with phones as controllers: the hub hosts the controller pad.
+            if (gameId == KART_GAME_ID) {
+                item { OutlinedButton(onClick = { backStack.add(MainRoute.PlayOnTv) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.play_on_tv)) } }
+            }
             item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 StatCard(label = stringResource(com.vayunmathur.games.hub.R.string.playtime), value = formatPlaytime(g.totalPlaytimeMs), modifier = Modifier.weight(1f))
                 StatCard(label = stringResource(com.vayunmathur.games.hub.R.string.sessions), value = "${sessions.size}", modifier = Modifier.weight(1f))

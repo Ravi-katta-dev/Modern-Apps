@@ -20,5 +20,10 @@ dependencies {
     implementation(project(":library:ui"))
     implementation(project(":library:room"))
     implementation(project(":sdk:games"))
+    // "Play on TV": the generic phone-as-controller SDK (pad UI + discovery +
+    // client) plus PQC sealing for the handshake's session secret.
+    implementation(project(":sdk:controller"))
+    implementation(project(":library:e2ee-p2p"))
+    implementation(libs.androidx.datastore.preferences)
     implementRoom(libs)
 }

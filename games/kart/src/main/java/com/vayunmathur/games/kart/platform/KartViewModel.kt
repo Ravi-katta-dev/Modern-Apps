@@ -60,14 +60,30 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
     }
 
     /**
-     * The TV lobby. No PQC identity ships in the scaffold: the bundle lambda returns null until
-     * the TV service wires `:library:e2ee-p2p`, so network handshakes refuse cleanly while the
-     * placeholder race runs on local seats.
+     * The TV lobby, backed by a real post-quantum identity.
+     *
+     * The identity loads off the main thread (keygen on first run touches the
+     * native PQC library): until it lands, [KartHost] refuses handshakes
+     * cleanly — the same posture the `{ null }` scaffold had, but only for
+     * the cold-start window rather than forever. The device-key persistence
+     * lives in [KartPairingStore] alongside the identity, outside the backup
+     * set, so a remembered phone re-pairs silently across restarts.
      */
+    private val pairingStore = KartPairingStore(application)
+
+    @Volatile
+    private var pqcIdentity: com.vayunmathur.e2ee.PqcIdentity? = null
+
     private val kartHost = KartHost(
         context = application,
-        publicBundle = { null },
-        unsealSecret = { null },
+        publicBundle = { pqcIdentity?.publicBundle },
+        unsealSecret = { sealed ->
+            val identity = pqcIdentity ?: return@KartHost null
+            runCatching { identity.decrypt(sealed) }
+                .getOrNull()
+                ?.takeIf { it.size == com.vayunmathur.sdk.controller.ControllerKeys.SECRET_BYTES }
+        },
+        pairingStore = pairingStore,
     )
 
     private val _racePhase = MutableStateFlow<RacePhase>(RacePhase.Lobby(kartHost.lobby.value))
@@ -84,7 +100,14 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
     init {
         achievementsManager.checkExistingAchievements()
 
-        viewModelScope.launch { kartHost.start() }
+        // Load (or mint) the PQC identity off the main thread, then open the
+        // lobby. First run pays keygen; every later start reads persisted keys.
+        viewModelScope.launch {
+            pqcIdentity = runCatching {
+                com.vayunmathur.e2ee.PqcIdentity.loadOrCreate(pairingStore, prefix = "kartTv")
+            }.getOrNull()
+            kartHost.start()
+        }
 
         viewModelScope.launch {
             kartHost.lobby.collectLatest { lobby ->
@@ -158,7 +181,7 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
         // Solo seat for the scaffold: this device drives kart one until phones join.
         localPlayerId = localPlayerId ?: "local-${System.currentTimeMillis()}"
         val seat = requireNotNull(localPlayerId)
-        kartHost.host.addLocalPlayer(seat, "You")
+        kartHost.host?.addLocalPlayer(seat, "You")
         viewModelScope.launch {
             for (count in COUNTDOWN_SECONDS downTo 1) {
                 _racePhase.value = RacePhase.Countdown(count)
@@ -177,7 +200,7 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
      */
     fun onLocalStick(playerId: String, x: Float, y: Float) {
         if (_racePhase.value !is RacePhase.Racing) return
-        kartHost.host.onLocalInput(
+        kartHost.host?.onLocalInput(
             com.vayunmathur.sdk.controller.ControllerInput(
                 playerId = playerId,
                 seq = 0L,
@@ -188,22 +211,76 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
 
     /** A gamepad took or freed a seat. Hot-plug mid-race changes the next race, never this one. */
     fun onGamepadSeat(playerId: String, name: String, present: Boolean) {
-        if (present) kartHost.host.addLocalPlayer(playerId, name.ifBlank { "Gamepad" })
-        else kartHost.host.removeLocalPlayer(playerId)
+        if (present) kartHost.host?.addLocalPlayer(playerId, name.ifBlank { "Gamepad" })
+        else kartHost.host?.removeLocalPlayer(playerId)
     }
 
     /** One gamepad sample, already shaped as a [ControllerInput] by [GamepadDirect]. */
     fun onGamepadInput(input: com.vayunmathur.sdk.controller.ControllerInput) {
         if (_racePhase.value !is RacePhase.Racing) return
-        kartHost.host.onLocalInput(input)
+        kartHost.host?.onLocalInput(input)
     }
 
     private fun beginRace(seat: String) {
         val playerIds = kartHost.lobby.value.slots.map { it.playerId }
         val seats = if (playerIds.isEmpty()) listOf(seat) else playerIds
+        if (KartNative.isAvailable) {
+            beginNativeRace(seat, seats)
+        } else {
+            beginPlaceholderRace(seat, seats)
+        }
+    }
+
+    /**
+     * The native race: the Rust engine owns the sim (seats, AI, items, laps) and ticks itself on
+     * its own render thread; this loop only feeds inputs and polls standings for the HUD.
+     */
+    private fun beginNativeRace(seat: String, seats: List<String>) {
+        KartNative.startRace(seats)
+        kartHost.host?.startRace()
+        val itemLatch = mutableMapOf<String, Boolean>()
+        tickJob?.cancel()
+        tickJob = viewModelScope.launch {
+            while (isActive) {
+                delay(TICK_MS)
+                val latest = kartHost.inputs.value
+                for (id in seats) {
+                    val sample = latest[id] ?: continue
+                    val control = GameInputLoop.normalize(sample)
+                    val index = seats.indexOf(id)
+                    KartNative.onDriveInput(index, control.throttle, control.steering, control.brake)
+                    KartNative.setDrift(index, control.drift)
+                    // Rising edge per seat: holding item fires once (the engine
+                    // consumes the edge on its next step).
+                    val fire = control.itemUse && itemLatch[id] != true
+                    itemLatch[id] = control.itemUse
+                    if (fire) KartNative.useItem(index)
+                }
+                val standings = parseStandings(KartNative.getStandingsJson())
+                if (standings.isEmpty()) continue
+                if (standings.any { it.lap >= RACE_LAPS }) {
+                    val ordered = standings.sortedBy { it.place }
+                    finishRace(
+                        winner = ordered.first().player,
+                        order = ordered.map { it.player },
+                    )
+                    return@launch
+                }
+                val ordered = standings.sortedBy { it.place }
+                _racePhase.value = RacePhase.Racing(
+                    order = ordered.map { it.player },
+                    lapProgress = ordered.associate { it.player to it.progress },
+                    playerLap = ordered.firstOrNull { it.player == seat }?.lap ?: 0,
+                    totalLaps = RACE_LAPS,
+                )
+            }
+        }
+    }
+
+    private fun beginPlaceholderRace(seat: String, seats: List<String>) {
         val newRace = PlaceholderRace(playerIds = seats)
         race = newRace
-        kartHost.host.startRace()
+        kartHost.host?.startRace()
         tickJob?.cancel()
         tickJob = viewModelScope.launch {
             var lastMs = android.os.SystemClock.uptimeMillis()
@@ -231,7 +308,11 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
                 }
                 newRace.tick(dt)
                 if (newRace.finished) {
-                    finishRace(newRace)
+                    val order = newRace.leaderboard()
+                    finishRace(
+                        winner = newRace.winner() ?: order.first(),
+                        order = order,
+                    )
                     return@launch
                 }
                 val order = newRace.leaderboard()
@@ -244,13 +325,10 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
             }
         }
     }
-
-    private fun finishRace(finished: PlaceholderRace) {
+    private fun finishRace(winner: String, order: List<String>) {
         tickJob?.cancel()
         tickJob = null
-        kartHost.host.endRace()
-        val winner = finished.winner() ?: finished.leaderboard().first()
-        val order = finished.leaderboard()
+        kartHost.host?.endRace()
         _racePhase.value = RacePhase.Results(winner = winner, order = order)
         val state = _uiState.value
         viewModelScope.launch {
@@ -265,6 +343,43 @@ class KartViewModel(application: Application) : AndroidViewModel(application),
             KartRules.nextCup(state.progress.currentCup)?.let { dataStore.saveCup(it) }
         }
         race = null
+    }
+
+    /**
+     * One native standings row. Parsed by hand (not kotlinx.serialization): the engine emits a
+     * fixed tiny shape and the game must never crash the tick on a malformed frame.
+     */
+    private data class NativeStanding(
+        val player: String,
+        val lap: Int,
+        val progress: Float,
+        val place: Int,
+    )
+
+    private fun parseStandings(json: String): List<NativeStanding> {
+        val text = json.trim()
+        if (!text.startsWith("[") || !text.endsWith("]")) return emptyList()
+        val rows = text.removePrefix("[").removeSuffix("]").split("},")
+        if (rows.size == 1 && rows[0].isBlank()) return emptyList()
+        return rows.mapNotNull { row ->
+            val obj = row.trim().removeSuffix("}").removePrefix("{")
+            fun field(name: String): String? {
+                val key = "\"$name\":"
+                val at = obj.indexOf(key)
+                if (at < 0) return null
+                val rest = obj.substring(at + key.length).trim()
+                return if (rest.startsWith("\"")) {
+                    rest.removePrefix("\"").substringBefore("\"")
+                } else {
+                    rest.substringBefore(",").trim()
+                }
+            }
+            val player = field("player") ?: return@mapNotNull null
+            val lap = field("lap")?.toIntOrNull() ?: return@mapNotNull null
+            val progress = field("progress")?.toFloatOrNull() ?: return@mapNotNull null
+            val place = field("place")?.toIntOrNull() ?: return@mapNotNull null
+            NativeStanding(player, lap, progress, place)
+        }
     }
 
     /** Back to the lobby from results. Seats stay; the next Start Race counts down again. */

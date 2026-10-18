@@ -19,6 +19,7 @@ import com.vayunmathur.games.hub.ui.screens.ActivityFeedScreen
 import com.vayunmathur.games.hub.ui.screens.DashboardPage
 import com.vayunmathur.games.hub.ui.screens.GameDetailScreen
 import com.vayunmathur.games.hub.ui.screens.GamesListPage
+import com.vayunmathur.games.hub.ui.screens.PlayOnTvScreen
 import com.vayunmathur.games.hub.ui.screens.ProfilePage
 import com.vayunmathur.games.hub.ui.screens.SettingsScreen
 import com.vayunmathur.games.hub.viewmodel.GameHubViewModel
@@ -53,6 +54,8 @@ sealed interface MainRoute : NavKey {
     @Serializable data class AchievementsForGame(val gameId: String) : MainRoute
     @Serializable data object Activity : MainRoute
     @Serializable data object Settings : MainRoute
+    /** The phone-as-controller screen (hub hosts the SDK ControllerPad). */
+    @Serializable data object PlayOnTv : MainRoute
 }
 
 @Composable
@@ -87,6 +90,9 @@ fun HubNavigation(
                 viewModel = viewModel,
                 backStack = backStack
             )
+        }
+        entry<MainRoute.PlayOnTv> {
+            PlayOnTvScreen(backStack = backStack)
         }
     }
 }

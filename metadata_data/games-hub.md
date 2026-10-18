@@ -6,5 +6,8 @@ Features:
 - Daily streaks and an activity feed
 - Per-game detail and a player profile
 - Games report in over local IPC, so nothing leaves your device
+- Play on TV: use this phone as a controller for TV-hosted games over your Wi-Fi
 
-100% offline
+Mostly offline: achievements, streaks and history never leave your device.
+"Play on TV" connects to a TV on your local Wi-Fi only (discovery + encrypted
+control channel, no internet).
