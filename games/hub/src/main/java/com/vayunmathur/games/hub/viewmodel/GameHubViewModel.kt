@@ -154,6 +154,13 @@ class GameHubViewModel(
         }
     }
 
+    override fun updateProfilePose(poseId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = repository.yuus.getProfileYuu() ?: return@launch
+            repository.yuus.updateYuu(current.id, current.name, current.config.copy(poseId = poseId))
+        }
+    }
+
     val sessionsFlow: StateFlow<List<PlaySessionEntity>> =
         repository.sessions.allSessionsFlow()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())

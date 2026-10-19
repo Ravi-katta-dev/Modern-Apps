@@ -93,6 +93,7 @@ interface GamesListActions {
 interface ProfileActions {
     fun updateDisplayName(name: String) {}
     fun updateAvatarSymbol(symbol: String?) {}
+    fun updateProfilePose(poseId: String) {}
 
     companion object {
         val Noop: ProfileActions = object : ProfileActions {}

@@ -22,6 +22,9 @@ interface YuuDao {
     @Query("SELECT * FROM yuus WHERE isProfile = 1 LIMIT 1")
     fun flowProfile(): Flow<YuuEntity?>
 
+    @Query("SELECT * FROM yuus WHERE isProfile = 1 LIMIT 1")
+    suspend fun getProfile(): YuuEntity?
+
     @Query("DELETE FROM yuus WHERE id = :id")
     suspend fun deleteById(id: Long)
 

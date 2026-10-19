@@ -40,7 +40,9 @@ import com.vayunmathur.games.hub.data.entities.YUU_HAIR_COLORS
 import com.vayunmathur.games.hub.data.entities.YUU_MOUTH_COLORS
 import com.vayunmathur.games.hub.data.entities.YUU_SKIN_TONES
 import com.vayunmathur.games.hub.data.entities.YuuFaceConfig
+import com.vayunmathur.games.hub.ui.components.YuuAvatar3D
 import com.vayunmathur.games.hub.ui.components.YuuFace
+import com.vayunmathur.games.hub.ui.components.YuuPoseGallery
 import com.vayunmathur.games.hub.ui.yuu.YuuCategory
 import com.vayunmathur.games.hub.ui.yuu.YuuEditorActions
 import com.vayunmathur.games.hub.ui.yuu.YuuEditorUiState
@@ -100,21 +102,35 @@ fun YuuEditorScreen(
             modifier = modifier.fillMaxSize().padding(padding).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Zone 1: preview with overlay steppers for the active category.
+            // Zone 1: 3D preview (2D fallback when native is unavailable) with
+            // overlay steppers for the active category, plus the pose gallery.
             Card(modifier = Modifier.fillMaxWidth()) {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center,
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    YuuFace(
-                        config = draft.toConfig(),
-                        withBody = true,
-                        modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(0.9f).padding(8.dp),
-                    )
-                    PreviewSteppers(
-                        category = category,
-                        draft = draft,
-                        modifier = Modifier.fillMaxWidth().aspectRatio(0.9f),
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        YuuAvatar3D(
+                            config = draft.toConfig(),
+                            poseId = draft.poseId,
+                            modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(0.9f).padding(8.dp),
+                        )
+                        // Steppers overlay only the 2D fallback path's layout box;
+                        // on the 3D path they float over the surface either way.
+                        PreviewSteppers(
+                            category = category,
+                            draft = draft,
+                            modifier = Modifier.fillMaxWidth().aspectRatio(0.9f),
+                        )
+                    }
+                    SectionLabel(stringResource(R.string.yuu_pose))
+                    YuuPoseGallery(
+                        selectedPoseId = draft.poseId,
+                        onSelect = { draft.poseId = it },
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -216,6 +232,7 @@ private class YuuDraft private constructor(
     moleStyle: Int,
     wrinkleStyle: Int,
     blushStyle: Int,
+    poseId: String?,
 ) {
     var faceShape by mutableIntStateOf(faceShape)
     var skinTone by mutableLongStateOf(skinTone)
@@ -245,6 +262,7 @@ private class YuuDraft private constructor(
     var moleStyle by mutableIntStateOf(moleStyle)
     var wrinkleStyle by mutableIntStateOf(wrinkleStyle)
     var blushStyle by mutableIntStateOf(blushStyle)
+    var poseId by mutableStateOf(poseId)
 
     fun toConfig() = YuuFaceConfig(
         faceShape = faceShape, skinTone = skinTone, earSize = earSize,
@@ -259,6 +277,7 @@ private class YuuDraft private constructor(
         mouthSize = mouthSize, mouthHeight = mouthHeight,
         glassesStyle = glassesStyle, beardStyle = beardStyle,
         moleStyle = moleStyle, wrinkleStyle = wrinkleStyle, blushStyle = blushStyle,
+        poseId = poseId,
     )
 
     companion object {
@@ -269,7 +288,7 @@ private class YuuDraft private constructor(
             c.browStyle, c.browColor, c.browHeight, c.browRotation,
             c.noseStyle, c.noseHeight, c.mouthStyle,
             c.mouthColor, c.mouthSize, c.mouthHeight, c.glassesStyle, c.beardStyle, c.moleStyle,
-            c.wrinkleStyle, c.blushStyle,
+            c.wrinkleStyle, c.blushStyle, c.poseId,
         )
     }
 }

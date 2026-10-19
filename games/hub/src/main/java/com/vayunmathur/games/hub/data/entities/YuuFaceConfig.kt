@@ -8,6 +8,9 @@ import kotlinx.serialization.Serializable
  * Indices are positional (0..count-1 per part) so the renderer owns the variant lookup;
  * colors are ARGB longs into the fixed palettes below; tweaks are normalized 0..1 floats.
  * Only this config is persisted, keeping it portable to the future 3D games.
+ *
+ * [poseId] selects a 3D preset pose (see `YuuPose`); null means the idle pose.
+ * It travels inside this JSON so no Room migration is needed for poses.
  */
 @Serializable
 data class YuuFaceConfig(
@@ -39,6 +42,7 @@ data class YuuFaceConfig(
     val moleStyle: Int = 0,
     val wrinkleStyle: Int = 0,
     val blushStyle: Int = 0,
+    val poseId: String? = null,
 ) {
     companion object {
         /** Variant counts the Canvas renderer supports for v1 (Mii-like breadth). */

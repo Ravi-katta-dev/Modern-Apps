@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -28,7 +29,9 @@ import com.vayunmathur.games.hub.ui.components.AvatarBadge
 import com.vayunmathur.games.hub.ui.components.AvatarIcon
 import com.vayunmathur.games.hub.ui.components.StatCard
 import com.vayunmathur.games.hub.ui.components.XpProgressBar
+import com.vayunmathur.games.hub.ui.components.YuuAvatar3D
 import com.vayunmathur.games.hub.ui.components.YuuBadge
+import com.vayunmathur.games.hub.ui.components.YuuPoseGallery
 import com.vayunmathur.games.hub.util.ProfileActions
 import com.vayunmathur.games.hub.util.ProfileUiState
 import com.vayunmathur.games.hub.util.XpLevelCalculator
@@ -84,7 +87,16 @@ fun ProfileScreen(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(24.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         if (BuildConfig.DEV_BUILD && state.profileYuu != null) {
-                            YuuBadge(config = state.profileYuu.config, large = true)
+                            YuuAvatar3D(
+                                config = state.profileYuu.config,
+                                poseId = state.profileYuu.config.poseId,
+                                modifier = Modifier.size(96.dp),
+                            )
+                            YuuPoseGallery(
+                                selectedPoseId = state.profileYuu.config.poseId,
+                                onSelect = actions::updateProfilePose,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         } else {
                             AvatarBadge(symbol = state.avatarSymbol, large = true)
                         }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -27,6 +28,7 @@ import com.vayunmathur.games.hub.ui.components.GameCard
 import com.vayunmathur.games.hub.ui.components.StatCard
 import com.vayunmathur.games.hub.ui.components.StreakCard
 import com.vayunmathur.games.hub.ui.components.XpProgressBar
+import com.vayunmathur.games.hub.ui.components.YuuAvatar3D
 import com.vayunmathur.games.hub.ui.components.YuuBadge
 import com.vayunmathur.games.hub.util.DashboardActions
 import com.vayunmathur.games.hub.util.DashboardUiState
@@ -74,7 +76,11 @@ fun DashboardScreen(
                 Card(onClick = actions::openProfile, modifier = Modifier.fillMaxWidth()) {
                     Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (BuildConfig.DEV_BUILD && state.profileYuu != null) {
-                            YuuBadge(config = state.profileYuu.config, large = true)
+                            YuuAvatar3D(
+                                config = state.profileYuu.config,
+                                poseId = state.profileYuu.config.poseId,
+                                modifier = Modifier.size(56.dp),
+                            )
                         } else {
                             AvatarBadge(symbol = state.avatarSymbol, large = true)
                         }

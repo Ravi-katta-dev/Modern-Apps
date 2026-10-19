@@ -89,6 +89,8 @@ class YuuStore internal constructor(private val repository: GamesHubRepository) 
 
     suspend fun getYuu(id: Long): YuuUiModel? = yuuDao.getById(id)?.toUiModel()
 
+    suspend fun getProfileYuu(): YuuUiModel? = yuuDao.getProfile()?.toUiModel()
+
     suspend fun createYuu(name: String, config: YuuFaceConfig): Long =
         yuuDao.upsert(
             YuuEntity(

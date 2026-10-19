@@ -195,4 +195,6 @@
     <string name="yuu_body_weight">Weight</string>
     <string name="yuu_body_preview_hint">Body</string>
     <string name="yuu_body_hint">Use the arrows on the preview to set height, and the unfold icons for weight.</string>
+    <!-- Yuu pose gallery label. Noun -->
+    <string name="yuu_pose">Pose</string>
 </resources>
