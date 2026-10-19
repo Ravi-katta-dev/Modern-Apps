@@ -223,10 +223,13 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SettingsEthernet
+import androidx.compose.material.icons.filled.SettingsInputHdmi
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.SettingsBackupRestore
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.SignalWifi4Bar
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Sms
@@ -251,6 +254,7 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material.icons.filled.CheckCircle
@@ -1739,3 +1743,24 @@ fun IconOnline(modifier: Modifier = Modifier, tint: Color = LocalContentColor.cu
 @Composable
 fun IconClock(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
     AppIcon(Icons.Filled.AccessTime, "Clock", modifier, tint)
+
+// --- TV launcher (HDMI inputs + network tile) ---
+/** An HDMI port — an HDMI input tile on the TV home screen. */
+@Composable
+fun IconHdmi(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.SettingsInputHdmi, "HDMI", modifier, tint)
+
+/** A wired network link — the TV is on Ethernet. */
+@Composable
+fun IconEthernet(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.SettingsEthernet, "Ethernet", modifier, tint)
+
+/** Full Wi-Fi signal — the TV is online over Wi-Fi. */
+@Composable
+fun IconWifiFull(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.SignalWifi4Bar, "Wi-Fi", modifier, tint)
+
+/** No Wi-Fi — the TV is offline. */
+@Composable
+fun IconWifiOff(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.WifiOff, "Offline", modifier, tint)

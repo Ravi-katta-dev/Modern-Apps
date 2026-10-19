@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Leanback-row banner (160x90), following the cast:tv banner pattern. The home grid itself
+  draws banner art per app at runtime; this is the static icon other launchers show for us. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="160dp"
+    android:height="90dp"
+    android:viewportWidth="160"
+    android:viewportHeight="90">
+    <path
+        android:fillColor="#FF15100F"
+        android:pathData="M0,0h160v90H0z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M62,30h36v10H62zM62,44h36v6H62zM62,54h24v6H62z" />
+</vector>
