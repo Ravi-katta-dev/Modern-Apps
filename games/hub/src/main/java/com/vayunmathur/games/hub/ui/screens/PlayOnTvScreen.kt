@@ -3,6 +3,7 @@ package com.vayunmathur.games.hub.ui.screens
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -12,6 +13,7 @@ import com.vayunmathur.games.hub.MainRoute
 import com.vayunmathur.games.hub.network.PlayOnTvSession
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.appBarScrollBehavior
+import com.vayunmathur.library.ui.rememberPermissionRequest
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.sdk.controller.ControllerPad
 
@@ -23,6 +25,11 @@ import com.vayunmathur.sdk.controller.ControllerPad
  * it to the reusable SDK [ControllerPad] and tears the session down on leave.
  * The callbacks map one-to-one onto the session (`onConnect` → `connect`,
  * `onProveCode` → `proveCode`, …), exactly as the SDK's pad contract documents.
+ *
+ * mDNS browsing needs `ACCESS_LOCAL_NETWORK` on Android 16+, which is a
+ * runtime grant — without it the NSD daemon refuses the browse and the pad
+ * would spin on "looking" forever. Request it on entry; on grant, rescan so
+ * a previously refused browse restarts.
  */
 @Composable
 fun PlayOnTvScreen(
@@ -33,6 +40,11 @@ fun PlayOnTvScreen(
     val session = remember { PlayOnTvSession(context) }
     DisposableEffect(session) { onDispose { session.close() } }
     val state by session.state.collectAsStateWithLifecycle()
+    val requestLocalNetwork = rememberPermissionRequest(
+        android.Manifest.permission.ACCESS_LOCAL_NETWORK,
+        onResult = { granted -> if (granted) session.rescan() },
+    )
+    LaunchedEffect(Unit) { requestLocalNetwork() }
 
     AppScaffold(
         title = "Play on TV",

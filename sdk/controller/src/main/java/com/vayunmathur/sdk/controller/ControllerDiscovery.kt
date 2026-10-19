@@ -111,6 +111,11 @@ class ControllerDiscovery(context: Context) {
 
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
                 Log.status(TAG, "startDiscovery failed: $errorCode")
+                // The NSD daemon refused the browse (not a SecurityException from
+                // our call). On Android 16+ this is the Local Network denial
+                // surfacing as a callback instead of a throw — treat it as
+                // blocked so the UI names the cause instead of spinning.
+                _localNetworkBlocked.value = true
                 close()
             }
 

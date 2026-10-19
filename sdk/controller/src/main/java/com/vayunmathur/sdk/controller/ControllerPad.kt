@@ -106,7 +106,7 @@ private fun DiscoveryPane(
     }
     if (state.localNetworkBlocked) {
         Text(
-            "Local-network access is off, so no TVs can be found. Allow it in system settings.",
+            "Local-network access is off, so no TVs can be found. Allow it when asked, or enable it in system settings, then rescan.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.error,
         )
