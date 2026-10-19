@@ -40,4 +40,14 @@
     <string name="tv_notification_channel_name">Receiving</string>
     <string name="tv_notification_channel_desc">Shown while this TV is available to cast to</string>
     <string name="tv_notification_text_pairing">Waiting for a pair code</string>
+
+    <!-- Incoming connection: the high-importance channel whose full-screen intent opens the TV
+         on its own when a phone connects while the app is in the background. Silent: appearing
+         on screen is the alert. -->
+    <string name="tv_incoming_channel_name">Incoming cast</string>
+    <string name="tv_incoming_channel_desc">Used to open the TV automatically when a phone starts casting</string>
+
+    <!-- Auto-open prompt on the idle screen, until full-screen-intent access is granted. -->
+    <string name="tv_auto_open_hint">This TV can open itself when a phone starts casting. Allow it in Settings to turn that on.</string>
+    <string name="tv_auto_open_grant">Allow auto-open</string>
 </resources>

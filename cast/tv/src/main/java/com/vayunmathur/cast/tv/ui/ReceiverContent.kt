@@ -6,18 +6,29 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.vayunmathur.cast.tv.R
 import com.vayunmathur.cast.tv.platform.ReceiverFailure
 import com.vayunmathur.cast.tv.platform.ReceiverPhase
 import com.vayunmathur.cast.tv.platform.ReceiverUiState
+import com.vayunmathur.library.ui.SpecialAccess
+import androidx.tv.material3.Button
 
 /**
  * The idle and pairing screen.
@@ -69,6 +80,7 @@ fun ReceiverContent(state: ReceiverUiState, modifier: Modifier = Modifier) {
                         state.deviceName.ifBlank { stringResource(R.string.tv_name_unknown) },
                     ),
                 )
+                AutoOpenPrompt()
             }
 
             is ReceiverPhase.Pairing -> {
@@ -145,4 +157,34 @@ private fun Detail(text: String, isError: Boolean = false) {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
     )
+}
+
+/**
+ * The one-tap grant for auto-open, shown on the idle screen until full-screen-intent access is
+ * held.
+ *
+ * A `Button` rather than the phone-style permissions gate: the TV has two things to ask for
+ * at most and a blocking wall would sit between a user and a screen whose whole job is one
+ * sentence. Reprobed on every resume so a grant made in Settings clears this without reopening
+ * the app.
+ */
+@Composable
+private fun AutoOpenPrompt() {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var canAutoOpen by remember { mutableStateOf(SpecialAccess.hasFullScreenIntent(context)) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                canAutoOpen = SpecialAccess.hasFullScreenIntent(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    if (canAutoOpen) return
+    Detail(stringResource(R.string.tv_auto_open_hint))
+    Button(onClick = { SpecialAccess.requestFullScreenIntent(context) }) {
+        Text(stringResource(R.string.tv_auto_open_grant))
+    }
 }
