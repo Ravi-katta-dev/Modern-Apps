@@ -16,4 +16,10 @@
     <string name="recent_languages">Hiljutised keeled</string>
     <string name="all_languages">Kõik keeled</string>
     <string name="no_languages_match">Ükski keel ei vasta otsingule „%1$s“</string>
+    <string name="history">Ajalugu</string>
+    <string name="history_empty">Varasemad tõlked saavad olema nähtavad siin</string>
+    <string name="clear_history">Tühjenda</string>
+    <string name="history_language_pair">%1$s → %2$s</string>
+    <string name="save">Salvesta</string>
+    <string name="saved">Salvestatud</string>
 </resources>
