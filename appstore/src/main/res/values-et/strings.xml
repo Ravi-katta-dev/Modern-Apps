@@ -148,4 +148,8 @@
     <string name="install_started_unverified">„%1$s“ on paigaldamisel, aga ta on verifitseerimata</string>
     <string name="updates_batch_partial">Uuendatud rakendusi: %1$d / %2$d. Muude uuendamine ei õnnestunud ja esimene viga oli: %3$s</string>
     <string name="updates_progress">%1$s on uuendamisel - üldine tööjärg %2$d / %3$d</string>
+    <string name="play_rate_limited">Play Store piirab päringute sagedust - enne uuesti proovimist viivitan natuke…</string>
+    <string name="action_browse">Sirvi</string>
+    <string name="sync_all_sources_off">Kuna kõik andmeallikad on kasutuselt eemaldatud, siis mitte midagi pole võimalik sünkroonida.</string>
+    <string name="search_prompt_message">Modern Apps ja F-Droid vastavad otse sellest nutiseadmest ja Google Play tulemused on saadaval mõni hetk hiljem.</string>
 </resources>
