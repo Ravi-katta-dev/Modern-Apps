@@ -58,4 +58,36 @@
     <string name="puzzle_solved">Lahendatud!</string>
     <string name="puzzle_failed">Pole veel lahendatud - proovi uuesti.</string>
     <string name="learn_progress"><xliff:g id="done" example="3">%1$d</xliff:g>/<xliff:g id="total" example="5">%2$d</xliff:g></string>
+    <string name="online_sign_in">Logi sisse Lichessi teenusega</string>
+    <string name="tab_online">Võrguühendusega mäng</string>
+    <string name="tab_offline">Võrguühenduseta mäng</string>
+    <string name="online_signed_in_as">Logitud sisse kasutajana <xliff:g id="username" example="kadri">%1$s</xliff:g></string>
+    <string name="online_sign_out">Logi välja</string>
+    <string name="online_tc_1_0">1+0</string>
+    <string name="online_tc_3_2">3+2</string>
+    <string name="online_tc_5_3">5+3</string>
+    <string name="online_tc_10_0">10+0</string>
+    <string name="online_quick_seek">Kiirotsing</string>
+    <string name="online_seeking">Otsin <xliff:g id="time_control" example="3+2">%1$s</xliff:g>…</string>
+    <string name="online_signing_in">Ootan Lichessi kinnitust…</string>
+    <string name="online_matchmaking_failed">Mängu alustamine ei õnnestunud. Proovi uuesti.</string>
+    <string name="online_move_failed">Käik jäi saatmata. Proovi uuesti.</string>
+    <string name="online_sign_in_failed">Sisselogimine ei õnnestunud. Proovi uuesti.</string>
+    <string name="online_opponent"><xliff:g id="username" example="kadri">%1$s</xliff:g></string>
+    <string name="online_auth_expired">Lichess logis sind välja. Palun logi uuesti sisse.</string>
+    <string name="online_reconnecting">Ühendan uuesti…</string>
+    <string name="online_abort_title">Kas katkestad selle mängu?</string>
+    <string name="online_abort_confirm">Katkesta</string>
+    <string name="online_result_resigned">Sina loobusid.</string>
+    <string name="online_result_opponent_resigned">Vastane loobus. Sina võitsid!</string>
+    <string name="online_result_win">Sina võitsid!</string>
+    <string name="online_challenge_sent">Saatsid mängukutse kasutajale <xliff:g id="username" example="kadri">%1$s</xliff:g>.</string>
+    <string name="online_challenge">Saada mängukutse</string>
+    <string name="online_challenge_username">Kutse kasutaja mängule</string>
+    <string name="online_challenge_declined">Teine osapool ei võtnud mängukutset vastu.</string>
+    <string name="online_result_draw">Viik.</string>
+    <string name="online_result_loss">Sina kaotasid.</string>
+    <string name="online_back_to_lobby">Tagasi ooteruumi</string>
+    <string name="online_resign_title">Kas loobud sellest mängust?</string>
+    <string name="online_resign_confirm">Loobu</string>
 </resources>
