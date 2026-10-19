@@ -1,5 +1,6 @@
 package com.vayunmathur.games.hub.util
 
+import com.vayunmathur.games.hub.data.YuuUiModel
 import com.vayunmathur.games.hub.data.entities.ActivityEventEntity
 import com.vayunmathur.games.hub.data.entities.HubGameEntity
 import com.vayunmathur.games.hub.viewmodel.CrossGameStats
@@ -23,6 +24,7 @@ import com.vayunmathur.games.hub.viewmodel.CrossGameStats
 data class DashboardUiState(
     val playerName: String? = null,
     val avatarSymbol: String? = null,
+    val profileYuu: YuuUiModel? = null,
     val level: Int = 1,
     val title: String = "Beginner",
     val totalXp: Int = 0,
@@ -52,6 +54,7 @@ data class GamesListUiState(
 data class ProfileUiState(
     val playerName: String? = null,
     val avatarSymbol: String? = null,
+    val profileYuu: YuuUiModel? = null,
     val level: Int = 1,
     val title: String = "Beginner",
     val totalXp: Int = 0,

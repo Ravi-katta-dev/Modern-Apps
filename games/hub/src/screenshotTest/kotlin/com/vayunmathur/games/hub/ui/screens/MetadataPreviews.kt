@@ -8,8 +8,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
+import com.vayunmathur.games.hub.data.YuuUiModel
 import com.vayunmathur.games.hub.data.entities.ActivityEventEntity
 import com.vayunmathur.games.hub.data.entities.HubGameEntity
+import com.vayunmathur.games.hub.data.entities.YuuFaceConfig
+import com.vayunmathur.games.hub.ui.yuu.YuuEditorActions
+import com.vayunmathur.games.hub.ui.yuu.YuuEditorUiState
+import com.vayunmathur.games.hub.ui.yuu.YuuListActions
+import com.vayunmathur.games.hub.ui.yuu.YuuListUiState
 import com.vayunmathur.games.hub.util.DashboardActions
 import com.vayunmathur.games.hub.util.DashboardUiState
 import com.vayunmathur.games.hub.util.GamesListActions
@@ -177,6 +183,52 @@ class MetadataPreviews {
                     )
                 }
             }
+        }
+    }
+
+    @PreviewTest
+    @Preview(name = "5-yuu", device = PHONE, showSystemUi = true)
+    @Composable
+    fun Preview5Yuu() {
+        DynamicTheme(darkTheme = true) {
+            YuuScreen(
+                state = YuuListUiState(
+                    yuus = listOf(
+                        YuuUiModel(1, "Alex", YuuFaceConfig.DEFAULT, isProfile = true, updatedAt = now),
+                        YuuUiModel(2, "Sam", YuuFaceConfig(faceShape = 2, hairStyle = 2, eyeStyle = 3), isProfile = false, updatedAt = now),
+                        YuuUiModel(3, "Jo", YuuFaceConfig(faceShape = 5, hairStyle = 4, glassesStyle = 1), isProfile = false, updatedAt = now),
+                    ),
+                    profileYuuId = 1,
+                ),
+                actions = YuuListActions.Noop,
+            )
+        }
+    }
+
+    @PreviewTest
+    @Preview(name = "6-yuu-empty", device = PHONE, showSystemUi = true)
+    @Composable
+    fun Preview6YuuEmpty() {
+        DynamicTheme(darkTheme = true) {
+            YuuScreen(
+                state = YuuListUiState(),
+                actions = YuuListActions.Noop,
+            )
+        }
+    }
+
+    @PreviewTest
+    @Preview(name = "7-yuu-editor", device = PHONE, showSystemUi = true)
+    @Composable
+    fun Preview7YuuEditor() {
+        DynamicTheme(darkTheme = true) {
+            YuuEditorScreen(
+                state = YuuEditorUiState(
+                    initialName = "Alex",
+                    initialConfig = YuuFaceConfig(faceShape = 1, hairStyle = 2, eyeStyle = 1),
+                ),
+                actions = YuuEditorActions.Noop,
+            )
         }
     }
 }

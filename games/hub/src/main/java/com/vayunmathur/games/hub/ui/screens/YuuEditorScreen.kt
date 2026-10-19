@@ -1,0 +1,560 @@
+package com.vayunmathur.games.hub.ui.screens
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import com.vayunmathur.games.hub.R
+import com.vayunmathur.games.hub.data.entities.YUU_EYE_COLORS
+import com.vayunmathur.games.hub.data.entities.YUU_HAIR_COLORS
+import com.vayunmathur.games.hub.data.entities.YUU_MOUTH_COLORS
+import com.vayunmathur.games.hub.data.entities.YUU_SKIN_TONES
+import com.vayunmathur.games.hub.data.entities.YuuFaceConfig
+import com.vayunmathur.games.hub.ui.components.YuuFace
+import com.vayunmathur.games.hub.ui.yuu.YuuCategory
+import com.vayunmathur.games.hub.ui.yuu.YuuEditorActions
+import com.vayunmathur.games.hub.ui.yuu.YuuEditorUiState
+import com.vayunmathur.library.ui.AppScaffold
+import com.vayunmathur.library.ui.Button
+import com.vayunmathur.library.ui.Card
+import com.vayunmathur.library.ui.FilterChip
+import com.vayunmathur.library.ui.IconArrowDownward
+import com.vayunmathur.library.ui.IconArrowUpward
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.IconRotateLeft
+import com.vayunmathur.library.ui.IconRotateRight
+import com.vayunmathur.library.ui.IconUnfoldLess
+import com.vayunmathur.library.ui.IconUnfoldMore
+import com.vayunmathur.library.ui.IconZoomIn
+import com.vayunmathur.library.ui.IconZoomOut
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.OutlinedTextField
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.appBarScrollBehavior
+import com.vayunmathur.library.ui.R as UiR
+
+/**
+ * Wii-style Yuu creator with a fixed, non-scrolling layout: preview zone (with icon
+ * steppers overlaid for the active category's numeric tweaks), a compact name+save
+ * row, the category rail, then the option-picker zone which is the ONLY scrollable
+ * area. Fully local draft state until [YuuEditorActions.onSave].
+ */
+@Composable
+fun YuuEditorScreen(
+    state: YuuEditorUiState,
+    actions: YuuEditorActions,
+    modifier: Modifier = Modifier,
+) {
+    val draft = remember(state.editingId, state.initialConfig) {
+        YuuDraft.from(state.initialConfig)
+    }
+    var name by remember(state.editingId, state.initialName) {
+        mutableStateOf(state.initialName)
+    }
+    var category by remember { mutableStateOf(YuuCategory.Face) }
+    var nameError by remember { mutableStateOf(false) }
+
+    AppScaffold(
+        title = {
+            Text(
+                stringResource(
+                    if (state.editingId == null) R.string.yuu_new else R.string.yuu_edit_title
+                ),
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        onNavigateBack = actions::onDismiss,
+        scrollBehavior = appBarScrollBehavior(),
+    ) { padding ->
+        Column(
+            modifier = modifier.fillMaxSize().padding(padding).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            // Zone 1: preview with overlay steppers for the active category.
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    YuuFace(
+                        config = draft.toConfig(),
+                        withBody = true,
+                        modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(0.9f).padding(8.dp),
+                    )
+                    PreviewSteppers(
+                        category = category,
+                        draft = draft,
+                        modifier = Modifier.fillMaxWidth().aspectRatio(0.9f),
+                    )
+                }
+            }
+            // Zone 2: name + save on one compact row.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it; nameError = false },
+                    label = { Text(stringResource(UiR.string.name)) },
+                    singleLine = true,
+                    isError = nameError,
+                    supportingText = if (nameError) {
+                        { Text(stringResource(R.string.yuu_name_required)) }
+                    } else null,
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    onClick = {
+                        if (name.isBlank()) {
+                            nameError = true
+                        } else {
+                            actions.onSave(name, draft.toConfig())
+                        }
+                    },
+                ) { Text(stringResource(UiR.string.save)) }
+            }
+            // Zone 3: category rail (never scrolls the screen).
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(YuuCategory.entries) { cat ->
+                    FilterChip(
+                        selected = category == cat,
+                        onClick = { category = cat },
+                        label = { Text(stringResource(cat.labelRes())) },
+                    )
+                }
+            }
+            // Zone 4: the ONLY scrollable area — the option picker.
+            Column(
+                modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                when (category) {
+                    YuuCategory.Face -> FacePanel(draft)
+                    YuuCategory.Body -> BodyPanel(draft)
+                    YuuCategory.Hair -> HairPanel(draft)
+                    YuuCategory.Eyes -> EyesPanel(draft)
+                    YuuCategory.Brows -> BrowsPanel(draft)
+                    YuuCategory.Nose -> NosePanel(draft)
+                    YuuCategory.Mouth -> MouthPanel(draft)
+                    YuuCategory.Extras -> ExtrasPanel(draft)
+                }
+            }
+        }
+    }
+}
+
+private fun YuuCategory.labelRes(): Int = when (this) {
+    YuuCategory.Face -> R.string.yuu_cat_face
+    YuuCategory.Body -> R.string.yuu_cat_body
+    YuuCategory.Hair -> R.string.yuu_cat_hair
+    YuuCategory.Eyes -> R.string.yuu_cat_eyes
+    YuuCategory.Brows -> R.string.yuu_cat_brows
+    YuuCategory.Nose -> R.string.yuu_cat_nose
+    YuuCategory.Mouth -> R.string.yuu_cat_mouth
+    YuuCategory.Extras -> R.string.yuu_cat_extras
+}
+
+/** Mutable draft mirroring [YuuFaceConfig]; Compose observes each field. */
+private class YuuDraft private constructor(
+    faceShape: Int,
+    skinTone: Long,
+    earSize: Float,
+    bodyHeight: Float,
+    bodyWeight: Float,
+    hairStyle: Int,
+    hairColor: Long,
+    eyeStyle: Int,
+    eyeColor: Long,
+    eyeSize: Float,
+    eyeSpacing: Float,
+    eyeHeight: Float,
+    eyeRotation: Float,
+    browStyle: Int,
+    browColor: Long,
+    browHeight: Float,
+    browRotation: Float,
+    noseStyle: Int,
+    noseHeight: Float,
+    mouthStyle: Int,
+    mouthColor: Long,
+    mouthSize: Float,
+    mouthHeight: Float,
+    glassesStyle: Int,
+    beardStyle: Int,
+    moleStyle: Int,
+    wrinkleStyle: Int,
+    blushStyle: Int,
+) {
+    var faceShape by mutableIntStateOf(faceShape)
+    var skinTone by mutableLongStateOf(skinTone)
+    var earSize by mutableFloatStateOf(earSize)
+    var bodyHeight by mutableFloatStateOf(bodyHeight)
+    var bodyWeight by mutableFloatStateOf(bodyWeight)
+    var hairStyle by mutableIntStateOf(hairStyle)
+    var hairColor by mutableLongStateOf(hairColor)
+    var eyeStyle by mutableIntStateOf(eyeStyle)
+    var eyeColor by mutableLongStateOf(eyeColor)
+    var eyeSize by mutableFloatStateOf(eyeSize)
+    var eyeSpacing by mutableFloatStateOf(eyeSpacing)
+    var eyeHeight by mutableFloatStateOf(eyeHeight)
+    var eyeRotation by mutableFloatStateOf(eyeRotation)
+    var browStyle by mutableIntStateOf(browStyle)
+    var browColor by mutableLongStateOf(browColor)
+    var browHeight by mutableFloatStateOf(browHeight)
+    var browRotation by mutableFloatStateOf(browRotation)
+    var noseStyle by mutableIntStateOf(noseStyle)
+    var noseHeight by mutableFloatStateOf(noseHeight)
+    var mouthStyle by mutableIntStateOf(mouthStyle)
+    var mouthColor by mutableLongStateOf(mouthColor)
+    var mouthSize by mutableFloatStateOf(mouthSize)
+    var mouthHeight by mutableFloatStateOf(mouthHeight)
+    var glassesStyle by mutableIntStateOf(glassesStyle)
+    var beardStyle by mutableIntStateOf(beardStyle)
+    var moleStyle by mutableIntStateOf(moleStyle)
+    var wrinkleStyle by mutableIntStateOf(wrinkleStyle)
+    var blushStyle by mutableIntStateOf(blushStyle)
+
+    fun toConfig() = YuuFaceConfig(
+        faceShape = faceShape, skinTone = skinTone, earSize = earSize,
+        bodyHeight = bodyHeight, bodyWeight = bodyWeight,
+        hairStyle = hairStyle, hairColor = hairColor,
+        eyeStyle = eyeStyle, eyeColor = eyeColor, eyeSize = eyeSize,
+        eyeSpacing = eyeSpacing, eyeHeight = eyeHeight, eyeRotation = eyeRotation,
+        browStyle = browStyle, browColor = browColor, browHeight = browHeight,
+        browRotation = browRotation,
+        noseStyle = noseStyle, noseHeight = noseHeight,
+        mouthStyle = mouthStyle, mouthColor = mouthColor,
+        mouthSize = mouthSize, mouthHeight = mouthHeight,
+        glassesStyle = glassesStyle, beardStyle = beardStyle,
+        moleStyle = moleStyle, wrinkleStyle = wrinkleStyle, blushStyle = blushStyle,
+    )
+
+    companion object {
+        fun from(c: YuuFaceConfig) = YuuDraft(
+            c.faceShape, c.skinTone, c.earSize, c.bodyHeight, c.bodyWeight,
+            c.hairStyle, c.hairColor,
+            c.eyeStyle, c.eyeColor, c.eyeSize, c.eyeSpacing, c.eyeHeight, c.eyeRotation,
+            c.browStyle, c.browColor, c.browHeight, c.browRotation,
+            c.noseStyle, c.noseHeight, c.mouthStyle,
+            c.mouthColor, c.mouthSize, c.mouthHeight, c.glassesStyle, c.beardStyle, c.moleStyle,
+            c.wrinkleStyle, c.blushStyle,
+        )
+    }
+}
+
+/** Step size for every icon stepper tap. */
+private const val STEP = 0.1f
+
+private fun Float.stepped(delta: Float): Float = (this + delta).coerceIn(0f, 1f)
+
+/**
+ * Icon steppers overlaid on the preview, one pair per numeric tweak of the active
+ * category. Rotation uses rotate L/R icons, size uses zoom out/in, spacing uses
+ * unfold less/more, vertical moves use up/down arrows.
+ */
+@Composable
+private fun PreviewSteppers(
+    category: YuuCategory,
+    draft: YuuDraft,
+    modifier: Modifier = Modifier,
+) {
+    val rows: List<StepperSpec> = when (category) {
+        YuuCategory.Face -> listOf(
+            StepperSpec(R.string.yuu_ear_size, { IconZoomOut() }, { draft.earSize = draft.earSize.stepped(-STEP) }, { IconZoomIn() }, { draft.earSize = draft.earSize.stepped(STEP) }),
+        )
+        YuuCategory.Body -> listOf(
+            StepperSpec(R.string.yuu_body_height, { IconArrowDownward() }, { draft.bodyHeight = draft.bodyHeight.stepped(-STEP) }, { IconArrowUpward() }, { draft.bodyHeight = draft.bodyHeight.stepped(STEP) }),
+            StepperSpec(R.string.yuu_body_weight, { IconUnfoldLess() }, { draft.bodyWeight = draft.bodyWeight.stepped(-STEP) }, { IconUnfoldMore() }, { draft.bodyWeight = draft.bodyWeight.stepped(STEP) }),
+        )
+        YuuCategory.Hair -> emptyList()
+        YuuCategory.Eyes -> listOf(
+            StepperSpec(R.string.yuu_eye_size, { IconZoomOut() }, { draft.eyeSize = draft.eyeSize.stepped(-STEP) }, { IconZoomIn() }, { draft.eyeSize = draft.eyeSize.stepped(STEP) }),
+            StepperSpec(R.string.yuu_eye_spacing, { IconUnfoldLess() }, { draft.eyeSpacing = draft.eyeSpacing.stepped(-STEP) }, { IconUnfoldMore() }, { draft.eyeSpacing = draft.eyeSpacing.stepped(STEP) }),
+            StepperSpec(R.string.yuu_eye_height, { IconArrowDownward() }, { draft.eyeHeight = draft.eyeHeight.stepped(-STEP) }, { IconArrowUpward() }, { draft.eyeHeight = draft.eyeHeight.stepped(STEP) }),
+            StepperSpec(R.string.yuu_eye_rotation, { IconRotateLeft() }, { draft.eyeRotation = draft.eyeRotation.stepped(-STEP) }, { IconRotateRight() }, { draft.eyeRotation = draft.eyeRotation.stepped(STEP) }),
+        )
+        YuuCategory.Brows -> listOf(
+            StepperSpec(R.string.yuu_brow_height, { IconArrowDownward() }, { draft.browHeight = draft.browHeight.stepped(-STEP) }, { IconArrowUpward() }, { draft.browHeight = draft.browHeight.stepped(STEP) }),
+            StepperSpec(R.string.yuu_brow_rotation, { IconRotateLeft() }, { draft.browRotation = draft.browRotation.stepped(-STEP) }, { IconRotateRight() }, { draft.browRotation = draft.browRotation.stepped(STEP) }),
+        )
+        YuuCategory.Nose -> listOf(
+            StepperSpec(R.string.yuu_nose_height, { IconArrowDownward() }, { draft.noseHeight = draft.noseHeight.stepped(-STEP) }, { IconArrowUpward() }, { draft.noseHeight = draft.noseHeight.stepped(STEP) }),
+        )
+        YuuCategory.Mouth -> listOf(
+            StepperSpec(R.string.yuu_mouth_size, { IconZoomOut() }, { draft.mouthSize = draft.mouthSize.stepped(-STEP) }, { IconZoomIn() }, { draft.mouthSize = draft.mouthSize.stepped(STEP) }),
+            StepperSpec(R.string.yuu_mouth_height, { IconArrowDownward() }, { draft.mouthHeight = draft.mouthHeight.stepped(-STEP) }, { IconArrowUpward() }, { draft.mouthHeight = draft.mouthHeight.stepped(STEP) }),
+        )
+        YuuCategory.Extras -> emptyList()
+    }
+    if (rows.isEmpty()) return
+    Column(
+        modifier = modifier.padding(4.dp),
+        verticalArrangement = Arrangement.Bottom,
+    ) {
+        rows.forEach { spec ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = spec.onDecrease) { spec.decreaseIcon() }
+                Text(
+                    stringResource(spec.labelRes),
+                    style = MaterialTheme.typography.labelSmall,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = spec.onIncrease) { spec.increaseIcon() }
+            }
+        }
+    }
+}
+
+private class StepperSpec(
+    val labelRes: Int,
+    val decreaseIcon: @Composable () -> Unit,
+    val onDecrease: () -> Unit,
+    val increaseIcon: @Composable () -> Unit,
+    val onIncrease: () -> Unit,
+)
+
+@Composable
+private fun SectionLabel(text: String) {
+    Text(text, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+}
+
+@Composable
+private fun VariantGrid(
+    count: Int,
+    selected: Int,
+    render: @Composable (Int, Boolean) -> Unit,
+) {
+    // Non-lazy fixed grid inside the scrollable option zone: lays out rows directly.
+    val columns = 4
+    val rows = (count + columns - 1) / columns
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        repeat(rows) { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (col in 0 until columns) {
+                    val i = row * columns + col
+                    if (i < count) {
+                        Box(Modifier.weight(1f)) { render(i, i == selected) }
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VariantCell(
+    selected: Boolean,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        border = if (selected) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else null,
+        modifier = Modifier.aspectRatio(1f),
+    ) {
+        Box(modifier = Modifier.fillMaxSize().padding(6.dp), contentAlignment = Alignment.Center) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun ColorSwatches(
+    colors: List<Long>,
+    selected: Long,
+    onSelect: (Long) -> Unit,
+) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(colors) { argb ->
+            val active = argb == selected
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(argb))
+                    .clickable { onSelect(argb) }
+                    .then(
+                        if (active) {
+                            Modifier.background(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                CircleShape,
+                            )
+                        } else Modifier
+                    ),
+            )
+        }
+    }
+}
+
+@Composable
+private fun FacePanel(d: YuuDraft) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(stringResource(R.string.yuu_face_shape))
+        VariantGrid(count = YuuFaceConfig.FACE_SHAPES, selected = d.faceShape) { i, sel ->
+            VariantCell(sel, onClick = { d.faceShape = i }) {
+                YuuFace(YuuFaceConfig(faceShape = i, skinTone = d.skinTone), Modifier.fillMaxSize())
+            }
+        }
+        SectionLabel(stringResource(R.string.yuu_skin_tone))
+        ColorSwatches(YUU_SKIN_TONES, d.skinTone) { d.skinTone = it }
+    }
+}
+
+@Composable
+private fun BodyPanel(d: YuuDraft) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(stringResource(R.string.yuu_body_preview_hint))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                stringResource(R.string.yuu_body_hint),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(12.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HairPanel(d: YuuDraft) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(stringResource(R.string.yuu_hair_style))
+        VariantGrid(count = YuuFaceConfig.HAIR_STYLES, selected = d.hairStyle) { i, sel ->
+            VariantCell(sel, onClick = { d.hairStyle = i }) {
+                YuuFace(YuuFaceConfig(hairStyle = i, hairColor = d.hairColor, skinTone = d.skinTone), Modifier.fillMaxSize())
+            }
+        }
+        SectionLabel(stringResource(R.string.yuu_hair_color))
+        ColorSwatches(YUU_HAIR_COLORS, d.hairColor) { d.hairColor = it }
+    }
+}
+
+@Composable
+private fun EyesPanel(d: YuuDraft) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(stringResource(R.string.yuu_eye_style))
+        VariantGrid(count = YuuFaceConfig.EYE_STYLES, selected = d.eyeStyle) { i, sel ->
+            VariantCell(sel, onClick = { d.eyeStyle = i }) {
+                YuuFace(YuuFaceConfig(eyeStyle = i, eyeColor = d.eyeColor, skinTone = d.skinTone), Modifier.fillMaxSize())
+            }
+        }
+        SectionLabel(stringResource(R.string.yuu_eye_color))
+        ColorSwatches(YUU_EYE_COLORS, d.eyeColor) { d.eyeColor = it }
+    }
+}
+
+@Composable
+private fun BrowsPanel(d: YuuDraft) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(stringResource(R.string.yuu_brow_style))
+        VariantGrid(count = YuuFaceConfig.BROW_STYLES, selected = d.browStyle) { i, sel ->
+            VariantCell(sel, onClick = { d.browStyle = i }) {
+                YuuFace(YuuFaceConfig(browStyle = i, browColor = d.browColor, skinTone = d.skinTone), Modifier.fillMaxSize())
+            }
+        }
+        SectionLabel(stringResource(R.string.yuu_brow_color))
+        ColorSwatches(YUU_HAIR_COLORS, d.browColor) { d.browColor = it }
+    }
+}
+
+@Composable
+private fun NosePanel(d: YuuDraft) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(stringResource(R.string.yuu_nose_style))
+        VariantGrid(count = YuuFaceConfig.NOSE_STYLES, selected = d.noseStyle) { i, sel ->
+            VariantCell(sel, onClick = { d.noseStyle = i }) {
+                YuuFace(YuuFaceConfig(noseStyle = i, skinTone = d.skinTone), Modifier.fillMaxSize())
+            }
+        }
+    }
+}
+
+@Composable
+private fun MouthPanel(d: YuuDraft) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(stringResource(R.string.yuu_mouth_style))
+        VariantGrid(count = YuuFaceConfig.MOUTH_STYLES, selected = d.mouthStyle) { i, sel ->
+            VariantCell(sel, onClick = { d.mouthStyle = i }) {
+                YuuFace(YuuFaceConfig(mouthStyle = i, mouthColor = d.mouthColor, skinTone = d.skinTone), Modifier.fillMaxSize())
+            }
+        }
+        SectionLabel(stringResource(R.string.yuu_mouth_color))
+        ColorSwatches(YUU_MOUTH_COLORS, d.mouthColor) { d.mouthColor = it }
+    }
+}
+
+@Composable
+private fun ExtrasPanel(d: YuuDraft) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionLabel(stringResource(R.string.yuu_glasses))
+        VariantGrid(count = YuuFaceConfig.GLASSES_STYLES + 1, selected = d.glassesStyle) { i, sel ->
+            VariantCell(sel, onClick = { d.glassesStyle = i }) {
+                if (i == 0) Text(stringResource(UiR.string.none)) else YuuFace(YuuFaceConfig(glassesStyle = i, skinTone = d.skinTone), Modifier.fillMaxSize())
+            }
+        }
+        SectionLabel(stringResource(R.string.yuu_beard))
+        VariantGrid(count = YuuFaceConfig.BEARD_STYLES + 1, selected = d.beardStyle) { i, sel ->
+            VariantCell(sel, onClick = { d.beardStyle = i }) {
+                if (i == 0) Text(stringResource(UiR.string.none)) else YuuFace(YuuFaceConfig(beardStyle = i, skinTone = d.skinTone, hairColor = d.hairColor), Modifier.fillMaxSize())
+            }
+        }
+        SectionLabel(stringResource(R.string.yuu_mole))
+        VariantGrid(count = YuuFaceConfig.MOLE_STYLES + 1, selected = d.moleStyle) { i, sel ->
+            VariantCell(sel, onClick = { d.moleStyle = i }) {
+                if (i == 0) Text(stringResource(UiR.string.none)) else YuuFace(YuuFaceConfig(moleStyle = i, skinTone = d.skinTone), Modifier.fillMaxSize())
+            }
+        }
+        SectionLabel(stringResource(R.string.yuu_wrinkles))
+        VariantGrid(count = YuuFaceConfig.WRINKLE_STYLES + 1, selected = d.wrinkleStyle) { i, sel ->
+            VariantCell(sel, onClick = { d.wrinkleStyle = i }) {
+                if (i == 0) Text(stringResource(UiR.string.none)) else YuuFace(YuuFaceConfig(wrinkleStyle = i, skinTone = d.skinTone), Modifier.fillMaxSize())
+            }
+        }
+        SectionLabel(stringResource(R.string.yuu_blush))
+        VariantGrid(count = YuuFaceConfig.BLUSH_STYLES + 1, selected = d.blushStyle) { i, sel ->
+            VariantCell(sel, onClick = { d.blushStyle = i }) {
+                if (i == 0) Text(stringResource(UiR.string.none)) else YuuFace(YuuFaceConfig(blushStyle = i, skinTone = d.skinTone), Modifier.fillMaxSize())
+            }
+        }
+    }
+}

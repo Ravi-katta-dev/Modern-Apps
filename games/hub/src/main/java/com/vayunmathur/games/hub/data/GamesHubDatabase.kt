@@ -10,6 +10,7 @@ import com.vayunmathur.games.hub.data.dao.GameDao
 import com.vayunmathur.games.hub.data.dao.ProfileDao
 import com.vayunmathur.games.hub.data.dao.SessionDao
 import com.vayunmathur.games.hub.data.dao.StreakDao
+import com.vayunmathur.games.hub.data.dao.YuuDao
 import com.vayunmathur.games.hub.data.entities.AchievementDefEntity
 import com.vayunmathur.games.hub.data.entities.AchievementProgressEntity
 import com.vayunmathur.games.hub.data.entities.ActivityEventEntity
@@ -17,6 +18,7 @@ import com.vayunmathur.games.hub.data.entities.DailyStreakEntity
 import com.vayunmathur.games.hub.data.entities.HubGameEntity
 import com.vayunmathur.games.hub.data.entities.PlaySessionEntity
 import com.vayunmathur.games.hub.data.entities.PlayerProfileEntity
+import com.vayunmathur.games.hub.data.entities.YuuEntity
 import com.vayunmathur.library.util.DatabaseMigrations
 
 const val DB_NAME = "games-hub-db"
@@ -29,9 +31,10 @@ const val DB_NAME = "games-hub-db"
         PlaySessionEntity::class,
         PlayerProfileEntity::class,
         ActivityEventEntity::class,
-        DailyStreakEntity::class
+        DailyStreakEntity::class,
+        YuuEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class GamesHubDatabase : RoomDatabase() {
@@ -41,6 +44,7 @@ abstract class GamesHubDatabase : RoomDatabase() {
     abstract fun profileDao(): ProfileDao
     abstract fun activityDao(): ActivityDao
     abstract fun streakDao(): StreakDao
+    abstract fun yuuDao(): YuuDao
 
     companion object : DatabaseMigrations {
         override val migrations: List<Migration> = listOf(
@@ -55,6 +59,18 @@ abstract class GamesHubDatabase : RoomDatabase() {
                         "`lastCompletedDay` INTEGER NOT NULL, " +
                         "`lastUpdated` INTEGER NOT NULL, " +
                         "PRIMARY KEY(`gameId`))",
+                )
+            },
+            // Yuu avatar plaza. DDL byte-matches Room's generated schema for YuuEntity
+            // (autoGenerate id, TEXT name/configJson, INTEGER updatedAt/isProfile).
+            Migration(2, 3) { db ->
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `yuus` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`configJson` TEXT NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, " +
+                        "`isProfile` INTEGER NOT NULL)",
                 )
             },
         )

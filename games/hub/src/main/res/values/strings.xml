@@ -131,4 +131,68 @@
     <string name="connect_to_tv">Connect to TV</string>
     <!-- Dashboard: explains the generic controller entry. -->
     <string name="connect_to_tv_subtitle">Use this phone as a controller for games on your TV</string>
+
+    <!-- YuuScreen: Tab title for the Yuu avatar plaza. Noun -->
+    <string name="tab_yuu">Yuu</string>
+    <!-- YuuScreen: Empty state title when no Yuus exist yet. Sentence -->
+    <string name="yuu_empty_title">No Yuus yet</string>
+    <!-- YuuScreen: Empty state body inviting creation. Sentence -->
+    <string name="yuu_empty_body">Tap + to create your first Yuu avatar!</string>
+    <!-- YuuScreen: Overflow menu edit action. Verb -->
+    <string name="yuu_edit">Edit</string>
+    <!-- YuuScreen: Overflow menu duplicate action. Verb -->
+    <string name="duplicate">Duplicate</string>
+    <!-- YuuScreen: Overflow menu action linking a Yuu as the profile avatar. Verb phrase -->
+    <string name="set_as_profile_avatar">Set as profile avatar</string>
+    <!-- YuuScreen: Overflow menu action unlinking the profile Yuu. Verb phrase -->
+    <string name="remove_profile_avatar">Remove profile avatar</string>
+    <!-- YuuScreen: Label marking the Yuu linked as profile avatar. Noun phrase -->
+    <string name="profile_avatar">Profile avatar</string>
+    <!-- YuuEditorScreen: Title for creating a Yuu. Noun phrase -->
+    <string name="yuu_new">New Yuu</string>
+    <!-- YuuEditorScreen: Title for editing a Yuu. Noun phrase -->
+    <string name="yuu_edit_title">Edit Yuu</string>
+    <!-- YuuEditorScreen: Error when the name field is blank. Sentence -->
+    <string name="yuu_name_required">Give your Yuu a name</string>
+    <!-- YuuEditorScreen: Category labels. Nouns -->
+    <string name="yuu_cat_face">Face</string>
+    <string name="yuu_cat_body">Body</string>
+    <string name="yuu_cat_hair">Hair</string>
+    <string name="yuu_cat_eyes">Eyes</string>
+    <string name="yuu_cat_brows">Brows</string>
+    <string name="yuu_cat_nose">Nose</string>
+    <string name="yuu_cat_mouth">Mouth</string>
+    <string name="yuu_cat_extras">Extras</string>
+    <!-- YuuEditorScreen: Section labels. Noun phrases -->
+    <string name="yuu_face_shape">Face shape</string>
+    <string name="yuu_skin_tone">Skin tone</string>
+    <string name="yuu_ear_size">Ear size</string>
+    <string name="yuu_hair_style">Hairstyle</string>
+    <string name="yuu_hair_color">Hair color</string>
+    <string name="yuu_eye_style">Eyes</string>
+    <string name="yuu_eye_color">Eye color</string>
+    <string name="yuu_eye_size">Size</string>
+    <string name="yuu_eye_spacing">Spacing</string>
+    <string name="yuu_eye_height">Height</string>
+    <string name="yuu_eye_rotation">Rotation</string>
+    <string name="yuu_brow_style">Eyebrows</string>
+    <string name="yuu_brow_color">Brow color</string>
+    <string name="yuu_brow_height">Brow height</string>
+    <string name="yuu_brow_rotation">Brow rotation</string>
+    <string name="yuu_nose_style">Nose</string>
+    <string name="yuu_nose_height">Nose height</string>
+    <string name="yuu_mouth_style">Mouth</string>
+    <string name="yuu_mouth_color">Mouth color</string>
+    <string name="yuu_mouth_size">Mouth size</string>
+    <string name="yuu_mouth_height">Mouth height</string>
+    <string name="yuu_glasses">Glasses</string>
+    <string name="yuu_beard">Facial hair</string>
+    <string name="yuu_mole">Beauty mark</string>
+    <string name="yuu_wrinkles">Wrinkles</string>
+    <string name="yuu_blush">Blush</string>
+    <!-- YuuEditorScreen: Body category labels and hint. Noun phrases + sentence -->
+    <string name="yuu_body_height">Height</string>
+    <string name="yuu_body_weight">Weight</string>
+    <string name="yuu_body_preview_hint">Body</string>
+    <string name="yuu_body_hint">Use the arrows on the preview to set height, and the unfold icons for weight.</string>
 </resources>

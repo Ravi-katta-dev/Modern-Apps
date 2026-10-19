@@ -31,6 +31,7 @@ fun DashboardPage(
     val level by viewModel.levelFlow.collectAsStateWithLifecycle()
     val title by viewModel.titleFlow.collectAsStateWithLifecycle()
     val profile by viewModel.profileFlow.collectAsStateWithLifecycle()
+    val profileYuu by viewModel.profileYuuFlow.collectAsStateWithLifecycle()
     val recentActivity by viewModel.recentActivityFlow.collectAsStateWithLifecycle()
     val allAchievements by viewModel.allAchievementsFlow.collectAsStateWithLifecycle()
     val dailyStreaks by viewModel.dailyStreaksFlow.collectAsStateWithLifecycle()
@@ -61,6 +62,7 @@ fun DashboardPage(
         state = DashboardUiState(
             playerName = profile?.displayName,
             avatarSymbol = profile?.avatarSymbol,
+            profileYuu = profileYuu,
             level = level,
             title = title,
             totalXp = xp,

@@ -6,12 +6,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.games.hub.data.GamesHubRepository
+import com.vayunmathur.games.hub.data.YuuUiModel
 import com.vayunmathur.games.hub.data.dao.AchievementWithProgress
 import com.vayunmathur.games.hub.data.entities.ActivityEventEntity
 import com.vayunmathur.games.hub.data.entities.DailyStreakEntity
 import com.vayunmathur.games.hub.data.entities.HubGameEntity
 import com.vayunmathur.games.hub.data.entities.PlayerProfileEntity
 import com.vayunmathur.games.hub.data.entities.PlaySessionEntity
+import com.vayunmathur.games.hub.data.entities.YuuFaceConfig
 import com.vayunmathur.games.hub.util.ProfileActions
 import com.vayunmathur.games.hub.util.StreakCalculator
 import com.vayunmathur.games.hub.util.XpLevelCalculator
@@ -85,6 +87,14 @@ class GameHubViewModel(
         repository.profile.profileFlow()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    val yuuListFlow: StateFlow<List<YuuUiModel>> =
+        repository.yuus.yuusFlow()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val profileYuuFlow: StateFlow<YuuUiModel?> =
+        repository.yuus.profileYuuFlow()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     init {
         viewModelScope.launch(Dispatchers.IO) {
             val existing = repository.profile.getProfile()
@@ -105,6 +115,42 @@ class GameHubViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val current = repository.profile.getProfile() ?: PlayerProfileEntity()
             repository.profile.upsertProfile(current.copy(avatarSymbol = symbol))
+        }
+    }
+
+    fun createYuu(name: String, config: YuuFaceConfig) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.yuus.createYuu(name, config)
+        }
+    }
+
+    fun updateYuu(id: Long, name: String, config: YuuFaceConfig) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.yuus.updateYuu(id, name, config)
+        }
+    }
+
+    fun duplicateYuu(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.yuus.duplicateYuu(id)
+        }
+    }
+
+    fun deleteYuu(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.yuus.deleteYuu(id)
+        }
+    }
+
+    fun setProfileYuu(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.yuus.setProfileYuu(id)
+        }
+    }
+
+    fun clearProfileYuu() {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.yuus.clearProfileYuu()
         }
     }
 

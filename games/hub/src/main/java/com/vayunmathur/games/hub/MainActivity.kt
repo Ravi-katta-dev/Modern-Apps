@@ -8,12 +8,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vayunmathur.games.hub.ui.components.AvatarIcon
 import com.vayunmathur.library.ui.IconDashboard
+import com.vayunmathur.library.ui.IconEmoji
 import com.vayunmathur.library.ui.IconEmojiEvents
 import com.vayunmathur.library.ui.IconSportsEsports
 import com.vayunmathur.library.ui.PagerTab
 import com.vayunmathur.library.ui.TabStyle
 import com.vayunmathur.library.ui.TabbedPagerScaffold
 import com.vayunmathur.games.hub.data.GamesHubRepository
+import com.vayunmathur.games.hub.BuildConfig
 import com.vayunmathur.games.hub.ui.screens.AchievementsScreen
 import com.vayunmathur.games.hub.ui.screens.ActivityFeedScreen
 import com.vayunmathur.games.hub.ui.screens.DashboardPage
@@ -22,6 +24,8 @@ import com.vayunmathur.games.hub.ui.screens.GamesListPage
 import com.vayunmathur.games.hub.ui.screens.PlayOnTvScreen
 import com.vayunmathur.games.hub.ui.screens.ProfilePage
 import com.vayunmathur.games.hub.ui.screens.SettingsScreen
+import com.vayunmathur.games.hub.ui.screens.YuuEditorPage
+import com.vayunmathur.games.hub.ui.screens.YuuPage
 import com.vayunmathur.games.hub.viewmodel.GameHubViewModel
 import com.vayunmathur.games.hub.viewmodel.GameHubViewModelFactory
 import com.vayunmathur.library.ui.MaActivity
@@ -56,6 +60,8 @@ sealed interface MainRoute : NavKey {
     @Serializable data object Settings : MainRoute
     /** The phone-as-controller screen (hub hosts the SDK ControllerPad). */
     @Serializable data object PlayOnTv : MainRoute
+    @Serializable data object YuuEditorNew : MainRoute
+    @Serializable data class YuuEditorEdit(val yuuId: Long) : MainRoute
 }
 
 @Composable
@@ -94,6 +100,20 @@ fun HubNavigation(
         entry<MainRoute.PlayOnTv> {
             PlayOnTvScreen(backStack = backStack)
         }
+        entry<MainRoute.YuuEditorNew> {
+            YuuEditorPage(
+                viewModel = viewModel,
+                editingId = null,
+                onDismiss = { backStack.pop() },
+            )
+        }
+        entry<MainRoute.YuuEditorEdit> { route ->
+            YuuEditorPage(
+                viewModel = viewModel,
+                editingId = route.yuuId,
+                onDismiss = { backStack.pop() },
+            )
+        }
     }
 }
 
@@ -102,7 +122,7 @@ private fun HubTabs(
     viewModel: GameHubViewModel,
     backStack: NavBackStack<MainRoute>,
 ) {
-    val pagerState = rememberPagerState(pageCount = { 4 })
+    val pagerState = rememberPagerState(pageCount = { if (BuildConfig.DEV_BUILD) 5 else 4 })
     val scope = rememberCoroutineScope()
     val profile by viewModel.profileFlow.collectAsStateWithLifecycle()
     // Home and Games are adjacent pages showing the same games (recentlyPlayed is a subset of the
@@ -134,6 +154,17 @@ private fun HubTabs(
         PagerTab("Profile", { AvatarIcon(symbol = profile?.avatarSymbol) }) {
             ProfilePage(viewModel = viewModel)
         },
-    )
+        // Dev-only: the Yuu avatar plaza is still experimental. R8 strips the
+        // block from release builds via the repo-wide BuildConfig.DEV_BUILD flag.
+        if (BuildConfig.DEV_BUILD) {
+            PagerTab("Yuu", { IconEmoji() }) {
+                YuuPage(
+                    viewModel = viewModel,
+                    onCreateYuu = { backStack.add(MainRoute.YuuEditorNew) },
+                    onEditYuu = { id -> backStack.add(MainRoute.YuuEditorEdit(id)) },
+                )
+            }
+        } else null,
+    ).filterNotNull()
     TabbedPagerScaffold(tabs = tabs, pagerState = pagerState, tabStyle = TabStyle.BottomNav)
 }

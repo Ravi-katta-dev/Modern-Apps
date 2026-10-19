@@ -7,7 +7,7 @@ import com.vayunmathur.library.room.RoomRepository
  * Single owner of [GamesHubDatabase].
  *
  * Per-domain reads and writes live on the store classes ([GameStore], [AchievementStore],
- * [SessionStore], [StreakStore], [ProfileStore], [ActivityStore]); this class keeps the
+ * [SessionStore], [StreakStore], [ProfileStore], [ActivityStore], [YuuStore]); this class keeps the
  * singleton and the database handle.
  */
 class GamesHubRepository private constructor(context: Context) :
@@ -19,6 +19,7 @@ class GamesHubRepository private constructor(context: Context) :
     internal fun profileDaoAccess() = db.profileDao()
     internal fun activityDaoAccess() = db.activityDao()
     internal fun streakDaoAccess() = db.streakDao()
+    internal fun yuuDaoAccess() = db.yuuDao()
 
     val games: GameStore = GameStore(this)
     val achievements: AchievementStore = AchievementStore(this)
@@ -26,6 +27,7 @@ class GamesHubRepository private constructor(context: Context) :
     val streaks: StreakStore = StreakStore(this)
     val profile: ProfileStore = ProfileStore(this)
     val activity: ActivityStore = ActivityStore(this)
+    val yuus: YuuStore = YuuStore(this)
 
     val database: GamesHubDatabase get() = db
 

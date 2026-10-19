@@ -11,6 +11,7 @@ import com.vayunmathur.games.hub.viewmodel.GameHubViewModel
 @Composable
 fun ProfilePage(viewModel: GameHubViewModel, modifier: Modifier = Modifier) {
     val profile by viewModel.profileFlow.collectAsStateWithLifecycle()
+    val profileYuu by viewModel.profileYuuFlow.collectAsStateWithLifecycle()
     val xp by viewModel.totalXpFlow.collectAsStateWithLifecycle()
     val level by viewModel.levelFlow.collectAsStateWithLifecycle()
     val title by viewModel.titleFlow.collectAsStateWithLifecycle()
@@ -20,6 +21,7 @@ fun ProfilePage(viewModel: GameHubViewModel, modifier: Modifier = Modifier) {
         state = ProfileUiState(
             playerName = profile?.displayName,
             avatarSymbol = profile?.avatarSymbol,
+            profileYuu = profileYuu,
             level = level,
             title = title,
             totalXp = xp,

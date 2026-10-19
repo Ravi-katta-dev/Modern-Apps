@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.games.hub.R
+import com.vayunmathur.games.hub.BuildConfig
 import com.vayunmathur.games.hub.data.entities.HubGameEntity
 import com.vayunmathur.games.hub.ui.components.ActivityItemCard
 import com.vayunmathur.games.hub.ui.components.AvatarBadge
@@ -26,6 +27,7 @@ import com.vayunmathur.games.hub.ui.components.GameCard
 import com.vayunmathur.games.hub.ui.components.StatCard
 import com.vayunmathur.games.hub.ui.components.StreakCard
 import com.vayunmathur.games.hub.ui.components.XpProgressBar
+import com.vayunmathur.games.hub.ui.components.YuuBadge
 import com.vayunmathur.games.hub.util.DashboardActions
 import com.vayunmathur.games.hub.util.DashboardUiState
 import com.vayunmathur.games.hub.util.formatPlaytime
@@ -71,7 +73,11 @@ fun DashboardScreen(
             item {
                 Card(onClick = actions::openProfile, modifier = Modifier.fillMaxWidth()) {
                     Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        AvatarBadge(symbol = state.avatarSymbol, large = true)
+                        if (BuildConfig.DEV_BUILD && state.profileYuu != null) {
+                            YuuBadge(config = state.profileYuu.config, large = true)
+                        } else {
+                            AvatarBadge(symbol = state.avatarSymbol, large = true)
+                        }
                         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(text = state.playerName ?: stringResource(R.string.player), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Text(text = state.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)

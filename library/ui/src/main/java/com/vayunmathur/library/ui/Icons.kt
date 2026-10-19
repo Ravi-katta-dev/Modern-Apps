@@ -124,6 +124,7 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Attachment
 import androidx.compose.material.icons.filled.Backup
@@ -182,6 +183,7 @@ import androidx.compose.material.icons.filled.Grass
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Height
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Image
@@ -236,6 +238,8 @@ import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Unarchive
+import androidx.compose.material.icons.filled.UnfoldLess
+import androidx.compose.material.icons.filled.UnfoldMore
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Videocam
@@ -276,6 +280,8 @@ import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.Work
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material.icons.outlined.HighlightAlt
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.MailOutline
@@ -370,6 +376,34 @@ fun IconRotateLeft(modifier: Modifier = Modifier, tint: Color = LocalContentColo
 @Composable
 fun IconRotateRight(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
     AppIcon(Icons.AutoMirrored.Filled.RotateRight, "Rotate Right", modifier, tint)
+
+@Composable
+fun IconZoomIn(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.ZoomIn, "Increase size", modifier, tint)
+
+@Composable
+fun IconZoomOut(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.ZoomOut, "Decrease size", modifier, tint)
+
+@Composable
+fun IconUnfoldMore(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.UnfoldMore, "Increase spacing", modifier, tint)
+
+@Composable
+fun IconUnfoldLess(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.UnfoldLess, "Decrease spacing", modifier, tint)
+
+@Composable
+fun IconArrowUpward(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.ArrowUpward, "Move up", modifier, tint)
+
+@Composable
+fun IconArrowDownward(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.ArrowDownward, "Move down", modifier, tint)
+
+@Composable
+fun IconHeight(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.Height, "Height", modifier, tint)
 
 @Composable
 fun IconContentCut(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
