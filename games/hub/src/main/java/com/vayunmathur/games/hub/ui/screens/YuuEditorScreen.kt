@@ -40,9 +40,13 @@ import com.vayunmathur.games.hub.data.entities.YUU_HAIR_COLORS
 import com.vayunmathur.games.hub.data.entities.YUU_MOUTH_COLORS
 import com.vayunmathur.games.hub.data.entities.YUU_SKIN_TONES
 import com.vayunmathur.games.hub.data.entities.YuuFaceConfig
-import com.vayunmathur.games.hub.ui.components.YuuAvatar3D
+import com.vayunmathur.games.hub.data.entities.encode
 import com.vayunmathur.games.hub.ui.components.YuuFace
 import com.vayunmathur.games.hub.ui.components.YuuPoseGallery
+import com.vayunmathur.games.hub.ui.yuu.EDITOR_SURFACE_ID
+import com.vayunmathur.games.hub.ui.yuu.YuuSurfaceIds
+import com.vayunmathur.library.avatar.components.YuuAvatar3D
+import com.vayunmathur.games.hub.ui.yuu.EDITOR_SURFACE_ID
 import com.vayunmathur.games.hub.ui.yuu.YuuCategory
 import com.vayunmathur.games.hub.ui.yuu.YuuEditorActions
 import com.vayunmathur.games.hub.ui.yuu.YuuEditorUiState
@@ -114,9 +118,17 @@ fun YuuEditorScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         YuuAvatar3D(
-                            config = draft.toConfig(),
+                            configJson = draft.toConfig().encode(),
                             poseId = draft.poseId,
+                            surfaceId = EDITOR_SURFACE_ID,
                             modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(0.9f).padding(8.dp),
+                            fallback = {
+                                YuuFace(
+                                    config = draft.toConfig(),
+                                    withBody = true,
+                                    modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(0.9f).padding(8.dp),
+                                )
+                            },
                         )
                         // Steppers overlay only the 2D fallback path's layout box;
                         // on the 3D path they float over the surface either way.
@@ -418,6 +430,43 @@ private fun VariantCell(
     }
 }
 
+/**
+ * Live-3D variant cell: renders the full draft config with one field
+ * overridden, keyed by a stable cell id. Over the live-surface cap it falls
+ * back to the 2D thumbnail (see [YuuSurfaceIds]).
+ */
+@Composable
+private fun VariantCell3D(
+    cellId: Int,
+    config: YuuFaceConfig,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Card(
+        onClick = onClick,
+        border = if (selected) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else null,
+        modifier = Modifier.aspectRatio(1f),
+    ) {
+        Box(modifier = Modifier.fillMaxSize().padding(6.dp), contentAlignment = Alignment.Center) {
+            if (YuuSurfaceIds.isLive(cellId)) {
+                YuuAvatar3D(
+                    configJson = config.encode(),
+                    poseId = config.poseId,
+                    surfaceId = cellId,
+                    modifier = Modifier.fillMaxSize(),
+                    fallback = {
+                        YuuFace(config = config, modifier = Modifier.fillMaxSize())
+                    },
+                )
+            } else {
+                YuuFace(config = config, modifier = Modifier.fillMaxSize())
+            }
+        }
+    }
+}
+
 @Composable
 private fun ColorSwatches(
     colors: List<Long>,
@@ -451,9 +500,12 @@ private fun FacePanel(d: YuuDraft) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel(stringResource(R.string.yuu_face_shape))
         VariantGrid(count = YuuFaceConfig.FACE_SHAPES, selected = d.faceShape) { i, sel ->
-            VariantCell(sel, onClick = { d.faceShape = i }) {
-                YuuFace(YuuFaceConfig(faceShape = i, skinTone = d.skinTone), Modifier.fillMaxSize())
-            }
+            VariantCell3D(
+                cellId = YuuSurfaceIds.forVariant(0, i),
+                config = d.toConfig().copy(faceShape = i),
+                selected = sel,
+                onClick = { d.faceShape = i },
+            )
         }
         SectionLabel(stringResource(R.string.yuu_skin_tone))
         ColorSwatches(YUU_SKIN_TONES, d.skinTone) { d.skinTone = it }
@@ -479,9 +531,12 @@ private fun HairPanel(d: YuuDraft) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel(stringResource(R.string.yuu_hair_style))
         VariantGrid(count = YuuFaceConfig.HAIR_STYLES, selected = d.hairStyle) { i, sel ->
-            VariantCell(sel, onClick = { d.hairStyle = i }) {
-                YuuFace(YuuFaceConfig(hairStyle = i, hairColor = d.hairColor, skinTone = d.skinTone), Modifier.fillMaxSize())
-            }
+            VariantCell3D(
+                cellId = YuuSurfaceIds.forVariant(1, i),
+                config = d.toConfig().copy(hairStyle = i),
+                selected = sel,
+                onClick = { d.hairStyle = i },
+            )
         }
         SectionLabel(stringResource(R.string.yuu_hair_color))
         ColorSwatches(YUU_HAIR_COLORS, d.hairColor) { d.hairColor = it }
@@ -493,9 +548,12 @@ private fun EyesPanel(d: YuuDraft) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel(stringResource(R.string.yuu_eye_style))
         VariantGrid(count = YuuFaceConfig.EYE_STYLES, selected = d.eyeStyle) { i, sel ->
-            VariantCell(sel, onClick = { d.eyeStyle = i }) {
-                YuuFace(YuuFaceConfig(eyeStyle = i, eyeColor = d.eyeColor, skinTone = d.skinTone), Modifier.fillMaxSize())
-            }
+            VariantCell3D(
+                cellId = YuuSurfaceIds.forVariant(2, i),
+                config = d.toConfig().copy(eyeStyle = i),
+                selected = sel,
+                onClick = { d.eyeStyle = i },
+            )
         }
         SectionLabel(stringResource(R.string.yuu_eye_color))
         ColorSwatches(YUU_EYE_COLORS, d.eyeColor) { d.eyeColor = it }
@@ -507,9 +565,12 @@ private fun BrowsPanel(d: YuuDraft) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel(stringResource(R.string.yuu_brow_style))
         VariantGrid(count = YuuFaceConfig.BROW_STYLES, selected = d.browStyle) { i, sel ->
-            VariantCell(sel, onClick = { d.browStyle = i }) {
-                YuuFace(YuuFaceConfig(browStyle = i, browColor = d.browColor, skinTone = d.skinTone), Modifier.fillMaxSize())
-            }
+            VariantCell3D(
+                cellId = YuuSurfaceIds.forVariant(3, i),
+                config = d.toConfig().copy(browStyle = i),
+                selected = sel,
+                onClick = { d.browStyle = i },
+            )
         }
         SectionLabel(stringResource(R.string.yuu_brow_color))
         ColorSwatches(YUU_HAIR_COLORS, d.browColor) { d.browColor = it }
@@ -521,9 +582,12 @@ private fun NosePanel(d: YuuDraft) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel(stringResource(R.string.yuu_nose_style))
         VariantGrid(count = YuuFaceConfig.NOSE_STYLES, selected = d.noseStyle) { i, sel ->
-            VariantCell(sel, onClick = { d.noseStyle = i }) {
-                YuuFace(YuuFaceConfig(noseStyle = i, skinTone = d.skinTone), Modifier.fillMaxSize())
-            }
+            VariantCell3D(
+                cellId = YuuSurfaceIds.forVariant(4, i),
+                config = d.toConfig().copy(noseStyle = i),
+                selected = sel,
+                onClick = { d.noseStyle = i },
+            )
         }
     }
 }
@@ -533,9 +597,12 @@ private fun MouthPanel(d: YuuDraft) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel(stringResource(R.string.yuu_mouth_style))
         VariantGrid(count = YuuFaceConfig.MOUTH_STYLES, selected = d.mouthStyle) { i, sel ->
-            VariantCell(sel, onClick = { d.mouthStyle = i }) {
-                YuuFace(YuuFaceConfig(mouthStyle = i, mouthColor = d.mouthColor, skinTone = d.skinTone), Modifier.fillMaxSize())
-            }
+            VariantCell3D(
+                cellId = YuuSurfaceIds.forVariant(5, i),
+                config = d.toConfig().copy(mouthStyle = i),
+                selected = sel,
+                onClick = { d.mouthStyle = i },
+            )
         }
         SectionLabel(stringResource(R.string.yuu_mouth_color))
         ColorSwatches(YUU_MOUTH_COLORS, d.mouthColor) { d.mouthColor = it }
@@ -547,32 +614,77 @@ private fun ExtrasPanel(d: YuuDraft) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionLabel(stringResource(R.string.yuu_glasses))
         VariantGrid(count = YuuFaceConfig.GLASSES_STYLES + 1, selected = d.glassesStyle) { i, sel ->
-            VariantCell(sel, onClick = { d.glassesStyle = i }) {
-                if (i == 0) Text(stringResource(UiR.string.none)) else YuuFace(YuuFaceConfig(glassesStyle = i, skinTone = d.skinTone), Modifier.fillMaxSize())
+            if (i == 0) {
+                VariantCell(sel, onClick = { d.glassesStyle = i }) {
+                    Text(stringResource(UiR.string.none))
+                }
+            } else {
+                VariantCell3D(
+                    cellId = YuuSurfaceIds.forVariant(6, i),
+                    config = d.toConfig().copy(glassesStyle = i),
+                    selected = sel,
+                    onClick = { d.glassesStyle = i },
+                )
             }
         }
         SectionLabel(stringResource(R.string.yuu_beard))
         VariantGrid(count = YuuFaceConfig.BEARD_STYLES + 1, selected = d.beardStyle) { i, sel ->
-            VariantCell(sel, onClick = { d.beardStyle = i }) {
-                if (i == 0) Text(stringResource(UiR.string.none)) else YuuFace(YuuFaceConfig(beardStyle = i, skinTone = d.skinTone, hairColor = d.hairColor), Modifier.fillMaxSize())
+            if (i == 0) {
+                VariantCell(sel, onClick = { d.beardStyle = i }) {
+                    Text(stringResource(UiR.string.none))
+                }
+            } else {
+                VariantCell3D(
+                    cellId = YuuSurfaceIds.forVariant(7, i),
+                    config = d.toConfig().copy(beardStyle = i),
+                    selected = sel,
+                    onClick = { d.beardStyle = i },
+                )
             }
         }
         SectionLabel(stringResource(R.string.yuu_mole))
         VariantGrid(count = YuuFaceConfig.MOLE_STYLES + 1, selected = d.moleStyle) { i, sel ->
-            VariantCell(sel, onClick = { d.moleStyle = i }) {
-                if (i == 0) Text(stringResource(UiR.string.none)) else YuuFace(YuuFaceConfig(moleStyle = i, skinTone = d.skinTone), Modifier.fillMaxSize())
+            if (i == 0) {
+                VariantCell(sel, onClick = { d.moleStyle = i }) {
+                    Text(stringResource(UiR.string.none))
+                }
+            } else {
+                VariantCell3D(
+                    cellId = YuuSurfaceIds.forVariant(8, i),
+                    config = d.toConfig().copy(moleStyle = i),
+                    selected = sel,
+                    onClick = { d.moleStyle = i },
+                )
             }
         }
         SectionLabel(stringResource(R.string.yuu_wrinkles))
         VariantGrid(count = YuuFaceConfig.WRINKLE_STYLES + 1, selected = d.wrinkleStyle) { i, sel ->
-            VariantCell(sel, onClick = { d.wrinkleStyle = i }) {
-                if (i == 0) Text(stringResource(UiR.string.none)) else YuuFace(YuuFaceConfig(wrinkleStyle = i, skinTone = d.skinTone), Modifier.fillMaxSize())
+            if (i == 0) {
+                VariantCell(sel, onClick = { d.wrinkleStyle = i }) {
+                    Text(stringResource(UiR.string.none))
+                }
+            } else {
+                VariantCell3D(
+                    cellId = YuuSurfaceIds.forVariant(9, i),
+                    config = d.toConfig().copy(wrinkleStyle = i),
+                    selected = sel,
+                    onClick = { d.wrinkleStyle = i },
+                )
             }
         }
         SectionLabel(stringResource(R.string.yuu_blush))
         VariantGrid(count = YuuFaceConfig.BLUSH_STYLES + 1, selected = d.blushStyle) { i, sel ->
-            VariantCell(sel, onClick = { d.blushStyle = i }) {
-                if (i == 0) Text(stringResource(UiR.string.none)) else YuuFace(YuuFaceConfig(blushStyle = i, skinTone = d.skinTone), Modifier.fillMaxSize())
+            if (i == 0) {
+                VariantCell(sel, onClick = { d.blushStyle = i }) {
+                    Text(stringResource(UiR.string.none))
+                }
+            } else {
+                VariantCell3D(
+                    cellId = YuuSurfaceIds.forVariant(10, i),
+                    config = d.toConfig().copy(blushStyle = i),
+                    selected = sel,
+                    onClick = { d.blushStyle = i },
+                )
             }
         }
     }

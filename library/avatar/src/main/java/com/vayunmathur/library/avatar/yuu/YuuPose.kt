@@ -1,4 +1,4 @@
-package com.vayunmathur.games.hub.ui.yuu
+package com.vayunmathur.library.avatar.yuu
 
 import kotlinx.serialization.Serializable
 

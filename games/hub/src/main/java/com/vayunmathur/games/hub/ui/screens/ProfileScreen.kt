@@ -25,13 +25,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.games.hub.R
 import com.vayunmathur.games.hub.BuildConfig
+import com.vayunmathur.games.hub.data.entities.encode
 import com.vayunmathur.games.hub.ui.components.AvatarBadge
 import com.vayunmathur.games.hub.ui.components.AvatarIcon
 import com.vayunmathur.games.hub.ui.components.StatCard
 import com.vayunmathur.games.hub.ui.components.XpProgressBar
-import com.vayunmathur.games.hub.ui.components.YuuAvatar3D
 import com.vayunmathur.games.hub.ui.components.YuuBadge
 import com.vayunmathur.games.hub.ui.components.YuuPoseGallery
+import com.vayunmathur.games.hub.ui.yuu.PROFILE_SURFACE_ID
+import com.vayunmathur.library.avatar.components.YuuAvatar3D
 import com.vayunmathur.games.hub.util.ProfileActions
 import com.vayunmathur.games.hub.util.ProfileUiState
 import com.vayunmathur.games.hub.util.XpLevelCalculator
@@ -88,9 +90,13 @@ fun ProfileScreen(
                     Column(modifier = Modifier.padding(24.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         if (BuildConfig.DEV_BUILD && state.profileYuu != null) {
                             YuuAvatar3D(
-                                config = state.profileYuu.config,
+                                configJson = state.profileYuu.config.encode(),
                                 poseId = state.profileYuu.config.poseId,
+                                surfaceId = PROFILE_SURFACE_ID,
                                 modifier = Modifier.size(96.dp),
+                                fallback = {
+                                    AvatarBadge(symbol = state.avatarSymbol, large = true)
+                                },
                             )
                             YuuPoseGallery(
                                 selectedPoseId = state.profileYuu.config.poseId,

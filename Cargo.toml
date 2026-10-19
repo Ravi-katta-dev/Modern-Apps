@@ -25,7 +25,7 @@ members = [
   "share/src/main/rust",
   "games/voxels/src/main/rust",
   "games/kart/src/main/rust",
-  "games/hub/src/main/rust",
+  "library/avatar/src/main/rust",
   "code/src/main/rust",
   "library/tilecodec/src/main/rust",
   "scripts/maps/dem_ingest",

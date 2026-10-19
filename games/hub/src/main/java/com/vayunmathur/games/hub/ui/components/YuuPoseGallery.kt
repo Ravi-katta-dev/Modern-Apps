@@ -6,7 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.vayunmathur.games.hub.ui.yuu.YUU_POSES
+import com.vayunmathur.library.avatar.yuu.YUU_POSES
 import com.vayunmathur.library.ui.FilterChip
 import com.vayunmathur.library.ui.Text
 

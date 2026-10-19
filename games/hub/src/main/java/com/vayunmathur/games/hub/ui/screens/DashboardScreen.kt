@@ -28,8 +28,10 @@ import com.vayunmathur.games.hub.ui.components.GameCard
 import com.vayunmathur.games.hub.ui.components.StatCard
 import com.vayunmathur.games.hub.ui.components.StreakCard
 import com.vayunmathur.games.hub.ui.components.XpProgressBar
-import com.vayunmathur.games.hub.ui.components.YuuAvatar3D
+import com.vayunmathur.games.hub.data.entities.encode
 import com.vayunmathur.games.hub.ui.components.YuuBadge
+import com.vayunmathur.games.hub.ui.yuu.DASHBOARD_SURFACE_ID
+import com.vayunmathur.library.avatar.components.YuuAvatar3D
 import com.vayunmathur.games.hub.util.DashboardActions
 import com.vayunmathur.games.hub.util.DashboardUiState
 import com.vayunmathur.games.hub.util.formatPlaytime
@@ -77,9 +79,13 @@ fun DashboardScreen(
                     Row(modifier = Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (BuildConfig.DEV_BUILD && state.profileYuu != null) {
                             YuuAvatar3D(
-                                config = state.profileYuu.config,
+                                configJson = state.profileYuu.config.encode(),
                                 poseId = state.profileYuu.config.poseId,
+                                surfaceId = DASHBOARD_SURFACE_ID,
                                 modifier = Modifier.size(56.dp),
+                                fallback = {
+                                    AvatarBadge(symbol = state.avatarSymbol, large = true)
+                                },
                             )
                         } else {
                             AvatarBadge(symbol = state.avatarSymbol, large = true)

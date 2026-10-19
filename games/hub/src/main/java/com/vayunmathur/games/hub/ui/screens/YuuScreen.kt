@@ -25,9 +25,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.games.hub.R
 import com.vayunmathur.games.hub.data.YuuUiModel
+import com.vayunmathur.games.hub.data.entities.encode
 import com.vayunmathur.games.hub.ui.components.YuuFace
 import com.vayunmathur.games.hub.ui.yuu.YuuListActions
 import com.vayunmathur.games.hub.ui.yuu.YuuListUiState
+import com.vayunmathur.games.hub.ui.yuu.YuuSurfaceIds
+import com.vayunmathur.library.avatar.components.YuuAvatar3D
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Card
 import com.vayunmathur.library.ui.DropdownMenu
@@ -116,10 +119,29 @@ private fun YuuCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Box(contentAlignment = Alignment.TopEnd) {
-                YuuFace(
-                    config = yuu.config,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
-                )
+                // Live 3D cell with a stable id (keyed by Yuu id, not position)
+                // so config/pose never bleeds across recycled cells. Over the
+                // live-surface cap the cell falls back to the 2D thumbnail.
+                val surfaceId = YuuSurfaceIds.forYuu(yuu.id)
+                if (YuuSurfaceIds.isLive(surfaceId)) {
+                    YuuAvatar3D(
+                        configJson = yuu.config.encode(),
+                        poseId = yuu.config.poseId,
+                        surfaceId = surfaceId,
+                        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                        fallback = {
+                            YuuFace(
+                                config = yuu.config,
+                                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                            )
+                        },
+                    )
+                } else {
+                    YuuFace(
+                        config = yuu.config,
+                        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                    )
+                }
                 IconButton(onClick = { menuOpen = true }) { IconMoreVert() }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
