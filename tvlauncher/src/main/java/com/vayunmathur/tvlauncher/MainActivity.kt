@@ -34,8 +34,11 @@ class MainActivity : MaActivity() {
     override fun onResume() {
         super.onResume()
         // Cheap enough to redo every time we come back: an app may have been installed or
-        // uninstalled while we were away without us being alive to hear the callback.
+        // uninstalled while we were away without us being alive to hear the callback. The
+        // default-home check rides along so the set-default button clears itself the moment
+        // the system grants the role (e.g. returning from the role prompt).
         viewModel.refreshApps()
+        viewModel.refreshDefaultHome(this)
     }
 
     /**

@@ -52,8 +52,12 @@
           singleTask + stateNotNeeded are what make this behave like a home app: HOME delivers
           a new intent to the existing instance rather than stacking another copy, and the system
           may kill it without saving state because the row order lives in DataStore, not in a
-          Bundle. LEANBACK_LAUNCHER keeps it visible in other launchers' TV rows; HOME + DEFAULT
-          is what lets the system offer it as the default home screen.
+          Bundle.
+          One filter carrying every category (the :launcher precedent): separate filters build
+          separate resolve entries for the same activity, and Google TV's HOME election then
+          never prefers the HOME one — query-activities lists us while resolve-activity keeps
+          the stock launcher. LEANBACK_LAUNCHER keeps the app visible in other launchers' TV
+          rows; HOME + DEFAULT is what lets the system offer it as the default home screen.
         -->
         <activity
             android:name=".MainActivity"
@@ -67,9 +71,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
