@@ -66,6 +66,36 @@ class InstallCoordinator(
     private val sessionInstaller = SessionInstaller(context)
     private val playDownloader = PlayDownloader(context)
 
+    /**
+     * Whether this device is a TV. Read once: the leanback feature set cannot change
+     * without a reboot, and every install consults it for the TV-compat gate.
+     */
+    private val isTv: Boolean by lazy {
+        com.vayunmathur.appstore.data.accrescent.DeviceAttributesProvider(
+            context.applicationContext
+        ).isTv()
+    }
+
+    /**
+     * The reason [app] must not install on this TV, or null when it may proceed.
+     *
+     * Null on phones unconditionally, and null for Accrescent everywhere: its server
+     * already decides per-device, so a client-side refusal would second-guess the
+     * authority. Everything else defers to the same verdict the catalogue filter uses.
+     */
+    private fun tvRefusal(app: UnifiedApp): String? {
+        if (!isTv) return null
+        if (app.source == com.vayunmathur.appstore.data.AppSource.ACCRESCENT) return null
+        if (app.tvCompatible == false) {
+            return "this app is not marked TV-compatible, so it is hidden on TV"
+        }
+        if (com.vayunmathur.appstore.data.AppProvider.requiresPhoneHardware(app.requiredFeatures)) {
+            return "this app needs phone hardware (${app.requiredFeatures.firstOrNull().orEmpty()}) " +
+                "this TV does not have"
+        }
+        return null
+    }
+
     private val _stages = MutableStateFlow<Map<String, InstallStage>>(emptyMap())
     val stages: StateFlow<Map<String, InstallStage>> = _stages.asStateFlow()
 
@@ -100,6 +130,16 @@ class InstallCoordinator(
     suspend fun install(app: UnifiedApp): SessionInstaller.Outcome {
         if (isBusy(app.packageName)) {
             return SessionInstaller.Outcome(false, VerificationResult.Rejected("already installing"))
+        }
+        // Pre-download TV-compat refusal, mirroring the catalogue filter: on a TV, a
+        // listing the catalogue already marked incompatible (or naming phone-only
+        // hardware) is refused before any bytes download. This is a fast path only —
+        // the downloaded APK is still re-checked by InstallVerifier.checkLeanback, so a
+        // lying listing cannot bypass the gate by carrying no metadata.
+        tvRefusal(app)?.let { reason ->
+            val outcome = SessionInstaller.Outcome(false, VerificationResult.Rejected(reason))
+            record(app.packageName, outcome.verification)
+            return finishInstall(app.packageName, outcome)
         }
         stage(app.packageName, InstallStage.Preparing)
         return try {
@@ -174,6 +214,7 @@ class InstallCoordinator(
                     expectedSha256 = app.apkSha256
                         ?.let { mapOf("${app.packageName}.apk" to it) } ?: emptyMap(),
                     signerOrigin = "this store",
+                    requireTvCompatible = isTv,
                 )
                 // This store's own Play mirror: the same release key signs the index, but
                 // the APKs carry the developers' keys, so the per-version signers from
@@ -184,6 +225,7 @@ class InstallCoordinator(
                     expectedSha256 = app.apkSha256
                         ?.let { mapOf("${app.packageName}.apk" to it) } ?: emptyMap(),
                     signerOrigin = "this store's Play mirror",
+                    requireTvCompatible = isTv,
                 )
                 else -> InstallRequirement(
                     expectedPackage = app.packageName,
@@ -191,6 +233,7 @@ class InstallCoordinator(
                     expectedSha256 = app.apkSha256
                         ?.let { mapOf("${app.packageName}.apk" to it) } ?: emptyMap(),
                     signerOrigin = "F-Droid's signed app list",
+                    requireTvCompatible = isTv,
                 )
             }
 
@@ -310,6 +353,11 @@ class InstallCoordinator(
                 expectedSha256 = emptyMap(),
                 minVersionCode = trust.minVersionCode,
                 signerOrigin = "Accrescent's signed app list",
+                // Server is the authority for Accrescent: it already picks splits
+                // per-device, so a client-side leanback refusal would second-guess
+                // it (mirrors the tvRefusal() exemption). Every other source keeps
+                // requireTvCompatible = isTv.
+                requireTvCompatible = false,
             )
 
             stage(app.packageName, InstallStage.Verifying)
@@ -324,7 +372,19 @@ class InstallCoordinator(
         withContext(Dispatchers.IO) {
             // The listing that got the user here may be a cluster entry with no version
             // code, and purchase() needs one that matches what Play will serve.
-            val details = play.details(app.packageName) ?: app
+            // details() already applies the TV filter, so a null on a TV for a
+            // TV-incompatible listing is a refusal, not a missing read: propagate it
+            // instead of falling back to the unfiltered cluster entry. A null for any
+            // other reason (no auth, network) keeps the old fallback. Phones are
+            // untouched — tvRefusal() is null there unconditionally.
+            val details = play.details(app.packageName) ?: run {
+                tvRefusal(app)?.let { reason ->
+                    return@withContext SessionInstaller.Outcome(
+                        false, VerificationResult.Rejected(reason)
+                    )
+                }
+                app
+            }
             val versionCode = details.versionCode.takeIf { it > 0 } ?: app.versionCode
             val offerType = details.offerType
 
@@ -369,6 +429,7 @@ class InstallCoordinator(
                 expectedSha256 = expectedHashes,
                 signerOrigin = "Google",
                 pinnedStamp = db.pinnedStampDao().byPackage(app.packageName)?.stampSha256,
+                requireTvCompatible = isTv,
             )
 
             sessionInstaller.installSplits(

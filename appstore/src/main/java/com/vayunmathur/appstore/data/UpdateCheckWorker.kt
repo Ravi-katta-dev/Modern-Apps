@@ -120,9 +120,21 @@ class UpdateCheckWorker(
 
         // The surviving row's source decides which download-and-verify path the update takes,
         // so it has to be the same precedence the rest of the store uses.
-        return (fromCatalog + fromPlay + fromAccrescent)
-            .sortedBy { it.source.priority }
-            .distinctBy { it.packageName }
+        //
+        // The TV-compat filter is the single choke for every update stream: the offline
+        // catalogue and Play already filter at read time, but defence in depth keeps one
+        // place where a missed hook cannot re-offer an incompatible update every 12h.
+        // Accrescent needs no per-app filtering — its server already decides per-device —
+        // and passes through untouched.
+        val isTv = com.vayunmathur.appstore.data.accrescent.DeviceAttributesProvider(
+            context.applicationContext
+        ).isTv()
+        return com.vayunmathur.appstore.data.AppProvider.filterTvCompatible(
+            isTv,
+            (fromCatalog + fromPlay + fromAccrescent)
+                .sortedBy { it.source.priority }
+                .distinctBy { it.packageName },
+        )
     }
 
     private suspend fun playUpdates(

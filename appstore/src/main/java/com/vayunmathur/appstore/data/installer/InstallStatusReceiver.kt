@@ -7,6 +7,8 @@ import android.content.pm.PackageInstaller
 import com.vayunmathur.library.log.Log
 import com.vayunmathur.appstore.R
 import com.vayunmathur.appstore.data.RestrictedPackages
+import com.vayunmathur.appstore.data.TvIncompatiblePackages
+import com.vayunmathur.appstore.data.accrescent.DeviceAttributesProvider
 import com.vayunmathur.library.util.AppMessages
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -37,7 +39,7 @@ class InstallStatusReceiver : BroadcastReceiver() {
 
         when (status) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> forwardUserAction(context, intent)
-            PackageInstaller.STATUS_SUCCESS -> reportSuccess(pkg)
+            PackageInstaller.STATUS_SUCCESS -> reportSuccess(context, pkg)
             // The user backing out of the system prompt is not a failure worth reporting back.
             PackageInstaller.STATUS_FAILURE_ABORTED -> reportAborted(pkg)
             else -> reportFailure(context, status, message, pkg)
@@ -64,9 +66,12 @@ class InstallStatusReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun reportSuccess(pkg: String?) {
+    private fun reportSuccess(context: Context, pkg: String?) {
         Log.status(TAG, "Install success for $pkg")
         pkg?.let { InstallEvents.publish(InstallResult(it, success = true)) }
+        // The lesson is stale: a build that installs proves compatibility, so stop
+        // suppressing its updates.
+        TvIncompatiblePackages.clearOnUpdate(context, pkg)
     }
 
     private fun reportAborted(pkg: String?) {
@@ -79,6 +84,16 @@ class InstallStatusReceiver : BroadcastReceiver() {
         pkg?.let { InstallEvents.publish(InstallResult(it, success = false)) }
         // A source-restricted refusal is the OS's final answer, so stop offering it.
         RestrictedPackages.recordIfRestricted(context, pkg, message)
+        // An incompatibility refusal is equally final on this device: without learning
+        // it, the update check would re-offer the same update every 12 hours with a
+        // terminal toast each time. Recorded like a restriction, consulted the same way.
+        // TV-only: a phone ABI-mismatch refusal is not a TV verdict and must not
+        // suppress updates, so the receiver passes the device form factor along.
+        if (status == PackageInstaller.STATUS_FAILURE_INCOMPATIBLE) {
+            TvIncompatiblePackages.recordIfIncompatible(
+                context, pkg, DeviceAttributesProvider(context).isTv()
+            )
+        }
         val reason = failureReason(context, status, message)
         val text = context.getString(R.string.install_failed_reason, pkg.orEmpty(), reason)
         if (!InstallFailureBatch.collect(text)) {

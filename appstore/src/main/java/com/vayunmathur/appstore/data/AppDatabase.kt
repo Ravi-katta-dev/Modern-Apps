@@ -64,6 +64,12 @@ data class CachedAppEntity(
     val antiFeatures: String? = null,
     val whatsNew: String? = null,
     val addedTimestamp: Long = 0L,
+    /** Newline-joined TV screenshot URLs, in publication order. Null when none published. */
+    val tvScreenshots: String? = null,
+    /** Comma-joined `<uses-feature>` names from an authenticated index. Null when none published. */
+    val requiredFeatures: String? = null,
+    /** TV-compat verdict from the catalogue; null when the source said nothing either way. */
+    val tvCompatible: Boolean? = null,
 )
 
 /** URLs never contain a newline, so this survives values a comma would split apart. */
@@ -108,6 +114,9 @@ fun UnifiedApp.toEntity(): CachedAppEntity = CachedAppEntity(
     antiFeatures = antiFeatures.packList(),
     whatsNew = whatsNew,
     addedTimestamp = addedTimestamp,
+    tvScreenshots = tvScreenshots.packList(),
+    requiredFeatures = requiredFeatures.joinToString(",").ifBlank { null },
+    tvCompatible = tvCompatible,
 )
 
 fun CachedAppEntity.toUnifiedApp(): UnifiedApp = UnifiedApp(
@@ -143,6 +152,9 @@ fun CachedAppEntity.toUnifiedApp(): UnifiedApp = UnifiedApp(
     antiFeatures = antiFeatures.unpackList(),
     whatsNew = whatsNew,
     addedTimestamp = addedTimestamp,
+    tvScreenshots = tvScreenshots.unpackList(),
+    requiredFeatures = requiredFeatures?.split(",")?.filter { it.isNotBlank() } ?: emptyList(),
+    tvCompatible = tvCompatible,
 )
 
 /**
@@ -324,7 +336,7 @@ interface CachedAppDao {
         PinnedStampEntity::class,
         AccrescentTrustEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -405,6 +417,17 @@ abstract class AppDatabase : RoomDatabase() {
                             "signingCertHash TEXT NOT NULL, " +
                             "minVersionCode INTEGER NOT NULL)"
                     )
+                }
+            },
+            object : Migration(7, 8) {
+                override suspend fun migrate(connection: SQLiteConnection) {
+                    // TV-compat catalogue signals: the per-version `<uses-feature>` list, the
+                    // TV screenshot set, and the derived verdict. All nullable, so existing
+                    // rows stay usable and fill in on the next sync; a null verdict means
+                    // "unknown", which the filter treats as compatible.
+                    connection.execSQL("ALTER TABLE CachedAppEntity ADD COLUMN tvScreenshots TEXT")
+                    connection.execSQL("ALTER TABLE CachedAppEntity ADD COLUMN requiredFeatures TEXT")
+                    connection.execSQL("ALTER TABLE CachedAppEntity ADD COLUMN tvCompatible INTEGER")
                 }
             }
         )

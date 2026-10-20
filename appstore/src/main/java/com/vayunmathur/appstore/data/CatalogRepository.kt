@@ -55,6 +55,18 @@ class CatalogRepository(
     private val modernProvider = FDroidAppProvider(db, appContext, DefaultRepos.MODERN_APPS)
     private val proprietaryProvider = FDroidAppProvider(db, appContext, DefaultRepos.PROPRIETARY)
 
+    /**
+     * Whether this device is a TV. Read once: the leanback feature set cannot change
+     * without a reboot, and every catalogue read below consults it for TV-compat
+     * filtering.
+     */
+    private val isTv: Boolean by lazy {
+        com.vayunmathur.appstore.data.accrescent.DeviceAttributesProvider(appContext).isTv()
+    }
+
+    private fun List<UnifiedApp>.filterTv(): List<UnifiedApp> =
+        AppProvider.filterTvCompatible(isTv, this)
+
     val repos: StateFlow<List<RepoEntity>> =
         db.repoDao().allFlow().stateIn(scope, SharingStarted.Eagerly, emptyList())
 
@@ -84,13 +96,13 @@ class CatalogRepository(
         withContext(Dispatchers.IO) {
             runCatching {
                 db.cachedAppDao().recentlyUpdatedBySource(source.name, limit).map { it.toUnifiedApp() }
-            }.getOrDefault(emptyList())
+            }.getOrDefault(emptyList()).filterTv()
         }
 
     suspend fun byCategory(category: String, limit: Int = 60): List<UnifiedApp> =
         withContext(Dispatchers.IO) {
             runCatching { db.cachedAppDao().byCategory(category, limit).map { it.toUnifiedApp() } }
-                .getOrDefault(emptyList())
+                .getOrDefault(emptyList()).filterTv()
         }
 
     /** Categories present in the catalogue, most-populated first. */
@@ -121,11 +133,14 @@ class CatalogRepository(
                 queries.flatMap { db.cachedAppDao().searchAll(it, limit) }
                     .distinctBy { it.packageName }
                     .map { it.toUnifiedApp() }
-            }.getOrDefault(emptyList())
+            }.getOrDefault(emptyList()).filterTv()
         }
 
     suspend fun byPackage(packageName: String): UnifiedApp? = withContext(Dispatchers.IO) {
         runCatching { db.cachedAppDao().byPackage(packageName)?.toUnifiedApp() }.getOrNull()
+            // Single-item form of the TV gate every other read applies via filterTv():
+            // an incompatible listing resolves to null, as if it were never cached.
+            ?.let { app -> AppProvider.filterTvCompatible(isTv, listOf(app)).firstOrNull() }
     }
 
     suspend fun byPackages(packages: List<String>): List<UnifiedApp> = withContext(Dispatchers.IO) {
@@ -134,7 +149,7 @@ class CatalogRepository(
             packages.chunked(SQLITE_VARIABLE_LIMIT)
                 .flatMap { db.cachedAppDao().byPackages(it) }
                 .map { it.toUnifiedApp() }
-        }.getOrDefault(emptyList())
+        }.getOrDefault(emptyList()).filterTv()
     }
 
     /** Rows for packages that are installed but older than what the catalogue offers. */
@@ -144,7 +159,7 @@ class CatalogRepository(
             val known = index[inst.packageName] ?: return@filter false
             known.versionCode > inst.versionCode
         }.map { it.packageName }
-        return byPackages(stale)
+        return byPackages(stale).filterTv()
     }
 
     /**

@@ -40,6 +40,17 @@ data class InstallRequirement(
      * unaffected — the gate is additive and defaults to a no-op.
      */
     val minVersionCode: Long? = null,
+    /**
+     * True when the install is happening on a TV. Refuses APKs that cannot run there:
+     * ones declaring phone-only hardware features, and ones with no leanback entry
+     * (no `android.software.leanback` feature and no leanback-launched activity).
+     * False (the default) skips the check entirely, so every phone install is
+     * unaffected — the gate is additive and defaults to a no-op.
+     *
+     * This is a second opinion on the downloaded bytes, not a replacement for the
+     * catalogue filter: a listing that lies about compatibility is still refused here.
+     */
+    val requireTvCompatible: Boolean = false,
 )
 
 sealed class VerificationResult {
@@ -124,6 +135,7 @@ object InstallVerifier {
         val checks: List<() -> VerificationResult.Rejected?> = listOf(
             { checkPackageName(ctx) },
             { checkTargetSdk(ctx) },
+            { checkLeanback(ctx) },
             { signerCheck.rejection },
             { checkRollbackFloor(ctx) },
             { checkInstalledContinuity(ctx, signerCheck.signers) },
@@ -181,6 +193,114 @@ object InstallVerifier {
             )
         }
         return null
+    }
+
+    /**
+     * TV-compat gate: refuse APKs that cannot run on a TV, from the manifest we hold.
+     *
+     * Mirrors [checkTargetSdk]: the catalogue filters on what each source *claims*,
+     * which a source may not state at all, so re-check the downloaded bytes. A lying
+     * listing is refused here rather than installed.
+     *
+     * Two refusals, in order:
+     * - phone-only hardware: a `<uses-feature>` naming telephony or other hardware a
+     *   TV has not got means the OS would refuse the install anyway — fail here with
+     *   a stated reason instead of a cryptic `INSTALL_FAILED_MISSING_FEATURE`;
+     * - no leanback entry: without the leanback feature *or* a leanback-launched
+     *   activity, the app has no TV entry point and would install invisibly — never
+     *   listed in the TV launcher, never launchable by the user.
+     *
+     * Skipped entirely unless [InstallRequirement.requireTvCompatible]: every phone
+     * install passes untouched. An APK whose manifest cannot be read for these fields
+     * stays allowed — absence of evidence is not evidence of incompatibility, and the
+     * OS remains the final arbiter at commit time.
+     */
+    private fun checkLeanback(ctx: CheckContext): VerificationResult.Rejected? {
+        if (!ctx.requirement.requireTvCompatible) return null
+        val baseInfo = ctx.parsed.firstOrNull { (_, info) ->
+            info?.packageName == ctx.requirement.expectedPackage && info.splitNames.isNullOrEmpty()
+        }?.second ?: return null
+
+        val declaredFeatures = baseInfo.reqFeatures?.mapNotNull { it.name }.orEmpty()
+        if (AppProvider.requiresPhoneHardware(declaredFeatures)) {
+            return VerificationResult.Rejected(
+                "it needs phone hardware (${declaredFeatures.firstOrNull().orEmpty()}) " +
+                    "this TV does not have"
+            )
+        }
+
+        val declaresLeanback = declaredFeatures.any {
+            it.equals(AppProvider.FEATURE_LEANBACK, ignoreCase = true)
+        }
+        if (!declaresLeanback && !hasLeanbackActivity(ctx, declaredFeatures)) {
+            return VerificationResult.Rejected(
+                "it has no TV entry point, so it would install with no way to open it"
+            )
+        }
+        ctx.checks += "TV-compatible"
+        return null
+    }
+
+    /**
+     * Whether the downloaded base APK names a leanback-launched activity.
+     *
+     * Heuristic limits — read before tightening this:
+     * - `GET_ACTIVITIES` does not return intent-filters, so the true
+     *   `LEANBACK_LAUNCHER` category cannot be observed here; an activity *name*
+     *   containing "leanback" or ".tv." is only a naming convention, not proof of
+     *   a TV entry point. A correctly-declared TV activity with an unrelated name
+     *   is missed (false negative), and a phone activity that merely mentions "tv"
+     *   passes (false positive).
+     * - To narrow the false negatives without breaking the fail-open contract, an
+     *   APK that declares ANY `<uses-feature>` this TV also reports is treated as
+     *   TV-targeted: a phone-only manifest names hardware the TV has not got
+     *   (already refused above), so a surviving feature intersect means the author
+     *   aimed at hardware present here.
+     * - Fail-open throughout: null base file, unreadable archive, or an unreadable
+     *   device-feature list stays allowed — absence of evidence is not evidence of
+     *   incompatibility, and the OS remains the final arbiter at commit time.
+     */
+    private fun hasLeanbackActivity(
+        ctx: CheckContext,
+        declaredFeatures: List<String>,
+    ): Boolean {
+        if (declaredFeatures.isNotEmpty() && declaresDeviceFeature(ctx, declaredFeatures)) {
+            return true
+        }
+        val baseFile = ctx.parsed.firstOrNull { (_, info) ->
+            info?.packageName == ctx.requirement.expectedPackage && info.splitNames.isNullOrEmpty()
+        }?.first ?: return true
+        val withActivities = try {
+            @Suppress("DEPRECATION")
+            ctx.context.packageManager.getPackageArchiveInfo(
+                baseFile.absolutePath,
+                android.content.pm.PackageManager.GET_ACTIVITIES,
+            )
+        } catch (_: Exception) {
+            null
+        } ?: return true
+        return withActivities.activities.orEmpty().any { activity ->
+            val name = activity.name.orEmpty()
+            name.contains("leanback", ignoreCase = true) || name.contains(".tv.", ignoreCase = true)
+        }
+    }
+
+    /**
+     * True when any of the APK's declared `<uses-feature>` names is also reported
+     * by this device — a TV-targeted signal that complements the activity-name
+     * heuristic above. Fail-open: an unreadable device-feature list returns false
+     * rather than refusing, leaving the name heuristic (and the OS) to decide.
+     */
+    private fun declaresDeviceFeature(ctx: CheckContext, declaredFeatures: List<String>): Boolean {
+        val deviceFeatures = try {
+            ctx.context.packageManager.systemAvailableFeatures.mapNotNullTo(mutableSetOf()) {
+                it.name?.lowercase()
+            }
+        } catch (_: Exception) {
+            return false
+        }
+        if (deviceFeatures.isEmpty()) return false
+        return declaredFeatures.any { it.lowercase() in deviceFeatures }
     }
 
     // Signers of the bytes we actually hold. Every readable file must agree, or the

@@ -125,29 +125,36 @@ private fun findNameInArray(reader: JsonReader): String? {
 /**
  * index-v2 `screenshots`: `{ phone: { "en-US": [ { name, sha256, size }, … ] }, … }`.
  *
- * Only the phone set is taken — the tablet, TV and wear sets are the same app shot on
- * hardware the reader isn't holding, and mixing them makes the carousel jump between
- * aspect ratios. Falls back to whichever set exists if there is no phone one.
+ * Both the phone set and the TV set are read. The phone set keeps its old behaviour —
+ * the phone screenshots, falling back to whichever set exists when there is none — so
+ * the carousel never jumps between aspect ratios. The TV set is returned alongside for
+ * the TV UI; empty when the source publishes none.
  */
-internal fun readScreenshotsV2(reader: JsonReader, repoBase: String): List<String> {
+internal data class ScreenshotSets(val phone: List<String>, val tv: List<String>)
+
+internal fun readScreenshotsV2(reader: JsonReader, repoBase: String): List<String> =
+    readScreenshotSetsV2(reader, repoBase).phone
+
+internal fun readScreenshotSetsV2(reader: JsonReader, repoBase: String): ScreenshotSets {
     if (reader.peek() != JsonToken.BEGIN_OBJECT) {
         reader.skipValue()
-        return emptyList()
+        return ScreenshotSets(emptyList(), emptyList())
     }
     var phone: List<String> = emptyList()
+    var tv: List<String> = emptyList()
     var fallback: List<String> = emptyList()
     reader.beginObject()
     while (reader.hasNext()) {
         val kind = reader.nextName()
         val shots = readLocalizedFileList(reader, repoBase)
-        if (kind == SCREENSHOT_PHONE) {
-            phone = shots
-        } else if (fallback.isEmpty()) {
-            fallback = shots
+        when (kind) {
+            SCREENSHOT_PHONE -> phone = shots
+            SCREENSHOT_TV -> tv = shots
+            else -> if (fallback.isEmpty()) fallback = shots
         }
     }
     reader.endObject()
-    return phone.ifEmpty { fallback }
+    return ScreenshotSets(phone = phone.ifEmpty { fallback }, tv = tv)
 }
 
 /** `{ "en-US": [ { "name": "/pkg/en-US/phoneScreenshots/1.png" }, … ], … }`. */
@@ -174,7 +181,7 @@ private fun readLocalizedFileList(reader: JsonReader, repoBase: String): List<St
 }
 
 /** `[ { "name": …, "sha256": …, "size": … }, … ]` reduced to the names. */
-private fun readFileNameArray(reader: JsonReader): List<String> {
+internal fun readFileNameArray(reader: JsonReader): List<String> {
     if (reader.peek() != JsonToken.BEGIN_ARRAY) {
         reader.skipValue()
         return emptyList()
@@ -306,3 +313,38 @@ internal fun nextIntOrNull(reader: JsonReader): Int? {
 private const val LOCALE_US = "en-US"
 private const val LOCALE_EN = "en"
 private const val SCREENSHOT_PHONE = "phone"
+private const val SCREENSHOT_TV = "tv"
+
+/**
+ * index-v2 per-version `features`: `[ { "name": "android.hardware.camera" }, … ]`.
+ *
+ * fdroidserver emits only the names that are present in the APK's `<uses-feature>`
+ * tags; entries without a name carry nothing to filter on and are dropped. A missing
+ * or malformed array means "the index says nothing", which is an empty list — the
+ * verdict then stays unknown rather than incompatible.
+ */
+internal fun readFeatureNamesV2(reader: JsonReader): List<String> {
+    if (reader.peek() != JsonToken.BEGIN_ARRAY) {
+        reader.skipValue()
+        return emptyList()
+    }
+    val names = mutableListOf<String>()
+    reader.beginArray()
+    while (reader.hasNext()) {
+        if (reader.peek() != JsonToken.BEGIN_OBJECT) {
+            reader.skipValue()
+            continue
+        }
+        reader.beginObject()
+        while (reader.hasNext()) {
+            if (reader.nextName() == "name") {
+                nextStringOrNull(reader)?.takeIf { it.isNotBlank() }?.let { names.add(it) }
+            } else {
+                reader.skipValue()
+            }
+        }
+        reader.endObject()
+    }
+    reader.endArray()
+    return names
+}

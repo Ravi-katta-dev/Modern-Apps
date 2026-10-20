@@ -87,6 +87,12 @@ data class UnifiedApp(
     val isFree: Boolean = true,
     /** Listing screenshots, in the order the source published them. */
     val screenshots: List<String> = emptyList(),
+    /**
+     * TV screenshots, where the source publishes a separate set (F-Droid's `tv` set).
+     * Shown on TV in place of [screenshots], which are phone-aspect and jump between
+     * ratios when mixed. Empty when the source publishes no TV set.
+     */
+    val tvScreenshots: List<String> = emptyList(),
     /** Wide header image, where the source publishes one. */
     val featureGraphic: String? = null,
     /** Average star rating, 0..5. Null when the source doesn't publish one. */
@@ -111,6 +117,27 @@ data class UnifiedApp(
     val expectedSigners: List<String> = emptyList(),
     /** Lowercase-hex SHA-256 of the APK itself, when the source publishes one. */
     val apkSha256: String? = null,
+    /**
+     * Hardware/software features the APK declares via `<uses-feature>` (F-Droid's
+     * per-version `features` list; Play's `requiresFeature` where the proto exposes it).
+     * Empty when the source publishes none. Used for TV-compat filtering — see
+     * [com.vayunmathur.appstore.data.AppProvider.filterTvCompatible] — never as a
+     * trust signal.
+     */
+    val requiredFeatures: List<String> = emptyList(),
+    /**
+     * Whether this listing is usable on Android TV, as far as the catalogue can tell.
+     *
+     * True when a TV signal is present (leanback `<uses-feature>`, a TV category, a
+     * TV screenshot set); false when the listing positively declares itself
+     * phone-only; null when the source says nothing either way (notably Accrescent,
+     * whose server already decides per-device, and Play, whose phone-profile spoof
+     * means the server never saw a TV). A null is *not* a verdict — it means unknown,
+     * and the filter treats it as compatible rather than hiding an app for lack of
+     * metadata. The install gate ([com.vayunmathur.appstore.data.security.InstallVerifier])
+     * re-checks the actual APK regardless.
+     */
+    val tvCompatible: Boolean? = null,
 ) {
     /** The single best image to head the detail page with. */
     val heroImage: String? get() = featureGraphic ?: screenshots.firstOrNull()

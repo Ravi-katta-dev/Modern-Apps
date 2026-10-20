@@ -26,7 +26,9 @@ class InstalledAppsRepository(private val context: Context) {
     private val _updatable = MutableStateFlow<List<InstalledInfo>>(emptyList())
 
     /**
-     * [apps] minus the packages this device won't let the store install ([RestrictedPackages]).
+     * [apps] minus the packages this device won't let the store install
+     * ([RestrictedPackages]) or has already refused as incompatible
+     * ([TvIncompatiblePackages]).
      *
      * They stay in [apps] — they are installed, and the library should say so — but every
      * update check reads this instead, so the store never offers an update it cannot apply.
@@ -50,7 +52,8 @@ class InstalledAppsRepository(private val context: Context) {
             .sortedBy { it.name.lowercase() }
         _apps.value = apps
 
-        val restricted = RestrictedPackages.forDevice(context)
+        val restricted = RestrictedPackages.forDevice(context) +
+            TvIncompatiblePackages.forDevice(context)
         _updatable.value = apps.filterNot { it.packageName in restricted }
 
         _icons.value = userApps.mapNotNull { ai ->

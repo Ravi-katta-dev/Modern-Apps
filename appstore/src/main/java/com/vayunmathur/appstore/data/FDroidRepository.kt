@@ -198,6 +198,7 @@ object FDroidRepository {
         var iconUrl: String? = null
         var featureGraphic: String? = null
         var screenshots: List<String> = emptyList()
+        var tvScreenshots: List<String> = emptyList()
         var antiFeatures: List<String> = emptyList()
         val versions = mutableListOf<VersionCandidate>()
     }
@@ -213,6 +214,7 @@ object FDroidRepository {
         var targetSdk: Int? = null
         var nativeCode: List<String> = emptyList()
         var whatsNew: String? = null
+        var requiredFeatures: List<String> = emptyList()
 
         fun build(): VersionCandidate? {
             val name = fileName ?: return null
@@ -227,6 +229,7 @@ object FDroidRepository {
                 targetSdk = targetSdk,
                 nativeCode = nativeCode,
                 whatsNew = whatsNew,
+                requiredFeatures = requiredFeatures,
             )
         }
     }
@@ -257,6 +260,7 @@ object FDroidRepository {
 
         // index-v2 file names are repo-absolute ("/com.example_12.apk").
         val apkUrl = repoBase + "/" + latest.fileName.trimStart('/')
+        val tvCompatible = deriveTvCompatible(b.categories, b.tvScreenshots, latest.requiredFeatures)
         return UnifiedApp(
             packageName = packageName,
             source = source,
@@ -269,6 +273,7 @@ object FDroidRepository {
             iconUrl = b.iconUrl,
             featureGraphic = b.featureGraphic,
             screenshots = b.screenshots,
+            tvScreenshots = b.tvScreenshots,
             antiFeatures = b.antiFeatures,
             author = b.author,
             categories = b.categories,
@@ -283,7 +288,9 @@ object FDroidRepository {
             whatsNew = latest.whatsNew,
             addedTimestamp = b.added,
             lastUpdated = if (b.lastUpdated != 0L) b.lastUpdated else b.added,
-            repoUrl = repoBase
+            repoUrl = repoBase,
+            requiredFeatures = latest.requiredFeatures,
+            tvCompatible = tvCompatible,
         )
     }
 
@@ -328,7 +335,11 @@ object FDroidRepository {
         when (key) {
             "icon" -> b.iconUrl = repoAssetUrl(reader, repoBase)
             "featureGraphic" -> b.featureGraphic = repoAssetUrl(reader, repoBase)
-            "screenshots" -> b.screenshots = readScreenshotsV2(reader, repoBase)
+            "screenshots" -> {
+                val sets = readScreenshotSetsV2(reader, repoBase)
+                b.screenshots = sets.phone
+                b.tvScreenshots = sets.tv
+            }
             // v2 states anti-features as a map of id -> localised reason;
             // the ids are what the UI shows, so only the keys are kept.
             "antiFeatures" -> b.antiFeatures = readObjectKeys(reader)
@@ -398,6 +409,10 @@ object FDroidRepository {
                 // The ABIs this APK carries native libraries for.
                 // Absent means it has none and runs anywhere.
                 "nativecode" -> v.nativeCode = readStringArray(reader)
+                // `<uses-feature>` entries, as `[{ "name": "android.hardware.camera" }, …]`.
+                // Kept verbatim for TV-compat filtering — a leanback entry marks a TV build,
+                // phone-hardware entries mark one a TV should not be offered.
+                "features" -> v.requiredFeatures = readFeatureNamesV2(reader)
                 // signer.sha256 is the list of signing-certificate
                 // fingerprints this APK is expected to carry.
                 "signer" -> v.signers = readSignerShaV2(reader)
@@ -456,7 +471,28 @@ object FDroidRepository {
         val targetSdk: Int? = null,
         val nativeCode: List<String> = emptyList(),
         val whatsNew: String? = null,
+        val requiredFeatures: List<String> = emptyList(),
     )
+
+    /**
+     * Whether the catalogue can call this listing TV-compatible, from the signals
+     * F-Droid publishes: leanback `<uses-feature>`, a TV category, or a TV screenshot
+     * set. Null when nothing says either way — unknown, not incompatible.
+     */
+    internal fun deriveTvCompatible(
+        categories: List<String>,
+        tvScreenshots: List<String>,
+        requiredFeatures: List<String>,
+    ): Boolean? {
+        val names = requiredFeatures.map { it.lowercase() }
+        if (names.any { AppProvider.FEATURE_LEANBACK in it }) return true
+        if (categories.any { it.equals(TV_CATEGORY, ignoreCase = true) }) return true
+        if (tvScreenshots.isNotEmpty()) return true
+        if (AppProvider.requiresPhoneHardware(requiredFeatures)) return false
+        return null
+    }
+
+    private const val TV_CATEGORY = "TV"
 
     private val deviceAbis: List<String> by lazy { Build.SUPPORTED_ABIS?.toList().orEmpty() }
 

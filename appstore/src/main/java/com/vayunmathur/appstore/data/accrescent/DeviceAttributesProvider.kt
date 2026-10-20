@@ -2,6 +2,7 @@ package com.vayunmathur.appstore.data.accrescent
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.util.DisplayMetrics
 import android.view.WindowManager
@@ -22,6 +23,20 @@ class DeviceAttributesProvider(private val context: Context) {
 
     fun deviceAttributes(): DeviceAttributes =
         DeviceAttributes.newBuilder().setSpec(deviceSpec()).build()
+
+    /**
+     * True on Android TV / Google TV: the leanback system feature is present and no
+     * touchscreen is. Reused by the Play and F-Droid paths for TV-compat filtering —
+     * the catalog servers each have their own notion of compatibility, but "am I a TV"
+     * is one client-side fact.
+     */
+    fun isTv(): Boolean = try {
+        val pm = context.packageManager
+        pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK) &&
+            !pm.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
+    } catch (_: Exception) {
+        false
+    }
 
     fun deviceSpec(): DeviceSpec {
         val builder = DeviceSpec.newBuilder()

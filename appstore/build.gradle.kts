@@ -1,5 +1,9 @@
 plugins {
     id("common-conventions-app")
+    // androidx.tv, so the TV entry is built on a design system that knows what a D-pad is
+    // (the cast:tv precedent: name it alongside, not instead — the launcherIcon/nativeAbis
+    // accessors below are generated from directly-applied plugins).
+    id("common-conventions-tv")
     // Listing screenshots come from Compose previews (src/screenshotTest), not from an
     // instrumented test on a device. Same `:appstore:metadata` task name either way.
     id("common-conventions-preview-metadata")
@@ -12,6 +16,11 @@ plugins {
 
 launcherIcon {
     symbol = "store"
+}
+
+// Google TV hardware runs a 32-bit userspace: an arm64-only APK is rejected at install.
+nativeAbis {
+    armv7 = true
 }
 
 android {
@@ -43,8 +52,8 @@ androidComponents {
 }
 
 // ed25519 verification of Accrescent's signify-signed repodata (Rust).
-// See appstore/src/main/rust/.
-rustNativeLib("appstore_signify", "appstore-signify")
+// See appstore/src/main/rust/. extraAbis: the .so must also load on 32-bit Google TV.
+rustNativeLib("appstore_signify", "appstore-signify", extraAbis = listOf("armeabi-v7a"))
 
 dependencies {
     implementRoom(libs)

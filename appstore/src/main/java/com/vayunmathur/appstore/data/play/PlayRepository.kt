@@ -10,7 +10,9 @@ import com.aurora.gplayapi.data.models.AuthData
 import com.aurora.gplayapi.data.models.PlayFile
 import com.aurora.gplayapi.exceptions.GooglePlayException
 import com.aurora.gplayapi.helpers.AuthHelper
+import com.vayunmathur.appstore.data.AppProvider
 import com.vayunmathur.appstore.data.UnifiedApp
+import com.vayunmathur.appstore.data.accrescent.DeviceAttributesProvider
 import com.vayunmathur.appstore.data.searchCandidate
 import com.vayunmathur.appstore.domain.SearchRanking
 import kotlinx.coroutines.CancellationException
@@ -59,6 +61,18 @@ class PlayRepository(private val context: Context) {
     private val anonAuthRepo = AnonymousAuthRepository()
     private val httpClient = PlayHttpClient()
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    /**
+     * Whether this device is a TV. Read once: the leanback feature set cannot change
+     * without a reboot, and every Play call below consults it for TV-compat filtering.
+     */
+    private val isTv: Boolean by lazy { DeviceAttributesProvider(context).isTv() }
+
+    private fun List<UnifiedApp>.filterTv(): List<UnifiedApp> =
+        AppProvider.filterTvCompatible(isTv, this)
+
+    private fun UnifiedApp.filterTv(): UnifiedApp? =
+        AppProvider.filterTvCompatible(isTv, listOf(this)).firstOrNull()
 
     private val _authState = MutableStateFlow<PlayAuthState>(PlayAuthState.Idle)
     val authState: StateFlow<PlayAuthState> = _authState.asStateFlow()
@@ -202,22 +216,26 @@ class PlayRepository(private val context: Context) {
         }
         val direct = withApi { it.search(query, SEARCH_MAX_PAGES, answered) }.orEmpty()
         val tokens = SearchRanking.tokenize(query)
-        if (tokens.size < 2 || answered(direct)) return direct
+        if (tokens.size < 2 || answered(direct)) return direct.filterTv()
         val broader = withApi { it.search(tokens.first(), SEARCH_MAX_PAGES, answered) }.orEmpty()
-        return (direct + broader).distinctBy { it.packageName }
+        return (direct + broader).distinctBy { it.packageName }.filterTv()
     }
 
     suspend fun details(packageName: String): UnifiedApp? =
-        withApi { it.getDetails(packageName) }
+        withApi { it.getDetails(packageName) }?.filterTv()
 
     suspend fun details(packageNames: List<String>): List<UnifiedApp> =
-        withFreshApi { it.getDetails(packageNames) }.orEmpty()
+        withFreshApi { it.getDetails(packageNames) }.orEmpty().filterTv()
 
     suspend fun topChart(): List<UnifiedApp> =
-        withFreshApi { it.topChart() }.orEmpty()
+        withFreshApi { it.topChart() }.orEmpty().filterTv()
 
     suspend fun homeClusters(): List<PlayCluster> =
         withFreshApi { it.homeClusters() }.orEmpty()
+            .mapNotNull { cluster ->
+                val apps = AppProvider.filterTvCompatible(isTv, cluster.apps)
+                if (apps.isEmpty()) null else cluster.copy(apps = apps)
+            }
 
     /** Throws, unlike the readers above: an install has no silent fallback. */
     suspend fun purchase(

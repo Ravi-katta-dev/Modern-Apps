@@ -251,4 +251,12 @@
     <string name="source_play_pin">Nothing to pin: Google holds the signing key</string>
     <string name="source_accrescent_pin">Pinned to Accrescent\'s repodata signing key (ed25519)</string>
     <string name="source_proprietary_pin">Pinned to this store\'s Play mirror signing key</string>
+
+    <!-- TV browse and detail. -->
+    <string name="tv_browse_title">App Store</string>
+    <string name="tv_detail_back">Back</string>
+    <string name="tv_detail_about">About</string>
+    <string name="tv_detail_author">Developer</string>
+    <string name="tv_compat_declared">Works on TV — the source lists a TV version</string>
+    <string name="tv_compat_unverified">TV compatibility unverified — checked at install</string>
 </resources>
