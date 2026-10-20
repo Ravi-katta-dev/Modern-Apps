@@ -52,6 +52,10 @@ impl Graph {
     /// Deliberately asymmetric with [`Graph::node`], which is unchecked: the
     /// sentinel index `node_count` is a *valid* read that this method rejects, and
     /// [`Graph::edge_range`] depends on being able to make it.
+    ///
+    /// Note: under v7 the raw table pointer is still the section base (never
+    /// null), so this null check means "graph without a node table", not
+    /// "blocked layout" (see `load`/`assemble`).
     #[inline]
     pub fn get_node(&self, id: u32) -> NodeMaster {
         if self.nodes.is_null() || id >= self.node_count {

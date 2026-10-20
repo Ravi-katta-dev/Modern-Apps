@@ -212,6 +212,25 @@ $Dem          = Join-Path $PSScriptRoot "inputs/world.mdem"
 $TransitManifest = Join-Path $PSScriptRoot "world_transit_work/feeds.manifest"
 
 function Find-Built([string] $crate, [string] $name) {
+    # The tool crates are root-workspace members (no [workspace] table), so
+    # `cargo build` links into the WORKSPACE target dir (repo root
+    # target/release), not the per-crate one. The per-crate target/ dirs are
+    # fossils from when the crates were detached: cargo never refreshes them,
+    # so resolving there silently runs an ancient binary (this exact failure
+    # shipped a pre-fix tiler into a full archive build on 2026-10-19).
+    # Prefer the workspace binary; fall back to the per-crate path only when
+    # the workspace one is absent.
+    $wsBuilt = Join-Path $PSScriptRoot "../../target/release/$name.exe"
+    if (Test-Path $wsBuilt) {
+        $wsItem = Get-Item $wsBuilt
+        $crateItem = $null
+        $cratePath = Join-Path $PSScriptRoot "$crate\target\release\$name.exe"
+        if (Test-Path $cratePath) { $crateItem = Get-Item $cratePath }
+        if ($null -eq $crateItem -or $wsItem.LastWriteTime -ge $crateItem.LastWriteTime) {
+            return $wsItem.FullName
+        }
+        Write-Warning "$name.exe: per-crate copy ($($crateItem.LastWriteTime)) is newer than workspace copy ($($wsItem.LastWriteTime)); using per-crate copy"
+    }
     $built = Join-Path $PSScriptRoot "$crate\target\release\$name.exe"
     if (-not (Test-Path $built)) {
         throw "no $name.exe after building $crate -- this is a builder bug, not your input"

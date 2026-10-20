@@ -205,6 +205,10 @@ impl Graph {
     /// `source`, into `out`. Returns `Some((count, is_reversed))`, with `count == 0`
     /// when the edge stores no polyline. `out` must hold at least 256 points.
     ///
+    /// The `edges.is_null()` arm means "graph without an edge table", not
+    /// "blocked layout": under v7 the base is still the section base (see
+    /// `load`/`assemble`), and the per-record path reads the inflate cache.
+    ///
     /// `source` must really be the node whose range `edge_idx` falls in. It seeds
     /// the decode, so a wrong one silently draws the polyline from the wrong place.
     /// Every call site iterating a node's edge range already has it; the one that

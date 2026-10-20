@@ -103,11 +103,7 @@ impl Graph {
             }
             None
         };
-        let _nodes = if nodes_view.is_some() {
-            ptr::null()
-        } else {
-            nodes_region.base()
-        };
+        let _nodes = nodes_region.base();
 
         // edges.bin's five sections, computed forwards from the metadata counts.
         // The total-length assertion below is what replaces v3's self-locating
@@ -149,11 +145,11 @@ impl Graph {
         if edges_region.len as u64 != want_edges {
             return None;
         }
-        let edges = if edges_view.is_some() {
-            ptr::null()
-        } else {
-            edges_region.base()
-        };
+        // Table base is the file base unconditionally: only the record array
+        // itself is blocked-compressed under v7 (see the single-archive
+        // `assemble` — same fix, same on-device SIGSEGV). The per-record
+        // readers branch onto the inflated view (see `edge_rec`).
+        let edges = edges_region.base();
         let escape_first = unsafe { edges.add(escape_first_off as usize) };
         let escapes = unsafe { edges.add(escapes_off as usize) };
         let names = EdgeBitmap {
@@ -309,8 +305,14 @@ impl Graph {
             _ => (ptr::null(), None),
         };
         // A wrong-length elevation.bin is dropped, not kept mapped: nothing should read a stale
-        // vintage's bytes, and holding the region alive would imply it is usable.
-        let elevation_region = if elevation.is_null() { None } else { elevation_region };
+        // vintage's bytes, and holding the region alive would imply it is usable. A valid v7
+        // blocked view has a null raw pointer by design (see `node_elevation`), so it must not
+        // drop the region its frames live in.
+        let elevation_region = if elevation.is_null() && elevation_view.is_none() {
+            None
+        } else {
+            elevation_region
+        };
 
         let nodes = nodes_region.base();
         // --- Derived tables (identical formulas to the C++ init) ---

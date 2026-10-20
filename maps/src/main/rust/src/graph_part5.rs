@@ -196,6 +196,59 @@ mod archive_tests {
         ]
     }
 
+    /// One edge, v7 blocked: the escape index and name totals live behind the
+    /// blocked records and must read through the payload base, not null.
+    ///
+    /// Regression for the on-device SIGSEGV (`OfflineRouter_init`, 2026-10-19):
+    /// the v7 path nulled the edges/nodes base, so the escape-totals check in
+    /// `assemble` read `0x0 + offset` and faulted. The zero-edge v7 test above
+    /// takes the same code path, but with tables at offset 0 a null base still
+    /// lands inside the first mapped page on some loaders — one non-empty edge
+    /// record pushes the tables out and makes the fault deterministic.
+    fn single_edge_payloads_v7() -> Vec<(u8, Vec<u8>, u64)> {
+        // Two nodes (ids 0, 1) plus the sentinel: node 0 owns edge 0
+        // (`edge_ptr` [0, 1, 1]; the sentinel is `edge_count`).
+        let mut node_recs = Vec::new();
+        for edge_ptr in [0u32, 1u32, 1u32] {
+            node_recs.extend_from_slice(&0i32.to_le_bytes());
+            node_recs.extend_from_slice(&0i32.to_le_bytes());
+            node_recs.extend_from_slice(&edge_ptr.to_le_bytes());
+        }
+        let nodes = tilecodec::blocked::write_blocked(&node_recs, 12);
+        // One 7-byte edge record: target_delta +1, dist 1000 mm, type 5, limit 50.
+        let mut edge_rec = Vec::new();
+        edge_rec.extend_from_slice(&1i16.to_le_bytes());
+        edge_rec.extend_from_slice(&[0xE8, 0x03, 0x00]); // 1000, u24 LE
+        edge_rec.push(5u8);
+        edge_rec.push(50u8);
+        let recs = tilecodec::blocked::write_blocked(&edge_rec, 7);
+        let mut edges = recs;
+        while edges.len() % 8 != 0 {
+            edges.push(0);
+        }
+        // E = 1: two escape-block u32s (E/1024 + 1, total 0 escapes),
+        // then the names bitmap (rank (1/512 + 1) = 2 u64s + present
+        // div_ceil(1/8) = 1 byte), then zero name offsets (0 named).
+        edges.extend_from_slice(&0u32.to_le_bytes());
+        edges.extend_from_slice(&0u32.to_le_bytes());
+        edges.extend_from_slice(&0u64.to_le_bytes());
+        edges.extend_from_slice(&0u64.to_le_bytes());
+        edges.push(0u8);
+        vec![
+            (
+                ARCHIVE_KIND_GRAPH_META,
+                meta_at(GRAPH_VERSION, 2, 1, 0, 0),
+                0,
+            ),
+            (ARCHIVE_KIND_GRAPH_NODES, nodes, 1),
+            (ARCHIVE_KIND_GRAPH_EDGES, edges, 0),
+            // G = 0, E = 1: bitmap 17 + coarse 8 + within 2 + G 8 = 35 bytes
+            // of trailer, zero blob. Sized from the counts, not copied from
+            // the zero-edge fixture (26 bytes: its bitmap is 9 for E = 0).
+            (ARCHIVE_KIND_GRAPH_INTERMEDIATE, vec![0u8; 35], 0),
+        ]
+    }
+
     #[test]
     fn container_layers_parse_before_assemble_runs() {
         let bytes = assemble(&minimal_payloads());
@@ -225,6 +278,23 @@ mod archive_tests {
         let node = g.node(0);
         assert_eq!((node.lat_e7, node.lon_e7), (0, 0));
         assert!(g.uses_blocked_sections(), "v7 takes the blocked path");
+    }
+
+    #[test]
+    fn a_v7_archive_with_an_edge_reads_the_tail_tables_past_the_records() {
+        let g =
+            load_slices(&single_edge_payloads_v7()).expect("a one-edge v7 archive loads");
+        assert_eq!(g.node_count, 2);
+        assert_eq!(g.edge_count, 1);
+        assert_eq!(g.escape_count, 0);
+        assert_eq!(g.named_edges, 0);
+        // The record comes back through the inflate cache...
+        let e = g.edge(0, 0);
+        assert_eq!(e.target, 1, "target_delta +1 from node 0");
+        assert_eq!(e.dist_mm, 1000);
+        // ...and node 1's range covers the sentinel, which needs the real
+        // nodes base, not null.
+        assert_eq!(g.edge_range(1), (1, 1), "last node's range ends at edge_count");
     }
 
     #[test]

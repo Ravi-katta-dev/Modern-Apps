@@ -51,7 +51,6 @@ import com.vayunmathur.games.hub.ui.yuu.YuuCategory
 import com.vayunmathur.games.hub.ui.yuu.YuuEditorActions
 import com.vayunmathur.games.hub.ui.yuu.YuuEditorUiState
 import com.vayunmathur.library.ui.AppScaffold
-import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.Card
 import com.vayunmathur.library.ui.FilterChip
 import com.vayunmathur.library.ui.IconArrowDownward
@@ -59,6 +58,7 @@ import com.vayunmathur.library.ui.IconArrowUpward
 import com.vayunmathur.library.ui.IconButton
 import com.vayunmathur.library.ui.IconRotateLeft
 import com.vayunmathur.library.ui.IconRotateRight
+import com.vayunmathur.library.ui.IconSave
 import com.vayunmathur.library.ui.IconUnfoldLess
 import com.vayunmathur.library.ui.IconUnfoldMore
 import com.vayunmathur.library.ui.IconZoomIn
@@ -92,14 +92,30 @@ fun YuuEditorScreen(
 
     AppScaffold(
         title = {
-            Text(
-                stringResource(
-                    if (state.editingId == null) R.string.yuu_new else R.string.yuu_edit_title
-                ),
-                fontWeight = FontWeight.Bold,
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it; nameError = false },
+                label = { Text(stringResource(UiR.string.name)) },
+                singleLine = true,
+                isError = nameError,
+                supportingText = if (nameError) {
+                    { Text(stringResource(R.string.yuu_name_required)) }
+                } else null,
+                modifier = Modifier.fillMaxWidth(),
             )
         },
         onNavigateBack = actions::onDismiss,
+        actions = {
+            IconButton(
+                onClick = {
+                    if (name.isBlank()) {
+                        nameError = true
+                    } else {
+                        actions.onSave(name, draft.toConfig())
+                    }
+                }
+            ) { IconSave() }
+        },
         scrollBehavior = appBarScrollBehavior(),
     ) { padding ->
         Column(
@@ -116,7 +132,7 @@ fun YuuEditorScreen(
                 ) {
                     Box(
                         modifier = Modifier.fillMaxWidth()
-                            .heightIn(max = 240.dp),
+                            .heightIn(max = 180.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         YuuAvatar3D(
@@ -153,34 +169,7 @@ fun YuuEditorScreen(
                     )
                 }
             }
-            // Zone 2: name + save on one compact row.
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it; nameError = false },
-                    label = { Text(stringResource(UiR.string.name)) },
-                    singleLine = true,
-                    isError = nameError,
-                    supportingText = if (nameError) {
-                        { Text(stringResource(R.string.yuu_name_required)) }
-                    } else null,
-                    modifier = Modifier.weight(1f),
-                )
-                Button(
-                    onClick = {
-                        if (name.isBlank()) {
-                            nameError = true
-                        } else {
-                            actions.onSave(name, draft.toConfig())
-                        }
-                    },
-                ) { Text(stringResource(UiR.string.save)) }
-            }
-            // Zone 3: category rail (never scrolls the screen).
+            // Zone 2: category rail (never scrolls the screen).
             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(YuuCategory.entries) { cat ->
                     FilterChip(
@@ -190,7 +179,7 @@ fun YuuEditorScreen(
                     )
                 }
             }
-            // Zone 4: the ONLY scrollable area — the option picker.
+            // Zone 3: the ONLY scrollable area — the option picker.
             Column(
                 modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -211,7 +200,7 @@ fun YuuEditorScreen(
 }
 
 /** Preview aspect (w/h): avatar and stepper overlay share it — keep in sync. */
-private const val PREVIEW_ASPECT = 1.5f
+private const val PREVIEW_ASPECT = 2.0f
 
 private fun YuuCategory.labelRes(): Int = when (this) {
     YuuCategory.Face -> R.string.yuu_cat_face

@@ -82,7 +82,12 @@ impl Graph {
         }
         let magic = u32::from_le_bytes([meta[0], meta[1], meta[2], meta[3]]);
         let version = u32::from_le_bytes([meta[4], meta[5], meta[6], meta[7]]);
-        if magic != GRAPH_MAGIC || version != GRAPH_VERSION {
+        // Accept the same range as the multi-file `load` and the archive
+        // `check_counts`: v6 raw tables still read directly, v7 blocked.
+        // Rejecting v6 here (exact `== GRAPH_VERSION`) refused every
+        // pre-blocked archive on the single-archive path, including the
+        // minimal-v6 round-trip test.
+        if magic != GRAPH_MAGIC || !(GRAPH_VERSION_MIN..=GRAPH_VERSION).contains(&version) {
             return None;
         }
         let u64_at = |o: usize| {
@@ -167,11 +172,14 @@ impl Graph {
         if edges_bytes.len() as u64 != want_edges {
             return None;
         }
-        let edges_ptr = if edges_view.is_some() {
-            ptr::null()
-        } else {
-            edges_bytes.as_ptr()
-        };
+        // The escape index, escape rows and name tables live behind the
+        // record array in the same payload, raw in both v6 and v7 — only the
+        // record array itself is blocked-compressed. So the table base is the
+        // payload base unconditionally; the per-record readers branch onto the
+        // inflated view (see `edge_rec`). Nulling the base under v7 left every
+        // table at `0x0 + offset` and the totals check below read past null
+        // (on-device SIGSEGV in `OfflineRouter_init`, 2026-10-19).
+        let edges_ptr = edges_bytes.as_ptr();
         let escape_first = unsafe { edges_ptr.add(escape_first_off as usize) };
         let escapes_ptr = unsafe { edges_ptr.add(escapes_off as usize) };
         let names = EdgeBitmap {
@@ -339,17 +347,20 @@ impl Graph {
         };
 
         // A wrong-length elevation payload is dropped, not kept mapped:
-        // nothing should read a stale vintage's bytes.
+        // nothing should read a stale vintage's bytes. A valid v7 blocked
+        // view has a null raw pointer by design (`node_elevation` branches
+        // onto the view first), so it must not count as "no elevation" here:
+        // dropping the region would unmap the frames the view reads.
         let mut own = own;
-        if elevation.is_null() {
+        if elevation.is_null() && elevation_view.is_none() {
             own.elevation = None;
         }
 
-        let nodes = if nodes_view.is_some() {
-            ptr::null()
-        } else {
-            nodes_bytes.as_ptr()
-        };
+        // Table base is the payload base unconditionally: under v7 the raw
+        // bytes are the blocked section, never read as records (see `node`,
+        // which branches onto the inflated view first). Nulling it instead
+        // made `get_node`'s `is_null` guard return a zeroed node for every id.
+        let nodes = nodes_bytes.as_ptr();
         // --- Derived tables (identical formulas to the C++ init) ---
         let mut lon_to_mm_scale = [0u32; 4096];
         for (i, scale) in lon_to_mm_scale.iter_mut().enumerate() {
