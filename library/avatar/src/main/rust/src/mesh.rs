@@ -355,7 +355,8 @@ mod tests {
         // End-to-end CPU skinning: mesh verts x bone matrices must move the
         // waving hand UP. Catches FK/weight/remap breakage that unit tests on
         // bones alone would miss.
-        use crate::avatar::{compute_bone_matrices, YuuTraits};
+        use crate::avatar::compute_bone_matrices;
+        use crate::traits::YuuTraits;
         use crate::pose::preset_by_id;
         use glam::Vec3;
         let mesh = build_avatar_mesh();

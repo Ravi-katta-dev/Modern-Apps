@@ -11,8 +11,8 @@
 //! attachment/texture variants, and mole/wrinkle/blush are v1-skipped.
 
 use crate::pose::{JointRotation, YuuPose};
+use crate::traits::YuuTraits;
 use glam::{Mat4, Quat, Vec3};
-use serde::{Deserialize, Serialize};
 
 /// Bone-matrix UBO capacity: 13 v1 joints fit with headroom for attachments.
 pub const MAX_BONES: usize = 32;
@@ -150,103 +150,6 @@ pub fn joint_by_name(name: &str) -> Option<Joint> {
     ALL_JOINTS.iter().copied().find(|j| joint_name(*j) == name)
 }
 
-/// Coarse trait mapping from `YuuFaceConfig` JSON.
-///
-/// Only the fields that affect the 3D body are read here; face-detail fields
-/// (eyes/brows/nose/mouth styles, glasses, beard, mole, wrinkles, blush) map
-/// to texture regions or attachments in a later phase and are ignored for now.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct YuuTraits {
-    /// ARGB long from the fixed skin palette.
-    #[serde(default)]
-    pub skin_tone: u64,
-    /// Normalized body height 0..1.
-    #[serde(default = "half")]
-    pub body_height: f32,
-    /// Normalized body weight 0..1.
-    #[serde(default = "half")]
-    pub body_weight: f32,
-    /// Face shape index 0..7 (drives head scale approximation).
-    #[serde(default)]
-    pub face_shape: i32,
-    /// Hair style index (drives hair attachment variant).
-    #[serde(default)]
-    pub hair_style: i32,
-    /// ARGB long from the fixed hair palette.
-    #[serde(default)]
-    pub hair_color: u64,
-}
-
-fn half() -> f32 {
-    0.5
-}
-
-impl Default for YuuTraits {
-    fn default() -> Self {
-        Self {
-            skin_tone: 0,
-            body_height: 0.5,
-            body_weight: 0.5,
-            face_shape: 0,
-            hair_style: 0,
-            hair_color: 0,
-        }
-    }
-}
-
-impl YuuTraits {
-    /// Parse from the `YuuFaceConfig` JSON string; unknown/missing fields fall
-    /// back to defaults (mirrors the Kotlin `ignoreUnknownKeys` behavior).
-    pub fn from_config_json(json: &str) -> Self {
-        serde_json::from_str(json).unwrap_or_default()
-    }
-
-    /// Skin albedo as linear-ish RGB 0..1 (sRGB bytes unpacked, no transfer).
-    pub fn skin_rgb(&self) -> [f32; 3] {
-        argb_to_rgb(self.skin_tone, [0.91, 0.71, 0.54])
-    }
-
-    /// Hair albedo as RGB 0..1.
-    pub fn hair_rgb(&self) -> [f32; 3] {
-        argb_to_rgb(self.hair_color, [0.17, 0.17, 0.17])
-    }
-
-    /// Spine-chain height scale from `body_height`.
-    pub fn height_scale(&self) -> f32 {
-        0.9 + self.body_height.clamp(0.0, 1.0) * 0.2
-    }
-
-    /// Chest/arm width scale from `body_weight`.
-    pub fn weight_scale(&self) -> f32 {
-        0.85 + self.body_weight.clamp(0.0, 1.0) * 0.3
-    }
-
-    /// Head non-uniform scale approximation from `face_shape`.
-    pub fn head_scale(&self) -> Vec3 {
-        match self.face_shape.rem_euclid(8) {
-            1 => Vec3::new(0.95, 1.0, 0.95),
-            2 => Vec3::new(1.08, 0.96, 0.96),
-            3 => Vec3::new(1.05, 1.0, 1.0),
-            4 => Vec3::new(0.92, 1.08, 0.94),
-            5 => Vec3::new(1.1, 1.0, 1.0),
-            6 => Vec3::new(1.02, 0.98, 1.0),
-            7 => Vec3::new(1.12, 0.94, 1.0),
-            _ => Vec3::ONE,
-        }
-    }
-}
-
-/// Unpack an ARGB long to RGB floats, with a fallback.
-fn argb_to_rgb(argb: u64, fallback: [f32; 3]) -> [f32; 3] {
-    if argb == 0 {
-        return fallback;
-    }
-    let r = ((argb >> 16) & 0xFF) as f32 / 255.0;
-    let g = ((argb >> 8) & 0xFF) as f32 / 255.0;
-    let b = (argb & 0xFF) as f32 / 255.0;
-    [r, g, b]
-}
-
 /// Compute world-space bone matrices for a pose over the rest skeleton.
 ///
 /// Applies trait scales (height on spine/chest, weight on chest/arms, head
@@ -353,6 +256,7 @@ fn rest_world_matrices() -> [Mat4; MAX_BONES] {
 mod tests {
     use super::*;
     use crate::pose::YuuPose;
+    use crate::traits::YuuTraits;
     use std::collections::HashMap;
 
     #[test]
@@ -400,6 +304,61 @@ mod tests {
         assert_eq!(t.body_height, 0.5);
         let bad = YuuTraits::from_config_json("not json");
         assert_eq!(bad.body_height, 0.5);
+    }
+
+    #[test]
+    fn traits_parse_kotlin_camel_case() {
+        // Regression: Kotlin emits camelCase keys (YuuFaceConfig.encode()).
+        // Before the alias bridge these all silently defaulted, so no slider
+        // or selection ever reached the engine.
+        let json = r#"{"faceShape":5,"skinTone":4293457546,"bodyHeight":0.8,"bodyWeight":0.2,"hairStyle":3,"hairColor":4284510252}"#;
+        let t = YuuTraits::from_config_json(json);
+        assert_eq!(t.face_shape, 5);
+        assert_eq!(t.skin_tone, 4293457546);
+        assert!((t.body_height - 0.8).abs() < 1e-6);
+        assert!((t.body_weight - 0.2).abs() < 1e-6);
+        assert_eq!(t.hair_style, 3);
+        assert_eq!(t.hair_color, 4284510252);
+    }
+
+    #[test]
+    fn traits_parse_full_kotlin_config() {
+        // Full 29-field Kotlin-shaped fixture: every field must parse (no
+        // silent drops), and the bone-driving subset must affect matrices.
+        let json = r#"{"faceShape":2,"skinTone":4293457546,"earSize":0.7,"bodyHeight":0.8,"bodyWeight":0.2,"hairStyle":3,"hairColor":4284510252,"eyeStyle":4,"eyeColor":4284510253,"eyeSize":0.6,"eyeSpacing":0.4,"eyeHeight":0.7,"eyeRotation":0.3,"browStyle":2,"browColor":4284510254,"browHeight":0.6,"browRotation":0.4,"noseStyle":3,"noseHeight":0.8,"mouthStyle":5,"mouthColor":4284510255,"mouthSize":0.7,"mouthHeight":0.3,"glassesStyle":2,"beardStyle":1,"moleStyle":1,"wrinkleStyle":2,"blushStyle":1,"poseId":"wave"}"#;
+        let t = YuuTraits::from_config_json(json);
+        assert_eq!(t.face_shape, 2);
+        assert_eq!(t.skin_tone, 4293457546);
+        assert!((t.ear_size - 0.7).abs() < 1e-6);
+        assert!((t.body_height - 0.8).abs() < 1e-6);
+        assert!((t.body_weight - 0.2).abs() < 1e-6);
+        assert_eq!(t.hair_style, 3);
+        assert_eq!(t.hair_color, 4284510252);
+        assert_eq!(t.eye_style, 4);
+        assert_eq!(t.eye_color, 4284510253);
+        assert!((t.eye_size - 0.6).abs() < 1e-6);
+        assert!((t.eye_spacing - 0.4).abs() < 1e-6);
+        assert!((t.eye_height - 0.7).abs() < 1e-6);
+        assert!((t.eye_rotation - 0.3).abs() < 1e-6);
+        assert_eq!(t.brow_style, 2);
+        assert_eq!(t.brow_color, 4284510254);
+        assert!((t.brow_height - 0.6).abs() < 1e-6);
+        assert!((t.brow_rotation - 0.4).abs() < 1e-6);
+        assert_eq!(t.nose_style, 3);
+        assert!((t.nose_height - 0.8).abs() < 1e-6);
+        assert_eq!(t.mouth_style, 5);
+        assert_eq!(t.mouth_color, 4284510255);
+        assert!((t.mouth_size - 0.7).abs() < 1e-6);
+        assert!((t.mouth_height - 0.3).abs() < 1e-6);
+        assert_eq!(t.glasses_style, 2);
+        assert_eq!(t.beard_style, 1);
+        assert_eq!(t.mole_style, 1);
+        assert_eq!(t.wrinkle_style, 2);
+        assert_eq!(t.blush_style, 1);
+        assert_eq!(t.pose_id.as_deref(), Some("wave"));
+        // Bone-driving subset spot-check: bodyHeight 0.8 → taller spine.
+        assert!((t.height_scale() - 1.06).abs() < 1e-6);
+        assert!((t.weight_scale() - 0.91).abs() < 1e-6);
     }
 }
 

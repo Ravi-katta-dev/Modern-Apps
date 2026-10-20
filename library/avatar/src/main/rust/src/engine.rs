@@ -6,8 +6,9 @@
 //! GPU buffers + UBO/pose stay per-surface. The render threads tick here;
 //! [`tick_surface`] uploads the bone-matrix UBO and draws one surface per call.
 
-use crate::avatar::{compute_bone_matrices, YuuTraits, MAX_BONES};
+use crate::avatar::{compute_bone_matrices, MAX_BONES};
 use crate::pose::{preset_by_id, preset_poses, YuuPose};
+use crate::traits::YuuTraits;
 use crate::mesh::{build_avatar_mesh, load_gltf_mesh, YuuVertex};
 use crate::renderer::Renderer;
 use glam::Mat4;

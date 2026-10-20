@@ -11,6 +11,7 @@ pub mod gles;
 pub mod mesh;
 pub mod pose;
 pub mod renderer;
+pub mod traits;
 pub mod vulkan;
 
 use jni::objects::{JClass, JObject, JString};

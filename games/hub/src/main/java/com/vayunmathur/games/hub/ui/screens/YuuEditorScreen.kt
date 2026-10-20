@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -53,18 +54,11 @@ import com.vayunmathur.games.hub.ui.yuu.YuuEditorUiState
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Card
 import com.vayunmathur.library.ui.FilterChip
-import com.vayunmathur.library.ui.IconArrowDownward
-import com.vayunmathur.library.ui.IconArrowUpward
 import com.vayunmathur.library.ui.IconButton
-import com.vayunmathur.library.ui.IconRotateLeft
-import com.vayunmathur.library.ui.IconRotateRight
 import com.vayunmathur.library.ui.IconSave
-import com.vayunmathur.library.ui.IconUnfoldLess
-import com.vayunmathur.library.ui.IconUnfoldMore
-import com.vayunmathur.library.ui.IconZoomIn
-import com.vayunmathur.library.ui.IconZoomOut
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.OutlinedTextField
+import com.vayunmathur.library.ui.Slider
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.ui.R as UiR
@@ -304,15 +298,10 @@ private class YuuDraft private constructor(
     }
 }
 
-/** Step size for every icon stepper tap. */
-private const val STEP = 0.1f
-
-private fun Float.stepped(delta: Float): Float = (this + delta).coerceIn(0f, 1f)
-
 /**
- * Icon steppers overlaid on the preview, one pair per numeric tweak of the active
- * category. Rotation uses rotate L/R icons, size uses zoom out/in, spacing uses
- * unfold less/more, vertical moves use up/down arrows.
+ * Tweak sliders overlaid on the preview, one per numeric tweak of the active
+ * category. Sliders bind directly to the draft field (0..1), replacing the
+ * old icon steppers — continuous control instead of ±0.1 taps.
  */
 @Composable
 private fun PreviewSteppers(
@@ -320,31 +309,31 @@ private fun PreviewSteppers(
     draft: YuuDraft,
     modifier: Modifier = Modifier,
 ) {
-    val rows: List<StepperSpec> = when (category) {
+    val rows: List<TweakSpec> = when (category) {
         YuuCategory.Face -> listOf(
-            StepperSpec(R.string.yuu_ear_size, { IconZoomOut() }, { draft.earSize = draft.earSize.stepped(-STEP) }, { IconZoomIn() }, { draft.earSize = draft.earSize.stepped(STEP) }),
+            TweakSpec(R.string.yuu_ear_size, { draft.earSize }, { draft.earSize = it }),
         )
         YuuCategory.Body -> listOf(
-            StepperSpec(R.string.yuu_body_height, { IconArrowDownward() }, { draft.bodyHeight = draft.bodyHeight.stepped(-STEP) }, { IconArrowUpward() }, { draft.bodyHeight = draft.bodyHeight.stepped(STEP) }),
-            StepperSpec(R.string.yuu_body_weight, { IconUnfoldLess() }, { draft.bodyWeight = draft.bodyWeight.stepped(-STEP) }, { IconUnfoldMore() }, { draft.bodyWeight = draft.bodyWeight.stepped(STEP) }),
+            TweakSpec(R.string.yuu_body_height, { draft.bodyHeight }, { draft.bodyHeight = it }),
+            TweakSpec(R.string.yuu_body_weight, { draft.bodyWeight }, { draft.bodyWeight = it }),
         )
         YuuCategory.Hair -> emptyList()
         YuuCategory.Eyes -> listOf(
-            StepperSpec(R.string.yuu_eye_size, { IconZoomOut() }, { draft.eyeSize = draft.eyeSize.stepped(-STEP) }, { IconZoomIn() }, { draft.eyeSize = draft.eyeSize.stepped(STEP) }),
-            StepperSpec(R.string.yuu_eye_spacing, { IconUnfoldLess() }, { draft.eyeSpacing = draft.eyeSpacing.stepped(-STEP) }, { IconUnfoldMore() }, { draft.eyeSpacing = draft.eyeSpacing.stepped(STEP) }),
-            StepperSpec(R.string.yuu_eye_height, { IconArrowDownward() }, { draft.eyeHeight = draft.eyeHeight.stepped(-STEP) }, { IconArrowUpward() }, { draft.eyeHeight = draft.eyeHeight.stepped(STEP) }),
-            StepperSpec(R.string.yuu_eye_rotation, { IconRotateLeft() }, { draft.eyeRotation = draft.eyeRotation.stepped(-STEP) }, { IconRotateRight() }, { draft.eyeRotation = draft.eyeRotation.stepped(STEP) }),
+            TweakSpec(R.string.yuu_eye_size, { draft.eyeSize }, { draft.eyeSize = it }),
+            TweakSpec(R.string.yuu_eye_spacing, { draft.eyeSpacing }, { draft.eyeSpacing = it }),
+            TweakSpec(R.string.yuu_eye_height, { draft.eyeHeight }, { draft.eyeHeight = it }),
+            TweakSpec(R.string.yuu_eye_rotation, { draft.eyeRotation }, { draft.eyeRotation = it }),
         )
         YuuCategory.Brows -> listOf(
-            StepperSpec(R.string.yuu_brow_height, { IconArrowDownward() }, { draft.browHeight = draft.browHeight.stepped(-STEP) }, { IconArrowUpward() }, { draft.browHeight = draft.browHeight.stepped(STEP) }),
-            StepperSpec(R.string.yuu_brow_rotation, { IconRotateLeft() }, { draft.browRotation = draft.browRotation.stepped(-STEP) }, { IconRotateRight() }, { draft.browRotation = draft.browRotation.stepped(STEP) }),
+            TweakSpec(R.string.yuu_brow_height, { draft.browHeight }, { draft.browHeight = it }),
+            TweakSpec(R.string.yuu_brow_rotation, { draft.browRotation }, { draft.browRotation = it }),
         )
         YuuCategory.Nose -> listOf(
-            StepperSpec(R.string.yuu_nose_height, { IconArrowDownward() }, { draft.noseHeight = draft.noseHeight.stepped(-STEP) }, { IconArrowUpward() }, { draft.noseHeight = draft.noseHeight.stepped(STEP) }),
+            TweakSpec(R.string.yuu_nose_height, { draft.noseHeight }, { draft.noseHeight = it }),
         )
         YuuCategory.Mouth -> listOf(
-            StepperSpec(R.string.yuu_mouth_size, { IconZoomOut() }, { draft.mouthSize = draft.mouthSize.stepped(-STEP) }, { IconZoomIn() }, { draft.mouthSize = draft.mouthSize.stepped(STEP) }),
-            StepperSpec(R.string.yuu_mouth_height, { IconArrowDownward() }, { draft.mouthHeight = draft.mouthHeight.stepped(-STEP) }, { IconArrowUpward() }, { draft.mouthHeight = draft.mouthHeight.stepped(STEP) }),
+            TweakSpec(R.string.yuu_mouth_size, { draft.mouthSize }, { draft.mouthSize = it }),
+            TweakSpec(R.string.yuu_mouth_height, { draft.mouthHeight }, { draft.mouthHeight = it }),
         )
         YuuCategory.Extras -> emptyList()
     }
@@ -356,28 +345,30 @@ private fun PreviewSteppers(
         rows.forEach { spec ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = spec.onDecrease) { spec.decreaseIcon() }
                 Text(
                     stringResource(spec.labelRes),
                     style = MaterialTheme.typography.labelSmall,
                     textAlign = TextAlign.Center,
+                    modifier = Modifier.width(72.dp),
+                )
+                Slider(
+                    value = spec.get(),
+                    onValueChange = { spec.set(it.coerceIn(0f, 1f)) },
+                    valueRange = 0f..1f,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = spec.onIncrease) { spec.increaseIcon() }
             }
         }
     }
 }
 
-private class StepperSpec(
+private class TweakSpec(
     val labelRes: Int,
-    val decreaseIcon: @Composable () -> Unit,
-    val onDecrease: () -> Unit,
-    val increaseIcon: @Composable () -> Unit,
-    val onIncrease: () -> Unit,
+    val get: () -> Float,
+    val set: (Float) -> Unit,
 )
 
 @Composable
