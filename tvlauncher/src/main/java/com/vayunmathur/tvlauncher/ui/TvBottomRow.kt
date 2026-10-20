@@ -3,13 +3,12 @@ package com.vayunmathur.tvlauncher.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -27,9 +26,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.vayunmathur.library.ui.IconAdd
+import com.vayunmathur.library.ui.IconCheck
+import com.vayunmathur.library.ui.IconDragHandle
 import com.vayunmathur.library.ui.IconHdmi
-import com.vayunmathur.library.ui.IconPlay
+import com.vayunmathur.library.ui.IconPackage
 import com.vayunmathur.library.ui.IconSettings
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.Text
@@ -39,29 +39,30 @@ import com.vayunmathur.tvlauncher.platform.TvHdmiInput
 import com.vayunmathur.tvlauncher.platform.TvHomeState
 
 /**
- * The bottom glass row: Play Store, HDMI inputs, Settings, Add (the tv-detox bottom row).
+ * The bottom glass row: App Store, HDMI inputs, Settings, Reorder (the tv-detox bottom row
+ * with the store swapped for ours and Add replaced by the reorder toggle).
  *
  * Glass tiles with icon above label; focused tiles lift to ~1.1 like the banner grid.
  */
 @Composable
 fun TvBottomRow(
     state: TvHomeState,
-    onOpenPlayStore: () -> Unit,
+    onOpenAppStore: () -> Unit,
     onOpenInput: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenAddMenu: () -> Unit,
+    onToggleReorder: () -> Unit,
 ) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(36.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        if (state.showPlayStore) {
+        if (state.showAppStore) {
             TvGlassTile(
-                label = state.playStoreLabel.ifBlank { "Play Store" },
-                onClick = onOpenPlayStore,
+                label = "App Store",
+                onClick = onOpenAppStore,
                 modifier = Modifier.weight(1f),
             ) {
-                IconPlay(modifier = Modifier.size(44.dp), tint = Color.White)
+                IconPackage(modifier = Modifier.size(44.dp), tint = Color.White)
             }
         }
         for (input in state.hdmiInputs) {
@@ -81,15 +82,19 @@ fun TvBottomRow(
             IconSettings(modifier = Modifier.size(44.dp), tint = Color.White)
         }
         TvGlassTile(
-            label = "Add app",
-            onClick = onOpenAddMenu,
+            label = if (state.reorderArmed) "Done" else "Reorder",
+            onClick = onToggleReorder,
             modifier = Modifier.weight(1f),
         ) {
-            IconAdd(modifier = Modifier.size(44.dp), tint = Color.White)
+            if (state.reorderArmed) {
+                IconCheck(modifier = Modifier.size(44.dp), tint = Color.White)
+            } else {
+                IconDragHandle(modifier = Modifier.size(44.dp), tint = Color.White)
+            }
         }
-        // Keep the row's rhythm when fewer than PER_ROW tiles show: spacers hold the width so
-        // the grid above and this row stay aligned (tv-detox always lays out a full row).
-        val shown = (if (state.showPlayStore) 1 else 0) + state.hdmiInputs.size + 2
+        // Keep the row's rhythm when fewer tiles show: spacers hold the width so the grid
+        // above and this row stay aligned.
+        val shown = (if (state.showAppStore) 1 else 0) + state.hdmiInputs.size + 2
         repeat((TvRowOrder.PER_ROW - shown).coerceAtLeast(0)) {
             Box(modifier = Modifier.weight(1f))
         }
@@ -119,23 +124,43 @@ private fun TvGlassTile(
     icon: @Composable () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    val scale = animatedFloat(if (focused) 1.1f else 1f)
+    // Same unmissable focus as the banner grid: lift + white ring.
+    val scale = animatedFloat(if (focused) 1.15f else 1f)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = modifier
-            .aspectRatio(16f / 9f)
+            .height(112.dp)
             .scale(scale)
             .clip(MaterialTheme.shapes.largeIncreased)
             .background(Color(0x13FFFFFF))
-            .border(
-                width = 2.dp,
-                color = if (focused) Color(0x38FFFFFF) else Color(0x17FFFFFF),
-                shape = MaterialTheme.shapes.largeIncreased,
+            .then(
+                if (focused) {
+                    // Matches the banner grid: dark outer outline for contrast on light art,
+                    // theme-primary inner ring for the accent.
+                    Modifier
+                        .border(
+                            width = 6.dp,
+                            color = Color.Black,
+                            shape = MaterialTheme.shapes.largeIncreased,
+                        )
+                        .padding(6.dp)
+                        .border(
+                            width = 3.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = MaterialTheme.shapes.largeIncreased,
+                        )
+                } else {
+                    Modifier.border(
+                        width = 2.dp,
+                        color = Color(0x17FFFFFF),
+                        shape = MaterialTheme.shapes.largeIncreased,
+                    )
+                },
             )
             .onFocusChanged { focused = it.isFocused }
-            .focusable()
+            // No separate focusable(): clickable() provides focus handling — see TvAppGrid.
             .clickable(onClick = onClick)
-            .padding(16.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.Center,
     ) {
         Box(contentAlignment = Alignment.Center) { icon() }
@@ -146,7 +171,7 @@ private fun TvGlassTile(
             textAlign = TextAlign.Center,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 12.dp),
+            modifier = Modifier.padding(top = 4.dp),
         )
     }
 }

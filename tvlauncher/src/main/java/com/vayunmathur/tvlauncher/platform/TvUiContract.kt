@@ -14,11 +14,13 @@ data class TvTile(
 /** Stateless home-screen state, collected from [TvHomeViewModel]. */
 data class TvHomeState(
     val rowApps: List<TvTile> = emptyList(),
-    val showPlayStore: Boolean = false,
-    val playStoreLabel: String = "Play Store",
+    /** True when the MA App Store is installed (bottom-row "App Store" tile). */
+    val showAppStore: Boolean = false,
     val hdmiInputs: List<TvHdmiInput> = emptyList(),
     /** The package being moved with the arrows, or null when not in move mode. */
     val movingKey: String? = null,
+    /** True while reorder mode is armed: OK on a main-row tile picks it up. */
+    val reorderArmed: Boolean = false,
     /** Packages offered by the add menu (not on the row, by label). */
     val addCandidates: List<TvAppEntry> = emptyList(),
     /** Index the add menu replaces, or -1 to append. */

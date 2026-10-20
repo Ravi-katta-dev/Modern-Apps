@@ -21,8 +21,8 @@ fun TvHomePage(viewModel: TvHomeViewModel) {
 
     TvHomeScreen(
         state = state,
-        onOpenTile = viewModel::openTile,
-        onOpenPlayStore = viewModel::openPlayStore,
+        onPressTile = viewModel::pressTile,
+        onOpenAppStore = viewModel::openAppStore,
         onOpenInput = viewModel::openInput,
         onOpenSettings = viewModel::openSettings,
         onOpenNetworkSettings = viewModel::openNetworkSettings,
@@ -31,6 +31,7 @@ fun TvHomePage(viewModel: TvHomeViewModel) {
         onStartMove = viewModel::startMove,
         onFinishMove = viewModel::finishMove,
         onCancelMove = viewModel::cancelMove,
+        onToggleReorder = viewModel::toggleReorder,
         onMoveKey = viewModel::moveKey,
         onRemoveTile = viewModel::removeTile,
         onOpenAddMenu = viewModel::openAddMenu,

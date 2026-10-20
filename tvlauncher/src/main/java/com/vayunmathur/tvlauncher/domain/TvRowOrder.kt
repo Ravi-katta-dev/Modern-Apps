@@ -36,9 +36,11 @@ object TvRowOrder {
     /**
      * The top row as shown, in order.
      *
-     * @param saved the persisted order, or null when the row still follows the defaults.
+     * @param saved the persisted order, or null when the row still follows the defaults. A
+     *   saved list is honoured verbatim (minus vanished packages) — even the Play Store, if
+     *   the user pinned it there.
      * @param installed every installed launchable package (leanback first, then phone
-     *   launcher), already minus this app itself and minus [NEVER_TILES].
+     *   launcher), already minus this app itself and minus [NEVER_TILES] except the store.
      */
     fun mergeOrder(
         saved: List<String>?,
@@ -49,10 +51,14 @@ object TvRowOrder {
         val wanted = saved ?: defaults
         val row = wanted.filter { it in present }.toMutableList()
         if (saved == null) {
-            // Top up with other TV apps on this TV, stopping at one full row.
+            // Top up with other TV apps on this TV, stopping at one full row. The Play Store
+            // never enters this way: it owns a bottom-row slot of its own (tv-detox's NOT_APPS
+            // skip in the top-up path).
             for (pkg in installed) {
                 if (row.size >= PER_ROW) break
-                if (pkg !in row) row.add(pkg)
+                if (pkg == PLAY_STORE || pkg !in present || pkg in row) continue
+                if (pkg in NEVER_TILES) continue
+                row.add(pkg)
             }
         }
         return row

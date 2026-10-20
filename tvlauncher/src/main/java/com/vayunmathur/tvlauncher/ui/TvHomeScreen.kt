@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -26,12 +24,16 @@ import com.vayunmathur.library.ui.TextButton
  *
  * Paints its own warm gradient like the tv-detox reference — a TV home never shows the
  * wallpaper behind it, so this screen is opaque by design.
+ *
+ * No vertical scrolling by design: every slot is proportional, so the clock, two app rows
+ * and the bottom row always fit one 1080p viewport with no up/down navigation. Rows beyond
+ * the first two are not shown — the row holds what fits, like the reference.
  */
 @Composable
 fun TvHomeScreen(
     state: com.vayunmathur.tvlauncher.platform.TvHomeState,
-    onOpenTile: (String) -> Unit,
-    onOpenPlayStore: () -> Unit,
+    onPressTile: (String) -> Unit,
+    onOpenAppStore: () -> Unit,
     onOpenInput: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenNetworkSettings: () -> Unit,
@@ -40,6 +42,7 @@ fun TvHomeScreen(
     onStartMove: (String) -> Unit,
     onFinishMove: () -> Unit,
     onCancelMove: () -> Unit,
+    onToggleReorder: () -> Unit,
     onMoveKey: (String, Int) -> Unit,
     onRemoveTile: (String) -> Unit,
     onOpenAddMenu: (Int) -> Unit,
@@ -62,35 +65,44 @@ fun TvHomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 96.dp, vertical = 64.dp),
-            verticalArrangement = Arrangement.spacedBy(48.dp),
+                .padding(horizontal = 96.dp, vertical = 48.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
             TvClockHeader(
                 onOpenNetworkSettings = onOpenNetworkSettings,
             )
-            TvAppGrid(
-                state = state,
-                onOpenTile = onOpenTile,
-                onOpenEditMenu = onOpenEditMenu,
-                onMoveKey = onMoveKey,
-                onFinishMove = onFinishMove,
-            )
             if (state.movingKey != null) {
                 Text(
-                    text = "Use the arrows to move it, then press OK",
+                    text = "Arrows move it — OK drops it, Back cancels",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color(0xA8FFFFFF),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else if (state.reorderArmed) {
+                Text(
+                    text = "OK on an app picks it up — Reorder again when done",
                     style = MaterialTheme.typography.labelLarge,
                     color = Color(0xA8FFFFFF),
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                TvAppGrid(
+                    state = state,
+                    onPressTile = onPressTile,
+                    onOpenEditMenu = onOpenEditMenu,
+                    onPickUp = onStartMove,
+                    onMoveKey = onMoveKey,
+                    onFinishMove = onFinishMove,
+                )
+            }
             if (!state.loading) {
                 TvBottomRow(
                     state = state,
-                    onOpenPlayStore = onOpenPlayStore,
+                    onOpenAppStore = onOpenAppStore,
                     onOpenInput = onOpenInput,
                     onOpenSettings = onOpenSettings,
-                    onOpenAddMenu = { onOpenAddMenu(-1) },
+                    onToggleReorder = onToggleReorder,
                 )
             }
             if (!state.isDefaultHome && !state.loading) {

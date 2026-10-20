@@ -5,8 +5,8 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -77,9 +77,12 @@ fun TvEditMenu(
                         color = Color(0xE6FFFFFF),
                     )
                 } else {
+                    // Plain Column, not a LazyColumn: the dialog's text slot measures with
+                    // bounded height, but a lazy container inside it is the same nested-scroll
+                    // hazard that crashed the grid — and candidate lists are short.
                     val firstFocus = remember { FocusRequester() }
-                    LazyColumn {
-                        items(state.addCandidates, key = { it.packageName }) { candidate ->
+                    Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        for (candidate in state.addCandidates) {
                             TvMenuRow(
                                 label = candidate.label,
                                 onClick = { onPickAddCandidate(candidate.packageName) },

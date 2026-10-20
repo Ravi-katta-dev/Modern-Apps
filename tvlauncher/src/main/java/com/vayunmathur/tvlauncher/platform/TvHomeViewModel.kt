@@ -82,16 +82,14 @@ class TvHomeViewModel(app: Application) : AndroidViewModel(app) {
                         )
                     }
                 }
-                val hasStore = byPkg.containsKey(TvRowOrder.PLAY_STORE) &&
-                    TvRowOrder.PLAY_STORE !in row
+                val hasStore = byPkg.containsKey(APP_STORE) &&
+                    APP_STORE !in row
                 val inputs = withContext(Dispatchers.IO) {
                     TvInputs.list(context, TvRowOrder.maxHdmiSlots(hasStore))
                 }
-                val storeLabel = byPkg[TvRowOrder.PLAY_STORE]?.label ?: "Play Store"
                 _home.value = _home.value.copy(
                     rowApps = tiles,
-                    showPlayStore = hasStore,
-                    playStoreLabel = storeLabel,
+                    showAppStore = hasStore,
                     hdmiInputs = inputs,
                     loading = false,
                 )
@@ -113,7 +111,7 @@ class TvHomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun openPlayStore() = openTile(TvRowOrder.PLAY_STORE)
+    fun openAppStore() = openTile(APP_STORE)
 
     fun openInput(inputId: String) {
         TvInputs.open(getApplication(), inputId)
@@ -157,7 +155,33 @@ class TvHomeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startMove(pkg: String) {
-        _home.value = _home.value.copy(editingKey = null, movingKey = pkg)
+        _home.value = _home.value.copy(editingKey = null, movingKey = pkg, reorderArmed = false)
+    }
+
+    /** Arms reorder mode: OK on a main-row tile picks it up, arrows move it. */
+    fun toggleReorder() {
+        val armed = !_home.value.reorderArmed
+        _home.value = _home.value.copy(
+            reorderArmed = armed,
+            editingKey = null,
+            // Disarming drops any held tile without persisting (same as Back).
+            movingKey = if (armed) _home.value.movingKey else null,
+        )
+        if (!armed) refreshApps()
+    }
+
+    /**
+     * The main-row OK press: in reorder mode it picks up / drops the tile; otherwise it
+     * opens the app. Long-OK still opens the edit menu (handled by the tile key path).
+     */
+    fun pressTile(pkg: String) {
+        val state = _home.value
+        when {
+            state.movingKey == pkg -> finishMove()
+            state.movingKey != null -> return
+            state.reorderArmed -> startMove(pkg)
+            else -> openTile(pkg)
+        }
     }
 
     fun finishMove() {
@@ -166,7 +190,7 @@ class TvHomeViewModel(app: Application) : AndroidViewModel(app) {
                 withContext(Dispatchers.IO) {
                     prefs.saveOrder(_home.value.rowApps.map { it.packageName })
                 }
-                _home.value = _home.value.copy(movingKey = null)
+                _home.value = _home.value.copy(movingKey = null, reorderArmed = false)
             }
         }
     }
@@ -270,6 +294,10 @@ class TvHomeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // --- internals ---
+
+    companion object {
+        const val APP_STORE = "com.vayunmathur.appstore"
+    }
 
     private fun persistOrder(order: List<String>) {
         viewModelScope.launch(Dispatchers.IO) { prefs.saveOrder(order) }

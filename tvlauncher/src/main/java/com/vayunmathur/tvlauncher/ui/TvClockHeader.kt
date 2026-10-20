@@ -1,7 +1,6 @@
 package com.vayunmathur.tvlauncher.ui
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,9 +13,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.vayunmathur.library.ui.DateString
 import com.vayunmathur.library.ui.IconWifiFull
 import com.vayunmathur.library.ui.IconWifiOff
@@ -53,16 +53,23 @@ fun TvClockHeader(
                 style = MaterialTheme.typography.titleLarge,
                 color = Color(0xA8FFFFFF),
             )
+            // Physical pixels, not dp: TV panels report densities that make fixed sp/dp
+            // clock sizes balloon (176.sp filled the panel). The reference sets the time at
+            // ~13% of screen height.
+            val metrics = LocalContext.current.resources.displayMetrics
+            val timePx = metrics.heightPixels * 0.13f
+            val timeSize = with(LocalDensity.current) { timePx.toSp() }
             Text(
                 text = timeLabel(clock(), is24Hour),
-                fontSize = 176.sp,
+                fontSize = timeSize,
                 fontWeight = FontWeight.SemiBold,
                 color = Color.White,
-                lineHeight = 180.sp,
+                lineHeight = timeSize * 1.05f,
+                maxLines = 1,
             )
         }
         Box(
-            modifier = Modifier.padding(top = 12.dp),
+            modifier = Modifier.padding(top = 8.dp),
         ) {
             TvNetworkTile(onOpenNetworkSettings = onOpenNetworkSettings)
         }
@@ -93,19 +100,19 @@ private fun TvNetworkTile(
     val online by rememberIsOnline()
     Box(
         modifier = Modifier
-            .size(72.dp)
-            .focusable()
+            .size(56.dp)
+            // No separate focusable(): clickable() provides focus handling — see TvAppGrid.
             .clickable(onClick = onOpenNetworkSettings),
         contentAlignment = Alignment.Center,
     ) {
         if (online) {
             IconWifiFull(
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(32.dp),
                 tint = Color.White,
             )
         } else {
             IconWifiOff(
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(32.dp),
                 tint = Color(0xA8FFFFFF),
             )
         }
