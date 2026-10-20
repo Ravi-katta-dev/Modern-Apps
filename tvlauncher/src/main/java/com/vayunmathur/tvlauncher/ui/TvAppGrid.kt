@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -52,12 +51,19 @@ fun TvAppGrid(
     onFinishMove: () -> Unit,
 ) {
     // Stable per-package focus owners: a reorder changes positions, not identities, so the
-    // held tile keeps its requester and focus can chase it.
-    val requesters = remember { mutableStateMapOf<String, FocusRequester>() }
+    // held tile keeps its requester and focus can chase it. Populated outside composition
+    // (a getOrPut during composition trips RememberInComposition lint); composition only
+    // reads.
+    val requesters = remember { mutableMapOf<String, FocusRequester>() }
     val firstFocus = remember { FocusRequester() }
     val tiles = remember(state.rowApps) { state.rowApps.take(MAX_ROWS * TvRowOrder.PER_ROW) }
-    // The cursor rides the held tile: whenever the moving key or the row order changes
-    // mid-move, hand focus to the held tile's new location.
+    LaunchedEffect(tiles) {
+        for (tile in tiles) {
+            requesters.getOrPut(tile.packageName) {
+                if (tile == tiles.firstOrNull()) firstFocus else FocusRequester()
+            }
+        }
+    }
     val movingKey = state.movingKey
     LaunchedEffect(movingKey, state.rowApps) {
         if (movingKey != null) {
@@ -103,11 +109,13 @@ fun TvAppGrid(
                                     tileWidth = tileW,
                                     artHeight = artH,
                                     moving = held,
+                                    // While one tile is held, every other tile dims: the held
+                                    // one is the only bright thing on screen.
+                                    dimmed = movingKey != null && !held,
                                     reorderArmed = state.reorderArmed,
-                                    focusRequester = requesters.getOrPut(tile.packageName) {
-                                        if (tile == tiles.firstOrNull()) firstFocus
-                                        else FocusRequester()
-                                    },
+                                    // Pure read: populated by the LaunchedEffect above. Falls
+                                    // back to the cold-start requester before first populate.
+                                    focusRequester = requesters[tile.packageName] ?: firstFocus,
                                     onPress = { onPressTile(tile.packageName) },
                                     onEdit = { onOpenEditMenu(tile.packageName) },
                                     onPickUp = { onPickUp(tile.packageName) },

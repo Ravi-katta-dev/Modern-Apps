@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -21,8 +20,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -57,10 +56,21 @@ val TvCaptionReserve = 28.dp
 private val MoveFinishKeys = setOf(Key.Enter, Key.NumPadEnter, Key.DirectionCenter)
 
 /**
- * One 16:9 banner tile: focus scale + caption, glass fallback, move-mode outline.
+ * One 16:9 banner tile.
  *
- * OK behaviour depends on [reorderArmed]: disarmed it presses through [onPress]; armed a
- * long-OK picks the tile up ([onPickUp]) and a later OK drops it ([onFinishMove]).
+ * Three states, each unmistakable from a sofa:
+ * - idle: art only, no ring, no caption;
+ * - focused: black outer outline + white inner ring at the tile's own corner radius,
+ *   caption underneath, slight lift. The black outline is what reads on white banners;
+ *   the white ring is what reads on the dark background;
+ * - held (being moved): like focused, plus a persistent check badge and full caption —
+ *   and every *other* tile dims, so the held one is the only bright thing on screen.
+ *
+ * Geometry never changes between states: the ring is drawn inside a fixed outline reserve
+ * and the caption slot is always reserved, so focusing or picking up a tile cannot shift
+ * the list vertically. OK behaviour depends on [reorderArmed]: disarmed it presses through
+ * [onPress]; armed a long-OK picks the tile up ([onPickUp]) and a later OK drops it
+ * ([onFinishMove]).
  */
 @Composable
 fun TvBannerTile(
@@ -69,6 +79,7 @@ fun TvBannerTile(
     artHeight: Dp,
     moving: Boolean,
     reorderArmed: Boolean,
+    dimmed: Boolean,
     focusRequester: FocusRequester?,
     onPress: () -> Unit,
     onEdit: () -> Unit,
@@ -77,9 +88,11 @@ fun TvBannerTile(
     onFinishMove: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
-    // Focus you cannot miss: bigger lift plus a white ring. A bare 1.1x scale on a dim
-    // grid reads as nothing from a sofa.
-    val scale = animatedFloat(if (focused || moving) 1.15f else 1f)
+    // No scale on focus: scaling changes painted bounds and pushes neighbours' captions.
+    // States read through an overlay ring + caption + dim instead. The art box has fixed
+    // geometry; the ring is a matchParentSize overlay, so gaining or losing focus cannot
+    // shift anything.
+    val ringOn = focused || moving
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -91,38 +104,11 @@ fun TvBannerTile(
             modifier = Modifier
                 .width(tileWidth)
                 .height(artHeight)
-                .scale(scale)
                 .clip(MaterialTheme.shapes.largeIncreased)
                 .background(
                     if (tile.banner != null) Color(0xFF1E1A1C) else Color(0x13FFFFFF),
                 )
-                .then(
-                    if (focused || moving) {
-                        // Double ring from theme tokens: a dark outer outline guarantees contrast
-                        // against white banner art, and the primary inner ring carries the theme
-                        // accent. A single white ring vanishes on white tiles.
-                        Modifier
-                            .border(
-                                width = 6.dp,
-                                color = Color.Black,
-                                shape = MaterialTheme.shapes.largeIncreased,
-                            )
-                            .padding(6.dp)
-                            .border(
-                                width = 3.dp,
-                                color = MaterialTheme.colorScheme.primary,
-                                shape = MaterialTheme.shapes.largeIncreased,
-                            )
-                    } else if (tile.banner == null) {
-                        Modifier.border(
-                            width = 2.dp,
-                            color = Color(0x17FFFFFF),
-                            shape = MaterialTheme.shapes.largeIncreased,
-                        )
-                    } else {
-                        Modifier
-                    },
-                )
+                .alpha(animatedFloat(if (dimmed && !moving) 0.45f else 1f))
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .onFocusChanged { focused = it.isFocused }
                 // No separate focusable(): clickable() provides focus handling, and a
@@ -187,9 +173,57 @@ fun TvBannerTile(
             contentAlignment = Alignment.Center,
         ) {
             TvBannerArt(tile = tile)
+            // Focus ring as an overlay: black outer for white banners, white inner for the
+            // dark background, both at the tile's own corner radius. Overlays never affect
+            // measurement, so this cannot shift the list. Held tiles get the ring in the
+            // theme primary so held vs merely focused read differently at a glance.
+            if (ringOn) {
+                val ringColor = if (moving) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    Color.White
+                }
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .padding(2.dp)
+                        .border(3.dp, Color.Black, MaterialTheme.shapes.largeIncreased)
+                        .padding(2.dp)
+                        .border(3.dp, ringColor, MaterialTheme.shapes.largeIncreased),
+                )
+            }
+            // Held badge: unmistakable "you are carrying this" marker, overlaid so it adds
+            // no geometry.
+            if (moving) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .padding(10.dp),
+                    contentAlignment = Alignment.TopEnd,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .background(Color.Black, MaterialTheme.shapes.small)
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    ) {
+                        Text(
+                            text = "MOVING",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                        )
+                    }
+                }
+            }
         }
-        // Banner tiles show their name underneath when focused (the tv-detox caption).
-        if (focused || tile.banner == null) {
+        // Caption slot is always reserved; the label fades in rather than appearing, so
+        // focusing a tile never changes this tile's (or any neighbour's) measured height.
+        Box(
+            modifier = Modifier
+                .width(tileWidth)
+                .height(TvCaptionReserve)
+                .padding(top = 8.dp),
+            contentAlignment = Alignment.TopCenter,
+        ) {
             Text(
                 text = tile.label,
                 style = MaterialTheme.typography.labelLarge,
@@ -197,10 +231,7 @@ fun TvBannerTile(
                 textAlign = TextAlign.Center,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .width(tileWidth)
-                    .height(TvCaptionReserve)
-                    .padding(top = 8.dp),
+                modifier = Modifier.alpha(animatedFloat(if (focused || moving) 1f else 0f)),
             )
         }
     }
