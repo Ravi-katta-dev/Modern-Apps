@@ -7,7 +7,7 @@ import com.vayunmathur.library.log.Log
  * `MapNative`.
  *
  * Native calls are no-ops behind [isAvailable] = false (no `libyuu_avatar`
- * on this device), and hero surfaces fall back to a 2D preview instead. The
+ * on this device), and hero surfaces fall back to the placeholder instead. The
  * signatures below are the contract the Rust engine implements.
  *
  * Surface lifecycle mirrors kart/voxels: each view owns a stable [surfaceId]
@@ -23,7 +23,7 @@ internal object YuuAvatarNative {
         Log.status("YuuAvatarNative", "libyuu_avatar loaded")
         true
     } catch (t: Throwable) {
-        Log.status("YuuAvatarNative", "libyuu_avatar absent - using 2D Yuu preview")
+        Log.status("YuuAvatarNative", "libyuu_avatar absent - using placeholder")
         false
     }
 
@@ -72,6 +72,21 @@ internal object YuuAvatarNative {
         nativeSetPaused(surfaceId, paused)
     }
 
+    /**
+     * User drag-rotate delta for a surface, in radians. No-op without the
+     * library. Pitch clamps native-side; yaw is unlimited.
+     */
+    fun onRotateInput(surfaceId: Int, yawDelta: Float, pitchDelta: Float) {
+        if (!isAvailable) return
+        nativeOnRotateInput(surfaceId, yawDelta, pitchDelta)
+    }
+
+    /** Set whether a surface auto-orbits (editor disables on creation). */
+    fun setAutoRotate(surfaceId: Int, autoRotate: Boolean) {
+        if (!isAvailable) return
+        nativeSetAutoRotate(surfaceId, autoRotate)
+    }
+
     fun onDestroy() {
         if (!isAvailable) return
         nativeOnDestroy()
@@ -85,5 +100,7 @@ internal object YuuAvatarNative {
     private external fun nativeSurfaceChanged(surfaceId: Int, width: Int, height: Int)
     private external fun nativeSurfaceDestroyed(surfaceId: Int)
     private external fun nativeSetPaused(surfaceId: Int, paused: Boolean)
+    private external fun nativeOnRotateInput(surfaceId: Int, yawDelta: Float, pitchDelta: Float)
+    private external fun nativeSetAutoRotate(surfaceId: Int, autoRotate: Boolean)
     private external fun nativeOnDestroy()
 }

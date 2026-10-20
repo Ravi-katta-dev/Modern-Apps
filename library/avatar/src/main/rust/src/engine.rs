@@ -36,7 +36,17 @@ pub struct SurfaceState {
     /// Render-thread generation: bumped on recreate so a stale thread
     /// (rotation) exits instead of racing the new one.
     pub generation: u64,
+    /// User-driven orbit yaw radians (unlimited). Used when `autoRotate` is
+    /// false (editor); heroes keep the time-based turntable.
+    pub yaw: f32,
+    /// User-driven orbit pitch radians, clamped to ±MAX_PITCH.
+    pub pitch: f32,
+    /// Whether the camera auto-orbits. The editor sets false on creation.
+    pub auto_rotate: bool,
 }
+
+/// Max orbit pitch: enough to inspect top/bottom, never straight down/up.
+pub const MAX_PITCH: f32 = 0.6;
 
 impl SurfaceState {
     /// Fresh surface with the idle pose.
@@ -55,7 +65,25 @@ impl SurfaceState {
             height: height.max(1),
             paused: false,
             generation: 0,
+            yaw: 0.0,
+            pitch: 0.0,
+            auto_rotate: true,
         }
+    }
+}
+
+/// User orbit preference: survives surface removal (rotation) so the editor
+/// keeps its drag position and auto-rotate opt-out.
+#[derive(Clone, Copy, Debug)]
+struct OrbitPrefs {
+    yaw: f32,
+    pitch: f32,
+    auto_rotate: bool,
+}
+
+impl Default for OrbitPrefs {
+    fn default() -> Self {
+        Self { yaw: 0.0, pitch: 0.0, auto_rotate: true }
     }
 }
 
@@ -63,6 +91,9 @@ impl SurfaceState {
 pub struct Engine {
     /// Live surfaces by Kotlin-owned surface id.
     pub surfaces: HashMap<i32, SurfaceState>,
+    /// Orbit prefs by surface id: written on input, restored on (re)create,
+    /// never cleared by surface removal.
+    pub orbit: HashMap<i32, OrbitPrefs>,
     /// Shared CPU mesh bytes (procedural fallback or parsed glb), uploaded
     /// per-surface to GPU. Single allocation across all surfaces.
     pub mesh: Arc<Vec<YuuVertex>>,
@@ -75,6 +106,7 @@ impl Engine {
     pub fn new() -> Self {
         Self {
             surfaces: HashMap::new(),
+            orbit: HashMap::new(),
             mesh: Arc::new(build_avatar_mesh()),
             bundled_mesh: None,
         }
@@ -156,6 +188,35 @@ pub fn set_paused(surface_id: i32, paused: bool) {
     }
 }
 
+/// Accumulate a user drag-rotate delta on a surface. Yaw is unlimited;
+/// pitch clamps to ±MAX_PITCH so the camera never goes straight down/up.
+/// The avatar stays where left (no snap-back). Prefs persist across surface
+/// removal so rotation keeps the orbit.
+pub fn on_rotate_input(surface_id: i32, yaw_delta: f32, pitch_delta: f32) {
+    if let Ok(mut eng) = engine().lock() {
+        let prefs = eng.orbit.entry(surface_id).or_default();
+        prefs.yaw += yaw_delta;
+        prefs.pitch = (prefs.pitch + pitch_delta).clamp(-MAX_PITCH, MAX_PITCH);
+        let (yaw, pitch) = (prefs.yaw, prefs.pitch);
+        if let Some(state) = eng.surfaces.get_mut(&surface_id) {
+            state.yaw = yaw;
+            state.pitch = pitch;
+        }
+    }
+}
+
+/// Set whether a surface auto-orbits. The editor disables it on creation so
+/// drag fully owns the camera; heroes leave it on. Never creates a phantom
+/// surface entry — prefs persist and apply on (re)create.
+pub fn set_auto_rotate(surface_id: i32, auto_rotate: bool) {
+    if let Ok(mut eng) = engine().lock() {
+        eng.orbit.entry(surface_id).or_default().auto_rotate = auto_rotate;
+        if let Some(state) = eng.surfaces.get_mut(&surface_id) {
+            state.auto_rotate = auto_rotate;
+        }
+    }
+}
+
 /// Whether a surface's renderer is currently live.
 pub fn has_renderer(surface_id: i32) -> bool {
     engine()
@@ -198,17 +259,30 @@ unsafe fn ndk_log(_msg: &str, tag: &std::ffi::CString, text: &std::ffi::CString)
 #[cfg(not(target_os = "android"))]
 fn android_log(_msg: &str) {}
 
-/// Preview camera: fixed-radius turntable looking at the upper body.
+/// Preview camera: fixed-radius orbit looking at the upper body.
 ///
-/// Mirrors kart `view_proj_for` (look_at_rh + perspective_rh via glam) with a
-/// slow orbit so heroes show depth; the idle sway lives in the bone pass.
-pub fn view_proj_for(width: u32, height: u32, time_s: f32) -> ([[f32; 4]; 4], [f32; 3]) {
+/// Mirrors kart `view_proj_for` (look_at_rh + perspective_rh via glam). Heroes
+/// use a slow time-based orbit so they show depth; the editor drives `yaw` /
+/// `pitch` by drag and the avatar stays where left. Pitch raises/lowers the
+/// eye (clamped native-side on input).
+pub fn view_proj_for(
+    width: u32,
+    height: u32,
+    time_s: f32,
+    yaw: f32,
+    pitch: f32,
+    auto_rotate: bool,
+) -> ([[f32; 4]; 4], [f32; 3]) {
     let aspect = width.max(1) as f32 / height.max(1) as f32;
-    let angle = time_s * 0.25;
+    let angle = if auto_rotate { time_s * 0.25 } else { yaw };
     // Framing: avatar spans y 0.47..1.43 (~1m); radius 3.4 + 44° FOV keeps
     // the head inside small square surfaces (plaza cells, badges) with margin.
     let radius = 3.4;
-    let eye = glam::Vec3::new(angle.sin() * radius, 1.25, angle.cos() * radius);
+    let eye = glam::Vec3::new(
+        angle.sin() * radius,
+        1.25 + pitch * radius * 0.5,
+        angle.cos() * radius,
+    );
     let center = glam::Vec3::new(0.0, 0.9, 0.0);
     let up = glam::Vec3::Y;
     let view = Mat4::look_at_rh(eye, center, up);
@@ -244,10 +318,16 @@ pub unsafe fn create_renderer(
     let w = width.max(1) as u32;
     let h = height.max(1) as u32;
     if let Ok(mut eng) = engine().lock() {
+        let prefs = eng.orbit.get(&surface_id).copied().unwrap_or_default();
         let state = eng.surface_mut(surface_id, w, h);
         state.width = w;
         state.height = h;
         state.paused = false;
+        // Restore the orbit across recreation (rotation keeps drag position
+        // and the editor's auto-rotate opt-out).
+        state.yaw = prefs.yaw;
+        state.pitch = prefs.pitch;
+        state.auto_rotate = prefs.auto_rotate;
     }
     let renderer = match unsafe { Renderer::select(window, width, height, w, h) } {
         Ok(r) => r,
@@ -311,7 +391,14 @@ pub fn tick_surface(surface_id: i32) {
             return;
         }
         let t = state.started.elapsed().as_secs_f32();
-        let (vp, cp) = view_proj_for(state.width, state.height, t);
+        let (vp, cp) = view_proj_for(
+            state.width,
+            state.height,
+            t,
+            state.yaw,
+            state.pitch,
+            state.auto_rotate,
+        );
         let bones = compute_bone_matrices(&state.traits, &state.pose, t);
         let skin = state.traits.skin_rgb();
         (vp, cp, bones, skin, state.mesh_count, state.paused)

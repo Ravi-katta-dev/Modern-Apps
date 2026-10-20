@@ -14,7 +14,7 @@ pub mod renderer;
 pub mod vulkan;
 
 use jni::objects::{JClass, JObject, JString};
-use jni::sys::{jboolean, jint, jlong, jstring};
+use jni::sys::{jboolean, jfloat, jint, jlong, jstring};
 use jni::{Env, EnvUnowned};
 
 #[cfg(target_os = "android")]
@@ -221,6 +221,30 @@ pub extern "system" fn Java_com_vayunmathur_library_avatar_YuuAvatarNative_nativ
         }
     })
     .resolve::<jni::errors::LogErrorAndDefault>()
+}
+
+/// User drag-rotate delta for a surface (radians). Accumulates into the
+/// surface's yaw/pitch; pitch clamps native-side.
+#[no_mangle]
+pub extern "system" fn Java_com_vayunmathur_library_avatar_YuuAvatarNative_nativeOnRotateInput<'l>(
+    _env: EnvUnowned<'l>,
+    _class: JClass<'l>,
+    surface_id: jint,
+    yaw_delta: jfloat,
+    pitch_delta: jfloat,
+) {
+    engine::on_rotate_input(surface_id, yaw_delta, pitch_delta);
+}
+
+/// Set whether a surface auto-orbits (editor disables on creation).
+#[no_mangle]
+pub extern "system" fn Java_com_vayunmathur_library_avatar_YuuAvatarNative_nativeSetAutoRotate<'l>(
+    _env: EnvUnowned<'l>,
+    _class: JClass<'l>,
+    surface_id: jint,
+    auto_rotate: jboolean,
+) {
+    engine::set_auto_rotate(surface_id, auto_rotate != jni::sys::JNI_FALSE);
 }
 
 /// Activity gone: destroy everything.

@@ -13,7 +13,7 @@ const val PROFILE_SURFACE_ID = 3
 /**
  * Live-surface budget for the 3D grid expansion. Each live surface holds a
  * swapchain + render thread + up to ~4MB of GPU buffers; beyond
- * [MAX_LIVE_SURFACES] cells fall back to 2D thumbnails. Heroes (ids 1–3)
+ * [MAX_LIVE_SURFACES] cells show the placeholder. Heroes (ids 1–3)
  * always win eviction priority and are never counted here.
  */
 object YuuSurfaceIds {
@@ -34,8 +34,8 @@ object YuuSurfaceIds {
 
     /**
      * Whether a cell id currently holds a live surface. Budget gate: the
-     * lowest ids win so the first cells render 3D and the rest stay 2D.
-     * Called during composition — pure arithmetic, no allocation.
+     * lowest ids win so the first cells render 3D and the rest show the
+     * placeholder. Called during composition — pure arithmetic, no allocation.
      */
     fun isLive(surfaceId: Int): Boolean = when {
         surfaceId >= VARIANT_BASE -> surfaceId - VARIANT_BASE < MAX_LIVE_SURFACES

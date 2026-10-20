@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -41,12 +42,11 @@ import com.vayunmathur.games.hub.data.entities.YUU_MOUTH_COLORS
 import com.vayunmathur.games.hub.data.entities.YUU_SKIN_TONES
 import com.vayunmathur.games.hub.data.entities.YuuFaceConfig
 import com.vayunmathur.games.hub.data.entities.encode
-import com.vayunmathur.games.hub.ui.components.YuuFace
+import com.vayunmathur.games.hub.ui.components.YuuPlaceholder
 import com.vayunmathur.games.hub.ui.components.YuuPoseGallery
 import com.vayunmathur.games.hub.ui.yuu.EDITOR_SURFACE_ID
 import com.vayunmathur.games.hub.ui.yuu.YuuSurfaceIds
 import com.vayunmathur.library.avatar.components.YuuAvatar3D
-import com.vayunmathur.games.hub.ui.yuu.EDITOR_SURFACE_ID
 import com.vayunmathur.games.hub.ui.yuu.YuuCategory
 import com.vayunmathur.games.hub.ui.yuu.YuuEditorActions
 import com.vayunmathur.games.hub.ui.yuu.YuuEditorUiState
@@ -103,39 +103,46 @@ fun YuuEditorScreen(
         scrollBehavior = appBarScrollBehavior(),
     ) { padding ->
         Column(
-            modifier = modifier.fillMaxSize().padding(padding).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = modifier.fillMaxSize().padding(padding).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            // Zone 1: 3D preview (2D fallback when native is unavailable) with
-            // overlay steppers for the active category, plus the pose gallery.
+            // Zone 1: 3D preview with overlay steppers for the active category,
+            // plus the pose gallery. Compact: wider aspect + height cap so the
+            // option zone below gets room.
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
-                    modifier = Modifier.fillMaxWidth().padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Box(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth()
+                            .heightIn(max = 240.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         YuuAvatar3D(
                             configJson = draft.toConfig().encode(),
                             poseId = draft.poseId,
                             surfaceId = EDITOR_SURFACE_ID,
-                            modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(0.9f).padding(8.dp),
+                            modifier = Modifier.fillMaxWidth(0.6f).aspectRatio(PREVIEW_ASPECT).padding(6.dp),
                             fallback = {
-                                YuuFace(
-                                    config = draft.toConfig(),
-                                    withBody = true,
+                                YuuPlaceholder(
+                                    name = name.ifBlank { "…" },
                                     modifier = Modifier.fillMaxSize(),
                                 )
                             },
+                            // Drag-to-rotate lives inside YuuAvatar3D
+                            // (enableDragRotate): the gesture overlay floats over
+                            // the surface, under this stepper overlay, so the
+                            // avatar stays where left and IconButtons keep working.
+                            enableDragRotate = true,
                         )
-                        // Steppers overlay only the 2D fallback path's layout box;
-                        // on the 3D path they float over the surface either way.
+                        // Stepper overlay shares PREVIEW_ASPECT with the avatar so
+                        // the rows bottom-anchor over the surface on both the 3D
+                        // and placeholder paths.
                         PreviewSteppers(
                             category = category,
                             draft = draft,
-                            modifier = Modifier.fillMaxWidth().aspectRatio(0.9f),
+                            modifier = Modifier.fillMaxWidth().aspectRatio(PREVIEW_ASPECT),
                         )
                     }
                     SectionLabel(stringResource(R.string.yuu_pose))
@@ -149,7 +156,7 @@ fun YuuEditorScreen(
             // Zone 2: name + save on one compact row.
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 OutlinedTextField(
@@ -174,7 +181,7 @@ fun YuuEditorScreen(
                 ) { Text(stringResource(UiR.string.save)) }
             }
             // Zone 3: category rail (never scrolls the screen).
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(YuuCategory.entries) { cat ->
                     FilterChip(
                         selected = category == cat,
@@ -186,7 +193,7 @@ fun YuuEditorScreen(
             // Zone 4: the ONLY scrollable area — the option picker.
             Column(
                 modifier = Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 when (category) {
                     YuuCategory.Face -> FacePanel(draft)
@@ -202,6 +209,9 @@ fun YuuEditorScreen(
         }
     }
 }
+
+/** Preview aspect (w/h): avatar and stepper overlay share it — keep in sync. */
+private const val PREVIEW_ASPECT = 1.5f
 
 private fun YuuCategory.labelRes(): Int = when (this) {
     YuuCategory.Face -> R.string.yuu_cat_face
@@ -432,8 +442,8 @@ private fun VariantCell(
 
 /**
  * Live-3D variant cell: renders the full draft config with one field
- * overridden, keyed by a stable cell id. Over the live-surface cap it falls
- * back to the 2D thumbnail (see [YuuSurfaceIds]).
+ * overridden, keyed by a stable cell id. Over the live-surface cap it shows
+ * the placeholder (see [YuuSurfaceIds]).
  */
 @Composable
 private fun VariantCell3D(
@@ -457,11 +467,17 @@ private fun VariantCell3D(
                     surfaceId = cellId,
                     modifier = Modifier.fillMaxSize(),
                     fallback = {
-                        YuuFace(config = config, modifier = Modifier.fillMaxSize())
+                        YuuPlaceholder(
+                            name = "…",
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     },
                 )
             } else {
-                YuuFace(config = config, modifier = Modifier.fillMaxSize())
+                YuuPlaceholder(
+                    name = "…",
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }

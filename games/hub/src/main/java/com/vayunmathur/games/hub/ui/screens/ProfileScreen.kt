@@ -30,7 +30,6 @@ import com.vayunmathur.games.hub.ui.components.AvatarBadge
 import com.vayunmathur.games.hub.ui.components.AvatarIcon
 import com.vayunmathur.games.hub.ui.components.StatCard
 import com.vayunmathur.games.hub.ui.components.XpProgressBar
-import com.vayunmathur.games.hub.ui.components.YuuBadge
 import com.vayunmathur.games.hub.ui.components.YuuPoseGallery
 import com.vayunmathur.games.hub.ui.yuu.PROFILE_SURFACE_ID
 import com.vayunmathur.library.avatar.components.YuuAvatar3D

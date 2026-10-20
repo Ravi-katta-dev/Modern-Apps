@@ -44,11 +44,24 @@ struct Part {
     skin: bool,
 }
 
-/// Push an axis-aligned box as skinned triangles into `out`.
+/// Subdivisions per face edge for the rounded-box mesh (S=4 → visibly
+/// round, ~7.5k verts total, fits both GPU budgets with no constant change).
+const ROUND_SUBDIV: usize = 4;
+
+/// Push a rounded axis-aligned box as skinned triangles into `out`.
+///
+/// Same `Part` contract as the old sharp box (centers/sizes, joint/blend,
+/// skin/shirt UV split) but each face is subdivided `ROUND_SUBDIV ×
+/// ROUND_SUBDIV` and pulled toward a rounded box: `p_clamped = clamp(p,
+/// -half+r, half-r)`, `normal = normalize(p - p_clamped)`, `p' = p_clamped +
+/// normal * r`, with `r = min(size) / 4`. Corners/edges round over, face
+/// centers stay flat, and part centers never move (wave/idle test queries
+/// still hit).
 fn box_skinned(out: &mut Vec<YuuVertex>, part: &Part) {
     let (cx, cy, cz) = (part.center[0], part.center[1], part.center[2]);
     let (sx, sy, sz) = (part.size[0] / 2.0, part.size[1] / 2.0, part.size[2] / 2.0);
-    // 8 corners.
+    let r = (part.size[0].min(part.size[1]).min(part.size[2]) / 4.0).max(0.005);
+    // 8 corners of the sharp box.
     let c = [
         [cx - sx, cy - sy, cz - sz],
         [cx + sx, cy - sy, cz - sz],
@@ -59,31 +72,109 @@ fn box_skinned(out: &mut Vec<YuuVertex>, part: &Part) {
         [cx + sx, cy + sy, cz + sz],
         [cx - sx, cy + sy, cz + sz],
     ];
-    // 6 faces: (corners, normal).
-    let faces: [([usize; 4], [f32; 3]); 6] = [
-        ([0, 1, 2, 3], [0.0, 0.0, -1.0]),
-        ([5, 4, 7, 6], [0.0, 0.0, 1.0]),
-        ([4, 0, 3, 7], [-1.0, 0.0, 0.0]),
-        ([1, 5, 6, 2], [1.0, 0.0, 0.0]),
-        ([4, 5, 1, 0], [0.0, -1.0, 0.0]),
-        ([3, 2, 6, 7], [0.0, 1.0, 0.0]),
+    // 6 faces: corners + base UVs. Grid (iu, iv) walks each face so the
+    // rounded push has vertices to move near edges/corners.
+    let faces: [([usize; 4], [[f32; 2]; 4]); 6] = [
+        ([0, 1, 2, 3], [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]),
+        ([5, 4, 7, 6], [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]),
+        ([4, 0, 3, 7], [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]),
+        ([1, 5, 6, 2], [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]),
+        ([4, 5, 1, 0], [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]),
+        ([3, 2, 6, 7], [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]),
     ];
     let w0 = 1.0 - part.blend;
-    for (corners, normal) in faces {
-        // Simple planar UV per face.
-        let uvs = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
-        let idx = [corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]];
-        let uv_idx = [0, 1, 2, 0, 2, 3];
-        for k in 0..6 {
-            out.push(YuuVertex {
-                pos: c[idx[k]],
-                normal,
-                uv: if part.skin { [uvs[uv_idx[k]][0] * 0.25, uvs[uv_idx[k]][1] * 0.25] } else { [0.5 + uvs[uv_idx[k]][0] * 0.5, uvs[uv_idx[k]][1] * 0.5] },
-                joints: [part.joint, part.blend_joint, 0.0, 0.0],
-                weights: [w0, part.blend, 0.0, 0.0],
-            });
+    let s = ROUND_SUBDIV;
+    for (corners, face_uv) in faces {
+        // Bilinear grid over the quad, storing (rounded pos, smooth normal, uv).
+        let mut grid: Vec<Vec<([f32; 3], [f32; 3], [f32; 2])>> = Vec::with_capacity(s + 1);
+        for iy in 0..=s {
+            let v = iy as f32 / s as f32;
+            let mut row = Vec::with_capacity(s + 1);
+            for ix in 0..=s {
+                let u = ix as f32 / s as f32;
+                // Bilinear interpolate corners and UVs.
+                let mut p = [0.0f32; 3];
+                let mut uv = [0.0f32; 2];
+                let ws = [(1.0 - u) * (1.0 - v), u * (1.0 - v), u * v, (1.0 - u) * v];
+                for k in 0..4 {
+                    for a in 0..3 {
+                        p[a] += ws[k] * c[corners[k]][a];
+                    }
+                    uv[0] += ws[k] * face_uv[k][0];
+                    uv[1] += ws[k] * face_uv[k][1];
+                }
+                // Rounded-box push in part-local space.
+                let local = [p[0] - cx, p[1] - cy, p[2] - cz];
+                let half = [sx, sy, sz];
+                let mut clamped = [0.0f32; 3];
+                for a in 0..3 {
+                    clamped[a] = local[a].clamp(-(half[a] - r), half[a] - r);
+                }
+                let n = rounded_normal_from_offset(local, clamped);
+                let rounded = [
+                    cx + clamped[0] + n[0] * r,
+                    cy + clamped[1] + n[1] * r,
+                    cz + clamped[2] + n[2] * r,
+                ];
+                let tinted = if part.skin {
+                    [uv[0] * 0.25, uv[1] * 0.25]
+                } else {
+                    [0.5 + uv[0] * 0.5, uv[1] * 0.5]
+                };
+                row.push((rounded, n, tinted));
+            }
+            grid.push(row);
+        }
+        // Emit two triangles per grid cell with the smooth normals baked.
+        for iy in 0..s {
+            for ix in 0..s {
+                let quad = [
+                    grid[iy][ix],
+                    grid[iy][ix + 1],
+                    grid[iy + 1][ix + 1],
+                    grid[iy + 1][ix],
+                ];
+                for k in [0, 1, 2, 0, 2, 3] {
+                    let (pos, normal, uv) = quad[k];
+                    out.push(YuuVertex {
+                        pos,
+                        normal,
+                        uv,
+                        joints: [part.joint, part.blend_joint, 0.0, 0.0],
+                        weights: [w0, part.blend, 0.0, 0.0],
+                    });
+                }
+            }
         }
     }
+}
+
+/// Analytic rounded-box normal from a local offset and its clamped form.
+/// Face interiors (zero offset) fall back to the dominant-axis flat normal.
+fn rounded_normal_from_offset(local: [f32; 3], clamped: [f32; 3]) -> [f32; 3] {
+    let mut n = [
+        local[0] - clamped[0],
+        local[1] - clamped[1],
+        local[2] - clamped[2],
+    ];
+    let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if len < 1e-6 {
+        let mut ax = 0;
+        let mut best = local[0].abs();
+        for a in 1..3 {
+            if local[a].abs() > best {
+                best = local[a].abs();
+                ax = a;
+            }
+        }
+        let mut nn = [0.0f32; 3];
+        nn[ax] = if local[ax] >= 0.0 { 1.0 } else { -1.0 };
+        return nn;
+    }
+    n[0] /= len;
+    n[1] /= len;
+    n[2] /= len;
+    n
 }
 
 /// Joint index helper by name (0 when unknown — weighted to root).
@@ -241,6 +332,12 @@ mod tests {
     fn fallback_mesh_is_nonempty_and_weighted() {
         let mesh = build_avatar_mesh();
         assert!(!mesh.is_empty());
+        // Rounded-box S=4 budget: 13 parts × 6 faces × 16 cells × 6 verts.
+        assert!(
+            mesh.len() <= 8_192,
+            "mesh {} verts exceeds dynamic budget",
+            mesh.len()
+        );
         for v in mesh.iter().take(64) {
             let w: f32 = v.weights.iter().sum();
             assert!((w - 1.0).abs() < 1e-4, "weights must sum to 1, got {w}");

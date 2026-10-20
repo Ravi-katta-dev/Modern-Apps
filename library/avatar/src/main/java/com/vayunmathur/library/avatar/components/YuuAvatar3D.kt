@@ -1,11 +1,15 @@
 package com.vayunmathur.library.avatar.components
 
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -19,12 +23,17 @@ import kotlinx.coroutines.delay
  * debounce so editor typing doesn't spam JNI.
  *
  * The caller supplies [configJson] (the `YuuFaceConfig` JSON) and an optional
- * [fallback] 2D preview shown when native is unavailable (no
- * `libyuu_avatar`) and layered underneath the surface (so a failed renderer
- * never shows a black hole).
+ * [fallback] shown when native is unavailable (no `libyuu_avatar`) and layered
+ * underneath the surface (so a failed renderer never shows a black hole).
  *
  * Each instance carries a stable [surfaceId] for the multi-renderer engine;
  * dispose destroys that surface only.
+ *
+ * When [enableDragRotate] is true (editor preview), drags over the surface
+ * orbit the camera: horizontal drag yaws (unlimited), vertical drag pitches
+ * (clamped native-side). The avatar stays where left — no snap-back, no
+ * auto-spin (auto-rotate is disabled for the surface). Overlays declared by
+ * the caller (e.g. stepper buttons) sit above this layer and keep working.
  */
 @Composable
 fun YuuAvatar3D(
@@ -33,6 +42,7 @@ fun YuuAvatar3D(
     surfaceId: Int,
     modifier: Modifier = Modifier,
     fallback: (@Composable () -> Unit)? = null,
+    enableDragRotate: Boolean = false,
 ) {
     if (!YuuAvatarNative.isAvailable) {
         fallback?.invoke()
@@ -62,9 +72,14 @@ fun YuuAvatar3D(
         YuuAvatarNative.setConfig(surfaceId, configJson, pose)
     }
 
+    // Editor drag mode owns the camera from first composition.
+    LaunchedEffect(surfaceId, enableDragRotate) {
+        if (enableDragRotate) YuuAvatarNative.setAutoRotate(surfaceId, false)
+    }
+
     Box(modifier = modifier) {
-        // 2D underneath: if the surface never draws (both backends failed),
-        // the hero still shows the Yuu instead of a black hole.
+        // Placeholder underneath: if the surface never draws (both backends
+        // failed), the hero still shows something instead of a black hole.
         fallback?.let { fb ->
             Box(Modifier.fillMaxSize()) { fb() }
         }
@@ -72,5 +87,28 @@ fun YuuAvatar3D(
             factory = { ctx -> YuuAvatarSurfaceView(ctx, surfaceId = surfaceId) },
             modifier = Modifier.fillMaxSize(),
         )
+        // Drag layer ABOVE the SurfaceView: touches over a SurfaceView go to
+        // the native view and bypass ancestor Compose pointer input, so the
+        // gesture must live on a transparent overlay. Declared before any
+        // caller overlays (e.g. stepper buttons) so those keep working.
+        // Grab metaphor: drag-right turns the object right (yaw decreases),
+        // drag-down pulls the front down (pitch increases, eye rises).
+        if (enableDragRotate) {
+            Box(
+                Modifier.fillMaxSize().pointerInput(surfaceId) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        YuuAvatarNative.onRotateInput(
+                            surfaceId,
+                            -dragAmount.x * DRAG_RAD_PER_PX,
+                            dragAmount.y * DRAG_RAD_PER_PX,
+                        )
+                    }
+                }
+            )
+        }
     }
 }
+
+/** Radians of orbit per pixel of drag. */
+private const val DRAG_RAD_PER_PX = 0.008f

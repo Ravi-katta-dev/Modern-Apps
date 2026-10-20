@@ -29,7 +29,6 @@ import com.vayunmathur.games.hub.ui.components.StatCard
 import com.vayunmathur.games.hub.ui.components.StreakCard
 import com.vayunmathur.games.hub.ui.components.XpProgressBar
 import com.vayunmathur.games.hub.data.entities.encode
-import com.vayunmathur.games.hub.ui.components.YuuBadge
 import com.vayunmathur.games.hub.ui.yuu.DASHBOARD_SURFACE_ID
 import com.vayunmathur.library.avatar.components.YuuAvatar3D
 import com.vayunmathur.games.hub.util.DashboardActions
