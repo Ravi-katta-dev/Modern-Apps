@@ -16,6 +16,7 @@ import androidx.activity.compose.BackHandler
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.TextButton
+import com.vayunmathur.tvlauncher.ui.components.TvReorderHint
 
 // RAW SCAFFOLD EXCEPTION: TV launcher fullscreen grid, no app bar.
 
@@ -40,9 +41,9 @@ fun TvHomeScreen(
     onOpenEditMenu: (String) -> Unit,
     onCloseEditMenu: () -> Unit,
     onStartMove: (String) -> Unit,
-    onFinishMove: () -> Unit,
     onCancelMove: () -> Unit,
     onToggleReorder: () -> Unit,
+    onDisarmReorder: () -> Unit,
     onMoveKey: (String, Int) -> Unit,
     onRemoveTile: (String) -> Unit,
     onOpenAddMenu: (Int) -> Unit,
@@ -56,11 +57,17 @@ fun TvHomeScreen(
             .fillMaxSize()
             .background(TvHomeBackground),
     ) {
-        // A home screen has nothing to go back to: Back closes overlays, or exits move mode
-        // without persisting, and is otherwise a no-op (the tv-detox precedent).
+        // A home screen has nothing to go back to: Back closes overlays, cancels a hold, or
+        // disarms reorder — and is otherwise a no-op (the tv-detox precedent). Order matters:
+        // most specific first.
         BackHandler(enabled = state.editingKey != null) { onCloseEditMenu() }
         BackHandler(enabled = state.editingKey == null && state.movingKey != null) {
             onCancelMove()
+        }
+        BackHandler(
+            enabled = state.editingKey == null && state.movingKey == null && state.reorderArmed,
+        ) {
+            onDisarmReorder()
         }
         Column(
             modifier = Modifier
@@ -71,29 +78,17 @@ fun TvHomeScreen(
             TvClockHeader(
                 onOpenNetworkSettings = onOpenNetworkSettings,
             )
-            if (state.movingKey != null) {
-                Text(
-                    text = "Arrows move it — OK drops it, Back cancels",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color(0xA8FFFFFF),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else if (state.reorderArmed) {
-                Text(
-                    text = "OK on an app picks it up — Reorder again when done",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Color(0xA8FFFFFF),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            // Always composed at fixed height: hint swaps never move the grid.
+            TvReorderHint(
+                moving = state.movingKey != null,
+                armed = state.reorderArmed,
+            )
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 TvAppGrid(
                     state = state,
                     onPressTile = onPressTile,
                     onOpenEditMenu = onOpenEditMenu,
-                    onPickUp = onStartMove,
                     onMoveKey = onMoveKey,
-                    onFinishMove = onFinishMove,
                 )
             }
             if (!state.loading) {

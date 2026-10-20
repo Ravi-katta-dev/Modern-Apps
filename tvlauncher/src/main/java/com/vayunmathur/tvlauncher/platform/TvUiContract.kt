@@ -17,9 +17,12 @@ data class TvHomeState(
     /** True when the MA App Store is installed (bottom-row "App Store" tile). */
     val showAppStore: Boolean = false,
     val hdmiInputs: List<TvHdmiInput> = emptyList(),
-    /** The package being moved with the arrows, or null when not in move mode. */
+    /** The package being moved with the arrows, or null when not holding a tile. */
     val movingKey: String? = null,
-    /** True while reorder mode is armed: OK on a main-row tile picks it up. */
+    /**
+     * True while reorder mode is armed. Armed persists across drops — only the Reorder
+     * toggle or Back disarms. While armed, short-OK picks a tile up instead of opening it.
+     */
     val reorderArmed: Boolean = false,
     /** Packages offered by the add menu (not on the row, by label). */
     val addCandidates: List<TvAppEntry> = emptyList(),

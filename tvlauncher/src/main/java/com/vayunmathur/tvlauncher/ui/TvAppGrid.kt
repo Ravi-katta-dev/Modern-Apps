@@ -46,9 +46,7 @@ fun TvAppGrid(
     state: TvHomeState,
     onPressTile: (String) -> Unit,
     onOpenEditMenu: (String) -> Unit,
-    onPickUp: (String) -> Unit,
     onMoveKey: (String, Int) -> Unit,
-    onFinishMove: () -> Unit,
 ) {
     // Stable per-package focus owners: a reorder changes positions, not identities, so the
     // held tile keeps its requester and focus can chase it. Populated outside composition
@@ -112,15 +110,10 @@ fun TvAppGrid(
                                     // While one tile is held, every other tile dims: the held
                                     // one is the only bright thing on screen.
                                     dimmed = movingKey != null && !held,
-                                    reorderArmed = state.reorderArmed,
-                                    // Pure read: populated by the LaunchedEffect above. Falls
-                                    // back to the cold-start requester before first populate.
                                     focusRequester = requesters[tile.packageName] ?: firstFocus,
                                     onPress = { onPressTile(tile.packageName) },
                                     onEdit = { onOpenEditMenu(tile.packageName) },
-                                    onPickUp = { onPickUp(tile.packageName) },
                                     onMove = { step -> onMoveKey(tile.packageName, step) },
-                                    onFinishMove = onFinishMove,
                                 )
                             }
                         }

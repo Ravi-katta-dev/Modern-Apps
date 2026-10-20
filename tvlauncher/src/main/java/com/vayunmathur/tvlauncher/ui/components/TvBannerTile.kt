@@ -53,24 +53,25 @@ import kotlinx.coroutines.withContext
 /** Space under each tile reserved for the focus caption. */
 val TvCaptionReserve = 28.dp
 
-private val MoveFinishKeys = setOf(Key.Enter, Key.NumPadEnter, Key.DirectionCenter)
-
 /**
  * One 16:9 banner tile.
  *
  * Three states, each unmistakable from a sofa:
  * - idle: art only, no ring, no caption;
  * - focused: black outer outline + white inner ring at the tile's own corner radius,
- *   caption underneath, slight lift. The black outline is what reads on white banners;
- *   the white ring is what reads on the dark background;
- * - held (being moved): like focused, plus a persistent check badge and full caption —
- *   and every *other* tile dims, so the held one is the only bright thing on screen.
+ *   caption underneath. The black outline is what reads on white banners; the white ring
+ *   is what reads on the dark background;
+ * - held (being moved): like focused but the ring is the theme primary, plus a MOVING
+ *   badge — and every *other* tile dims, so the held one is the only bright thing on
+ *   screen.
  *
- * Geometry never changes between states: the ring is drawn inside a fixed outline reserve
- * and the caption slot is always reserved, so focusing or picking up a tile cannot shift
- * the list vertically. OK behaviour depends on [reorderArmed]: disarmed it presses through
- * [onPress]; armed a long-OK picks the tile up ([onPickUp]) and a later OK drops it
- * ([onFinishMove]).
+ * Geometry never changes between states: the ring and badge are overlays and the caption
+ * slot is always reserved, so focusing or picking up a tile cannot shift the list.
+ *
+ * OK handling is deliberately single-path: [clickable] → [onPress] → ViewModel `pressTile`
+ * (pick up / drop / open depending on mode). There is no long-press: reorder mode already
+ * disambiguates pick-up from open, and a hold would pick up on KeyDown then instantly drop
+ * on the KeyUp click. The preview handler owns arrows, Back-passthrough and Menu only.
  */
 @Composable
 fun TvBannerTile(
@@ -78,14 +79,11 @@ fun TvBannerTile(
     tileWidth: Dp,
     artHeight: Dp,
     moving: Boolean,
-    reorderArmed: Boolean,
     dimmed: Boolean,
     focusRequester: FocusRequester?,
     onPress: () -> Unit,
     onEdit: () -> Unit,
-    onPickUp: () -> Unit,
     onMove: (Int) -> Unit,
-    onFinishMove: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     // No scale on focus: scaling changes painted bounds and pushes neighbours' captions.
@@ -116,19 +114,6 @@ fun TvBannerTile(
                 // pushes on a D-pad (first press focuses, second clicks).
                 .clickable(onClick = onPress)
                 .onPreviewKeyEvent { event ->
-                    // Long-OK (held center) picks the tile up directly when reorder mode is
-                    // armed; otherwise it opens the edit menu. One edge only: handling both
-                    // edges double-fires.
-                    if (reorderArmed && !moving) {
-                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        val held = event.key == Key.DirectionCenter || event.key == Key.Enter ||
-                            event.key == Key.NumPadEnter
-                        if (held && event.nativeKeyEvent.isLongPress) {
-                            onPickUp()
-                            return@onPreviewKeyEvent true
-                        }
-                        return@onPreviewKeyEvent false
-                    }
                     if (moving) {
                         if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (event.key) {
@@ -148,14 +133,12 @@ fun TvBannerTile(
                                 onMove(TvRowOrder.PER_ROW)
                                 true
                             }
-                            in MoveFinishKeys -> {
-                                onFinishMove()
-                                true
-                            }
                             // Back cancels the move; the screen's BackHandler owns it, so let
                             // it through rather than swallowing it here.
                             Key.Back -> false
                             // Swallow the rest while moving so stray keys cannot open menus.
+                            // OK (Enter/DirectionCenter) is deliberately NOT handled here: the
+                            // click above is the single drop path.
                             Key.Menu -> true
                             else -> false
                         }

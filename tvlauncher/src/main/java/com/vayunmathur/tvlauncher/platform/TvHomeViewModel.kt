@@ -32,6 +32,12 @@ class TvHomeViewModel(app: Application) : AndroidViewModel(app) {
     private val artCache = TvArtCache(app)
     /** Serializes rebuilds: package broadcasts burst, and last-writer must win. */
     private val refreshMutex = Mutex()
+    /**
+     * The last order known persisted in DataStore. Moves only persist on drop, so while a
+     * tile is held (or after arming) the screen order is newer; cancel/disarm restores from
+     * here quietly instead of paying for a full reload flash.
+     */
+    private var lastPersistedOrder: List<String> = emptyList()
 
     private val _home = MutableStateFlow(TvHomeState())
     val home: StateFlow<TvHomeState> = _home
@@ -87,6 +93,7 @@ class TvHomeViewModel(app: Application) : AndroidViewModel(app) {
                 val inputs = withContext(Dispatchers.IO) {
                     TvInputs.list(context, TvRowOrder.maxHdmiSlots(hasStore))
                 }
+                lastPersistedOrder = row
                 _home.value = _home.value.copy(
                     rowApps = tiles,
                     showAppStore = hasStore,
@@ -155,24 +162,41 @@ class TvHomeViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun startMove(pkg: String) {
-        _home.value = _home.value.copy(editingKey = null, movingKey = pkg, reorderArmed = false)
+        // Picking up keeps reorder mode armed: dropping returns to ARMED so several apps can
+        // be arranged without re-arming each time. Only the toggle or Back disarms.
+        _home.value = _home.value.copy(editingKey = null, movingKey = pkg, reorderArmed = true)
     }
 
     /** Arms reorder mode: OK on a main-row tile picks it up, arrows move it. */
     fun toggleReorder() {
         val armed = !_home.value.reorderArmed
-        _home.value = _home.value.copy(
-            reorderArmed = armed,
-            editingKey = null,
-            // Disarming drops any held tile without persisting (same as Back).
-            movingKey = if (armed) _home.value.movingKey else null,
-        )
-        if (!armed) refreshApps()
+        if (!armed && _home.value.movingKey != null) {
+            // Disarming mid-hold drops the hold: restore the last persisted order quietly.
+            _home.value = _home.value.copy(
+                reorderArmed = false,
+                editingKey = null,
+                movingKey = null,
+                rowApps = reorderTiles(_home.value.rowApps, lastPersistedOrder),
+            )
+        } else {
+            _home.value = _home.value.copy(reorderArmed = armed, editingKey = null)
+        }
+        // No refreshApps(): the on-screen order is already correct, and a reload would flash
+        // loading + steal focus.
+    }
+
+    /** Disarms reorder mode (Back while armed but not holding). Never reloads. */
+    fun disarmReorder() {
+        if (_home.value.movingKey != null) {
+            cancelMove()
+            return
+        }
+        _home.value = _home.value.copy(reorderArmed = false, editingKey = null)
     }
 
     /**
      * The main-row OK press: in reorder mode it picks up / drops the tile; otherwise it
-     * opens the app. Long-OK still opens the edit menu (handled by the tile key path).
+     * opens the app. This is the single pick-up/drop path — there is no long-press.
      */
     fun pressTile(pkg: String) {
         val state = _home.value
@@ -184,21 +208,27 @@ class TvHomeViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Drops the held tile: persists the on-screen order, stays armed for the next move. */
     fun finishMove() {
         viewModelScope.launch {
             refreshMutex.withLock {
-                withContext(Dispatchers.IO) {
-                    prefs.saveOrder(_home.value.rowApps.map { it.packageName })
-                }
-                _home.value = _home.value.copy(movingKey = null, reorderArmed = false)
+                val order = _home.value.rowApps.map { it.packageName }
+                withContext(Dispatchers.IO) { prefs.saveOrder(order) }
+                lastPersistedOrder = order
+                _home.value = _home.value.copy(movingKey = null)
             }
         }
     }
 
-    /** Exits move mode without persisting (Back while moving). */
+    /**
+     * Exits move mode without persisting (Back while moving): restores the last persisted
+     * order in memory, stays armed, no loading flash.
+     */
     fun cancelMove() {
-        _home.value = _home.value.copy(movingKey = null)
-        refreshApps()
+        _home.value = _home.value.copy(
+            movingKey = null,
+            rowApps = reorderTiles(_home.value.rowApps, lastPersistedOrder),
+        )
     }
 
     fun moveKey(pkg: String, step: Int) {
@@ -305,6 +335,8 @@ class TvHomeViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun reorderTiles(tiles: List<TvTile>, order: List<String>): List<TvTile> {
         val byPkg = tiles.associateBy { it.packageName }
-        return order.mapNotNull { byPkg[it] }
+        // Packages installed since the snapshot (absent from order) keep their relative
+        // position at the end rather than vanishing.
+        return order.mapNotNull { byPkg[it] } + tiles.filter { it.packageName !in order }
     }
 }
