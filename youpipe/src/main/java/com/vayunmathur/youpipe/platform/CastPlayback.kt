@@ -143,6 +143,14 @@ object CastPlayback {
     private var player: Player? = null
 
     /**
+     * The currently attached player, for the TV remote map.
+     *
+     * Read-only: attach/detach stay the only writers, with their identity guard intact.
+     * The phone never reads this — only `tv/TvDpadInput` drives the local controller.
+     */
+    val attachedPlayer: Player? get() = player
+
+    /**
      * The phone's own media volume, which is the level both ends share.
      *
      * Held from [open]'s context rather than asked for per call: the reporting loop reads it twice a

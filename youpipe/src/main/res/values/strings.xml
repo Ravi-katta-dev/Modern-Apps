@@ -292,4 +292,22 @@
     <string name="cast_update_prompt">MA Cast is too old to play videos on your TV. Opening its listing so you can update it.</string>
     <!-- Shown when the TV would not start a stream -->
     <string name="cast_failed">Could not start casting to your TV</string>
+
+    <!-- TV player option sheets (tv/ only). Short nouns for focusable option rows -->
+    <!-- TV player: quality picker title. Noun -->
+    <string name="label_quality">Quality</string>
+    <!-- TV player: captions picker title. Noun -->
+    <string name="label_captions">Captions</string>
+    <!-- TV player: captions off row. Noun phrase -->
+    <string name="label_captions_off">Off</string>
+    <!-- TV player: speed picker title. Noun -->
+    <string name="label_speed">Speed</string>
+    <!-- TV sheet close button. Verb -->
+    <string name="action_close">Close</string>
+    <!-- TV: playback service unavailable (WebView missing/outdated, PO-token failed). Sentence -->
+    <string name="tv_playback_unavailable">Playback is unavailable: the system WebView is missing or out of date. Update Android System WebView to watch videos.</string>
+    <!-- TV saved: move-mode hint under the playlist being moved. Sentence -->
+    <string name="tv_move_mode_hint">Moving — focus a playlist and press OK to place it here</string>
+    <!-- TV saved / playlist: move action label. Verb -->
+    <string name="tv_action_move">Move</string>
 </resources>

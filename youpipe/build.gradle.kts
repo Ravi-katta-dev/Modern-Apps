@@ -1,5 +1,8 @@
 plugins {
     id("common-conventions-app")
+    // androidx.tv, so the TV entry is built on a design system that knows what a D-pad is
+    // (the cast:tv precedent).
+    id("common-conventions-tv")
     // Listing screenshots come from Compose previews (src/screenshotTest), not from an
     // instrumented test on a device. Same `:youpipe:metadata` task name either way.
     id("common-conventions-preview-metadata")
@@ -8,6 +11,11 @@ plugins {
 
 launcherIcon {
     symbol = "play_arrow"
+}
+
+// Google TV hardware runs a 32-bit userspace: an arm64-only APK is rejected at install.
+nativeAbis {
+    armv7 = true
 }
 
 androidComponents {
@@ -19,7 +27,8 @@ androidComponents {
 }
 
 // YouTube (InnerTube) extractor — a Rust port of PipePipeExtractor. See youpipe/src/main/rust/.
-rustNativeLib("youpipe_extractor", "youpipe")
+// extraAbis: the .so must also load on 32-bit Google TV.
+rustNativeLib("youpipe_extractor", "youpipe", extraAbis = listOf("armeabi-v7a"))
 
 android {
     defaultConfig {
