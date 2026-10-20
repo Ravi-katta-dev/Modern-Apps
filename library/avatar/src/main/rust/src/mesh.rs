@@ -9,6 +9,10 @@
 use crate::avatar::{joint_by_name, ALL_JOINTS, JOINT_COUNT};
 
 /// One skinned vertex. Matches `yuu_avatar.vert` locations 0..4.
+///
+/// NOTE(Mali): `joints` is `[f32; 4]`, not `[u32; 4]` — integer vertex
+/// attributes crash the Mali SPIR-V frontend (see the shader note). Exact
+/// for our small joint ids; converted with `int()` in-shader.
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(C)]
 pub struct YuuVertex {
@@ -18,8 +22,8 @@ pub struct YuuVertex {
     pub normal: [f32; 3],
     /// Albedo UV.
     pub uv: [f32; 2],
-    /// Bone indices into the UBO order.
-    pub joints: [u32; 4],
+    /// Bone indices into the UBO order (as floats — see note above).
+    pub joints: [f32; 4],
     /// Bone weights (normalized).
     pub weights: [f32; 4],
 }
@@ -31,9 +35,9 @@ struct Part {
     /// Full size of the box.
     size: [f32; 3],
     /// Primary bone index.
-    joint: u32,
+    joint: f32,
     /// Secondary bone index (blends toward the parent at the seam).
-    blend_joint: u32,
+    blend_joint: f32,
     /// Blend factor 0..1 toward the secondary bone.
     blend: f32,
     /// Skin-tone albedo flag (true = skin, false = shirt).
@@ -75,7 +79,7 @@ fn box_skinned(out: &mut Vec<YuuVertex>, part: &Part) {
                 pos: c[idx[k]],
                 normal,
                 uv: if part.skin { [uvs[uv_idx[k]][0] * 0.25, uvs[uv_idx[k]][1] * 0.25] } else { [0.5 + uvs[uv_idx[k]][0] * 0.5, uvs[uv_idx[k]][1] * 0.5] },
-                joints: [part.joint, part.blend_joint, 0, 0],
+                joints: [part.joint, part.blend_joint, 0.0, 0.0],
                 weights: [w0, part.blend, 0.0, 0.0],
             });
         }
@@ -83,8 +87,8 @@ fn box_skinned(out: &mut Vec<YuuVertex>, part: &Part) {
 }
 
 /// Joint index helper by name (0 when unknown — weighted to root).
-fn j(name: &str) -> u32 {
-    joint_by_name(name).map(|jj| jj as u32).unwrap_or(0)
+fn j(name: &str) -> f32 {
+    joint_by_name(name).map(|jj| jj as u32 as f32).unwrap_or(0.0)
 }
 
 /// Build the procedural fallback upper-body mesh bound to the v1 skeleton.
@@ -156,8 +160,9 @@ fn parse_gltf(bytes: &[u8]) -> Option<Vec<YuuVertex>> {
     let weights_raw: Vec<[f32; 4]> = reader.read_weights(0).map(|it| it.into_f32().collect()).unwrap_or_default();
     // Skin-joint-slot -> UBO order remap via node names. JOINTS_0 indexes
     // `skin.joints` (an indirection into nodes), NOT global node order, so
-    // resolve through the skin's joint list.
-    let mut remap = vec![0u32; 256];
+    // resolve through the skin's joint list. Stored as floats (Mali note on
+    // `YuuVertex::joints`).
+    let mut remap = vec![0.0f32; 256];
     if let Some(skin) = doc.skins().next() {
         for (slot, node) in skin.joints().enumerate() {
             if slot >= remap.len() {
@@ -165,7 +170,7 @@ fn parse_gltf(bytes: &[u8]) -> Option<Vec<YuuVertex>> {
             }
             if let Some(name) = node.name() {
                 if let Some(jj) = joint_by_name(name) {
-                    remap[slot] = jj as u32;
+                    remap[slot] = jj as u32 as f32;
                 }
             }
         }
@@ -179,10 +184,10 @@ fn parse_gltf(bytes: &[u8]) -> Option<Vec<YuuVertex>> {
             normal: *normals.get(i).unwrap_or(&[0.0, 1.0, 0.0]),
             uv: *uvs.get(i).unwrap_or(&[0.0, 0.0]),
             joints: [
-                *remap.get(js[0] as usize).unwrap_or(&0),
-                *remap.get(js[1] as usize).unwrap_or(&0),
-                *remap.get(js[2] as usize).unwrap_or(&0),
-                *remap.get(js[3] as usize).unwrap_or(&0),
+                *remap.get(js[0] as usize).unwrap_or(&0.0),
+                *remap.get(js[1] as usize).unwrap_or(&0.0),
+                *remap.get(js[2] as usize).unwrap_or(&0.0),
+                *remap.get(js[3] as usize).unwrap_or(&0.0),
             ],
             weights: ws,
         });
@@ -246,5 +251,47 @@ mod tests {
     fn corrupt_gltf_falls_back() {
         let mesh = load_gltf_mesh(b"not a glb");
         assert!(!mesh.is_empty());
+    }
+
+    #[test]
+    fn wave_pose_lifts_right_hand() {
+        // End-to-end CPU skinning: mesh verts x bone matrices must move the
+        // waving hand UP. Catches FK/weight/remap breakage that unit tests on
+        // bones alone would miss.
+        use crate::avatar::{compute_bone_matrices, YuuTraits};
+        use crate::pose::preset_by_id;
+        use glam::Vec3;
+        let mesh = build_avatar_mesh();
+        let traits = YuuTraits::default();
+        let wave = preset_by_id("wave").expect("wave preset");
+        let bones = compute_bone_matrices(&traits, &wave, 0.0);
+        // Skin the hand-box verts (fully hand-weighted region near x=0.31).
+        let mut hand_max_y = f32::MIN;
+        let mut hand_count = 0;
+        for v in &mesh {
+            // Hand verts: authored near the right hand center.
+            let dx = v.pos[0] - 0.31;
+            let dy = v.pos[1] - 0.34;
+            let dz = v.pos[2];
+            if dx.abs() < 0.06 && dy.abs() < 0.06 && dz.abs() < 0.06 {
+                let p = Vec3::from_array(v.pos);
+                let mut skinned = Vec3::ZERO;
+                for k in 0..4 {
+                    let j = v.joints[k] as usize;
+                    let w = v.weights[k];
+                    if w > 0.0 && j < 32 {
+                        let m = glam::Mat4::from_cols_array_2d(&bones[j].to_cols_array_2d());
+                        skinned += (m * glam::Vec4::new(p.x, p.y, p.z, 1.0)).truncate() * w;
+                    }
+                }
+                hand_max_y = hand_max_y.max(skinned.y);
+                hand_count += 1;
+            }
+        }
+        assert!(hand_count > 0, "no hand verts found");
+        assert!(
+            hand_max_y > 1.0,
+            "waving hand should rise above y=1.0, got max {hand_max_y}"
+        );
     }
 }

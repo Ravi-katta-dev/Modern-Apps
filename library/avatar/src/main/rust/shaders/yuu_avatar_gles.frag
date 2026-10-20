@@ -22,8 +22,8 @@ void main() {
     vec3 n = normalize(vNormal);
     vec3 sun = normalize(uSunDir);
     float ndl = clamp(dot(n, -sun), 0.0, 1.0);
-    float fill = 0.45 + 0.25 * clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
-    vec3 col = albedoCol * (0.35 + 0.65 * ndl) * fill + albedoCol * 0.12;
+    float hemi = 0.65 + 0.35 * clamp(n.y * 0.5 + 0.5, 0.0, 1.0);
+    vec3 col = albedoCol * (0.55 + 0.45 * ndl) * hemi + albedoCol * 0.25;
     float dist = length(vWorld - uCamPos);
     float fog = 1.0 - exp(-dist * 0.02);
     outColor = vec4(mix(col, SKY, clamp(fog, 0.0, 1.0)), 1.0);

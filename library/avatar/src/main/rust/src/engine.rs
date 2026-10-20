@@ -6,7 +6,8 @@
 //! GPU buffers + UBO/pose stay per-surface. The render threads tick here;
 //! [`tick_surface`] uploads the bone-matrix UBO and draws one surface per call.
 
-use crate::avatar::{compute_bone_matrices, preset_by_id, preset_poses, YuuPose, YuuTraits, MAX_BONES};
+use crate::avatar::{compute_bone_matrices, YuuTraits, MAX_BONES};
+use crate::pose::{preset_by_id, preset_poses, YuuPose};
 use crate::mesh::{build_avatar_mesh, load_gltf_mesh, YuuVertex};
 use crate::renderer::Renderer;
 use glam::Mat4;
@@ -204,12 +205,14 @@ fn android_log(_msg: &str) {}
 pub fn view_proj_for(width: u32, height: u32, time_s: f32) -> ([[f32; 4]; 4], [f32; 3]) {
     let aspect = width.max(1) as f32 / height.max(1) as f32;
     let angle = time_s * 0.25;
-    let radius = 2.6;
-    let eye = glam::Vec3::new(angle.sin() * radius, 1.15, angle.cos() * radius);
-    let center = glam::Vec3::new(0.0, 0.85, 0.0);
+    // Framing: avatar spans y 0.47..1.43 (~1m); radius 3.4 + 44° FOV keeps
+    // the head inside small square surfaces (plaza cells, badges) with margin.
+    let radius = 3.4;
+    let eye = glam::Vec3::new(angle.sin() * radius, 1.25, angle.cos() * radius);
+    let center = glam::Vec3::new(0.0, 0.9, 0.0);
     let up = glam::Vec3::Y;
     let view = Mat4::look_at_rh(eye, center, up);
-    let proj = Mat4::perspective_rh_gl(38.0f32.to_radians(), aspect, 0.1, 20.0);
+    let proj = Mat4::perspective_rh_gl(44.0f32.to_radians(), aspect, 0.1, 20.0);
     let view_proj = proj * view;
     (view_proj.to_cols_array_2d(), eye.to_array())
 }

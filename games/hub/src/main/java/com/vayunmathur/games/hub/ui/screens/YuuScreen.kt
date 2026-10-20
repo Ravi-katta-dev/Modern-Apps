@@ -132,7 +132,7 @@ private fun YuuCard(
                         fallback = {
                             YuuFace(
                                 config = yuu.config,
-                                modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                                modifier = Modifier.fillMaxSize(),
                             )
                         },
                     )
@@ -186,3 +186,4 @@ private fun YuuCard(
         }
     }
 }
+

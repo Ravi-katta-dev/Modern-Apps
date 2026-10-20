@@ -1,18 +1,18 @@
-//! Yuu avatar model: joint hierarchy, trait mapping, preset poses.
+//! Yuu avatar model: joint hierarchy, trait mapping, forward kinematics.
 //!
 //! The skeleton is the v1 upper-body rig: `root -> spine -> chest -> neck ->
 //! head`, plus `clavicle_L/R -> upperArm -> forearm -> hand` on each side
 //! (~13 joints, no hips/legs/feet). Joint order here is the bone-matrix UBO
 //! order, so it must match the skinning shader's `bones[]` indexing.
 //!
-//! Trait mapping from `YuuFaceConfig` JSON is coarse by design (see the plan):
-//! skin tone tints the material, body height/weight scale bones, face shape
-//! scales the head, style indices pick attachment/texture variants, and
-//! mole/wrinkle/blush are v1-skipped.
+//! Poses live in [`crate::pose`]. Trait mapping from `YuuFaceConfig` JSON is
+//! coarse by design (see the plan): skin tone tints the material, body
+//! height/weight scale bones, face shape scales the head, style indices pick
+//! attachment/texture variants, and mole/wrinkle/blush are v1-skipped.
 
+use crate::pose::{JointRotation, YuuPose};
 use glam::{Mat4, Quat, Vec3};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Bone-matrix UBO capacity: 13 v1 joints fit with headroom for attachments.
 pub const MAX_BONES: usize = 32;
@@ -126,50 +126,7 @@ pub const ALL_JOINTS: [Joint; JOINT_COUNT] = [
     Joint::HandR,
 ];
 
-/// Serializable joint rotation (Euler degrees, XYZ order) for one joint.
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
-pub struct JointRotation {
-    /// Pitch degrees.
-    #[serde(default)]
-    pub x: f32,
-    /// Yaw degrees.
-    #[serde(default)]
-    pub y: f32,
-    /// Roll degrees.
-    #[serde(default)]
-    pub z: f32,
-}
-
-impl JointRotation {
-    /// Identity rotation.
-    pub const fn identity() -> Self {
-        Self { x: 0.0, y: 0.0, z: 0.0 }
-    }
-
-    /// Convert to a quaternion.
-    pub fn to_quat(self) -> Quat {
-        Quat::from_euler(
-            glam::EulerRot::XYZ,
-            self.x.to_radians(),
-            self.y.to_radians(),
-            self.z.to_radians(),
-        )
-    }
-}
-
-/// A named preset pose: per-joint rotations over the rest pose.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct YuuPose {
-    /// Stable id (matches the Kotlin `poseId`).
-    pub id: String,
-    /// Display name.
-    pub name: String,
-    /// Joint rotations; joints absent from the map stay at rest.
-    #[serde(default)]
-    pub joints: HashMap<String, JointRotation>,
-}
-
-/// Joint name key used in [`YuuPose::joints`].
+/// Joint name key used in pose joint maps.
 pub fn joint_name(joint: Joint) -> &'static str {
     match joint {
         Joint::Root => "root",
@@ -191,70 +148,6 @@ pub fn joint_name(joint: Joint) -> &'static str {
 /// Look up a joint by its [`joint_name`] key.
 pub fn joint_by_name(name: &str) -> Option<Joint> {
     ALL_JOINTS.iter().copied().find(|j| joint_name(*j) == name)
-}
-
-/// Preset gallery ids, in gallery order.
-pub const POSE_IDLE: &str = "idle";
-/// Friendly wave with the right hand.
-pub const POSE_WAVE: &str = "wave";
-/// Right-hand thumbs-up.
-pub const POSE_THUMBS_UP: &str = "thumbs_up";
-/// Chin resting on the right hand.
-pub const POSE_THINKING: &str = "thinking";
-/// Both arms raised in celebration.
-pub const POSE_CHEERING: &str = "cheering";
-
-/// Build the v1 preset gallery.
-pub fn preset_poses() -> Vec<YuuPose> {
-    vec![
-        YuuPose { id: POSE_IDLE.into(), name: "Idle".into(), joints: HashMap::new() },
-        YuuPose {
-            id: POSE_WAVE.into(),
-            name: "Wave".into(),
-            joints: HashMap::from([
-                ("upperArm_R".into(), JointRotation { x: 0.0, y: 0.0, z: -140.0 }),
-                ("forearm_R".into(), JointRotation { x: 0.0, y: 0.0, z: -20.0 }),
-                ("hand_R".into(), JointRotation { x: 0.0, y: 25.0, z: 0.0 }),
-                ("head".into(), JointRotation { x: 0.0, y: -8.0, z: 4.0 }),
-            ]),
-        },
-        YuuPose {
-            id: POSE_THUMBS_UP.into(),
-            name: "Thumbs up".into(),
-            joints: HashMap::from([
-                ("upperArm_R".into(), JointRotation { x: -50.0, y: 0.0, z: -30.0 }),
-                ("forearm_R".into(), JointRotation { x: -40.0, y: 0.0, z: 0.0 }),
-                ("hand_R".into(), JointRotation { x: -10.0, y: 0.0, z: 90.0 }),
-                ("head".into(), JointRotation { x: -4.0, y: 0.0, z: 0.0 }),
-            ]),
-        },
-        YuuPose {
-            id: POSE_THINKING.into(),
-            name: "Thinking".into(),
-            joints: HashMap::from([
-                ("upperArm_R".into(), JointRotation { x: -30.0, y: 0.0, z: -45.0 }),
-                ("forearm_R".into(), JointRotation { x: -95.0, y: 0.0, z: 15.0 }),
-                ("hand_R".into(), JointRotation { x: -20.0, y: 0.0, z: 0.0 }),
-                ("head".into(), JointRotation { x: 8.0, y: 12.0, z: -6.0 }),
-            ]),
-        },
-        YuuPose {
-            id: POSE_CHEERING.into(),
-            name: "Cheering".into(),
-            joints: HashMap::from([
-                ("upperArm_L".into(), JointRotation { x: 0.0, y: 0.0, z: 140.0 }),
-                ("forearm_L".into(), JointRotation { x: 0.0, y: 0.0, z: 20.0 }),
-                ("upperArm_R".into(), JointRotation { x: 0.0, y: 0.0, z: -140.0 }),
-                ("forearm_R".into(), JointRotation { x: 0.0, y: 0.0, z: -20.0 }),
-                ("head".into(), JointRotation { x: -10.0, y: 0.0, z: 0.0 }),
-            ]),
-        },
-    ]
-}
-
-/// Find a preset by id.
-pub fn preset_by_id(id: &str) -> Option<YuuPose> {
-    preset_poses().into_iter().find(|p| p.id == id)
 }
 
 /// Coarse trait mapping from `YuuFaceConfig` JSON.
@@ -358,8 +251,12 @@ fn argb_to_rgb(argb: u64, fallback: [f32; 3]) -> [f32; 3] {
 ///
 /// Applies trait scales (height on spine/chest, weight on chest/arms, head
 /// scale on head), then forward kinematics through [`ALL_JOINTS`]. Output is
-/// `MAX_BONES` matrices; unused slots are identity.
+/// `MAX_BONES` skinning matrices (`world * inverse_bind`): mesh vertices are
+/// authored in model space, so each bone must first un-apply its rest pose
+/// before applying the posed transform — without the inverse bind, parts
+/// render scattered/exploded (double-transformed).
 pub fn compute_bone_matrices(traits: &YuuTraits, pose: &YuuPose, time_s: f32) -> [Mat4; MAX_BONES] {
+    let inverse_bind = rest_world_matrices();
     let mut out = [Mat4::IDENTITY; MAX_BONES];
     // Gentle idle sway on the root so heroes never look frozen.
     let sway = (time_s * 1.2).sin() * 0.02;
@@ -412,7 +309,42 @@ pub fn compute_bone_matrices(traits: &YuuTraits, pose: &YuuPose, time_s: f32) ->
         if ji != usize::MAX {
             world[ji] = parent_world * local;
         }
-        out[joint as usize] = parent_world * local;
+        // Skinning matrix: un-apply the rest pose, then apply the posed world
+        // transform. Vertices are authored in model space.
+        out[joint as usize] = parent_world * local * inverse_bind[joint as usize];
+    }
+    out
+}
+
+/// Inverse bind-pose matrices: inverse of each joint's rest-pose world matrix
+/// (identity rotations, unit scales, unscaled offsets). Precomputed per call
+/// (13 joints — negligible) so `compute_bone_matrices` stays pure.
+fn rest_world_matrices() -> [Mat4; MAX_BONES] {
+    let mut world = [Mat4::IDENTITY; JOINT_COUNT];
+    for joint in ALL_JOINTS.iter().copied() {
+        let local = Mat4::from_translation(rest_offset(joint));
+        let parent_world = match parent_of(joint) {
+            Some(p) => {
+                let pi = ALL_JOINTS.iter().position(|jj| *jj == p).unwrap_or(usize::MAX);
+                if pi == usize::MAX {
+                    Mat4::IDENTITY
+                } else {
+                    world[pi]
+                }
+            }
+            None => Mat4::IDENTITY,
+        };
+        let ji = ALL_JOINTS.iter().position(|jj| *jj == joint).unwrap_or(usize::MAX);
+        if ji != usize::MAX {
+            world[ji] = parent_world * local;
+        }
+    }
+    let mut out = [Mat4::IDENTITY; MAX_BONES];
+    for joint in ALL_JOINTS.iter().copied() {
+        let ji = ALL_JOINTS.iter().position(|jj| *jj == joint).unwrap_or(usize::MAX);
+        if ji != usize::MAX {
+            out[joint as usize] = world[ji].inverse();
+        }
     }
     out
 }
@@ -420,6 +352,8 @@ pub fn compute_bone_matrices(traits: &YuuTraits, pose: &YuuPose, time_s: f32) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pose::YuuPose;
+    use std::collections::HashMap;
 
     #[test]
     fn skeleton_order_is_topological() {
@@ -442,6 +376,25 @@ mod tests {
     }
 
     #[test]
+    fn idle_bones_hold_model_space_points() {
+        // Regression: bone matrices must include the inverse bind pose, so an
+        // idle skeleton leaves model-space vertices where authored. (Without
+        // it, every part renders double-transformed — scattered/exploded.)
+        let traits = YuuTraits::default();
+        let pose = YuuPose { id: "idle".into(), name: "Idle".into(), joints: HashMap::new() };
+        let bones = compute_bone_matrices(&traits, &pose, 0.0);
+        // Head-center vertex (bound fully to head) must stay at its authored
+        // position under the idle pose.
+        let head_m = bones[Joint::Head as usize];
+        let p = head_m.transform_point3(glam::Vec3::new(0.0, 1.28, 0.0));
+        assert!((p - glam::Vec3::new(0.0, 1.28, 0.0)).length() < 1e-3, "head drifted to {p:?}");
+        // Hand-center vertex (bound fully to hand) likewise.
+        let hand_m = bones[Joint::HandR as usize];
+        let q = hand_m.transform_point3(glam::Vec3::new(0.31, 0.34, 0.0));
+        assert!((q - glam::Vec3::new(0.31, 0.34, 0.0)).length() < 1e-3, "hand drifted to {q:?}");
+    }
+
+    #[test]
     fn traits_parse_leniently() {
         let t = YuuTraits::from_config_json("{}");
         assert_eq!(t.body_height, 0.5);
@@ -449,3 +402,4 @@ mod tests {
         assert_eq!(bad.body_height, 0.5);
     }
 }
+

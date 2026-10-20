@@ -126,7 +126,7 @@ fun YuuEditorScreen(
                                 YuuFace(
                                     config = draft.toConfig(),
                                     withBody = true,
-                                    modifier = Modifier.fillMaxWidth(0.72f).aspectRatio(0.9f).padding(8.dp),
+                                    modifier = Modifier.fillMaxSize(),
                                 )
                             },
                         )
@@ -689,3 +689,4 @@ private fun ExtrasPanel(d: YuuDraft) {
         }
     }
 }
+

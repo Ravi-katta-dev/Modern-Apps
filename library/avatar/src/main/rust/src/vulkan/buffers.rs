@@ -21,8 +21,8 @@ pub struct YuuVkVertex {
     pub normal: [f32; 3],
     /// Albedo UV.
     pub uv: [f32; 2],
-    /// Bone indices into the UBO order.
-    pub joints: [u32; 4],
+    /// Bone indices into the UBO order (floats — Mali note on YuuVertex).
+    pub joints: [f32; 4],
     /// Bone weights (normalized).
     pub weights: [f32; 4],
 }
@@ -49,7 +49,7 @@ impl YuuVkVertex {
     }
 
     /// Five attributes: `vec3 pos` at 0, `vec3 normal` at 1, `vec2 uv` at 2,
-    /// `uvec4 joints` at 3, `vec4 weights` at 4.
+    /// `vec4 joints` at 3, `vec4 weights` at 4 (floats — Mali note).
     pub fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 5] {
         [
             vk::VertexInputAttributeDescription::default()
@@ -70,7 +70,7 @@ impl YuuVkVertex {
             vk::VertexInputAttributeDescription::default()
                 .binding(0)
                 .location(3)
-                .format(vk::Format::R32G32B32A32_UINT)
+                .format(vk::Format::R32G32B32A32_SFLOAT)
                 .offset(mem::offset_of!(YuuVkVertex, joints) as u32),
             vk::VertexInputAttributeDescription::default()
                 .binding(0)

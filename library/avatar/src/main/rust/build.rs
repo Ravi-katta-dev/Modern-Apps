@@ -95,6 +95,29 @@ fn find_glslc() -> Option<PathBuf> {
     ] {
         candidates.push(PathBuf::from(mac_linux));
     }
+    // Common Windows SDK locations (local.properties is Gradle-only; cargo
+    // builds outside Gradle need these or they silently fall to the minimal
+    // SPV stub — which Mali drivers SIGSEGV parsing).
+    for windows_sdk in [
+        "C:\\Android\\Sdk",
+        "C:\\Users\\Vayun\\AppData\\Local\\Android\\Sdk",
+    ] {
+        for tag in ["windows-x86_64", "linux-x86_64", "darwin-x86_64"] {
+            if let Ok(ndk_dir) = std::fs::read_dir(PathBuf::from(windows_sdk).join("ndk")) {
+                let mut versions: Vec<_> = ndk_dir.filter_map(|e| e.ok().map(|e| e.path())).collect();
+                versions.sort();
+                for ndk in versions.iter().rev() {
+                    candidates.push(
+                        ndk.join("shader-tools").join(tag).join(if tag.starts_with("windows") {
+                            "glslc.exe"
+                        } else {
+                            "glslc"
+                        }),
+                    );
+                }
+            }
+        }
+    }
     for c in candidates {
         if c.exists() {
             return Some(c);

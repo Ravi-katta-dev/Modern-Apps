@@ -2,10 +2,15 @@
 // Skinned Yuu avatar vertex shader: 4-bone linear-blend skinning against the
 // bone-matrix UBO, then the shared view-projection. Matches YuuVkVertex
 // locations 0..4 in vulkan/buffers.rs.
+//
+// NOTE(Mali): joints arrive as vec4, NOT uvec4 — the Mali SPIR-V frontend
+// SIGSEGVs parsing integer vertex inputs (fault inside vkCreateGraphics-
+// Pipelines, uncatchable). int() conversion at index time is exact for our
+// small joint ids.
 layout(location = 0) in vec3 inPos;
 layout(location = 1) in vec3 inNormal;
 layout(location = 2) in vec2 inUv;
-layout(location = 3) in uvec4 inJoints;
+layout(location = 3) in vec4 inJoints;
 layout(location = 4) in vec4 inWeights;
 
 layout(location = 0) out vec3 vNormal;
@@ -21,10 +26,10 @@ layout(set = 0, binding = 0) uniform Ubo {
 
 void main() {
     mat4 skin =
-        inWeights.x * ubo.bones[inJoints.x] +
-        inWeights.y * ubo.bones[inJoints.y] +
-        inWeights.z * ubo.bones[inJoints.z] +
-        inWeights.w * ubo.bones[inJoints.w];
+        inWeights.x * ubo.bones[int(inJoints.x)] +
+        inWeights.y * ubo.bones[int(inJoints.y)] +
+        inWeights.z * ubo.bones[int(inJoints.z)] +
+        inWeights.w * ubo.bones[int(inJoints.w)];
     vec4 world = skin * vec4(inPos, 1.0);
     vWorld = world.xyz;
     vNormal = normalize(mat3(skin) * inNormal);

@@ -9,6 +9,7 @@ pub mod avatar;
 pub mod engine;
 pub mod gles;
 pub mod mesh;
+pub mod pose;
 pub mod renderer;
 pub mod vulkan;
 
@@ -109,7 +110,7 @@ pub extern "system" fn Java_com_vayunmathur_library_avatar_YuuAvatarNative_nativ
     }
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (env, surface);
+        let _ = (env, surface, surface_id);
     }
 }
 
@@ -209,7 +210,7 @@ pub extern "system" fn Java_com_vayunmathur_library_avatar_YuuAvatarNative_nativ
     _class: JClass<'l>,
 ) -> jstring {
     let json = serde_json::to_string(
-        &avatar::preset_poses().iter().map(|p| &p.id).collect::<Vec<_>>(),
+        &pose::preset_poses().iter().map(|p| &p.id).collect::<Vec<_>>(),
     )
     .unwrap_or_else(|_| "[]".to_string());
     env.with_env(|env| -> jni::errors::Result<jstring> {
@@ -239,7 +240,7 @@ mod tests {
     fn engine_smoke() {
         let mesh = build_avatar_mesh();
         assert!(!mesh.is_empty());
-        let poses = crate::avatar::preset_poses();
+        let poses = crate::pose::preset_poses();
         assert!(poses.iter().any(|p| p.id == "wave"));
     }
 
@@ -257,4 +258,5 @@ mod tests {
         crate::engine::remove_surface(22);
     }
 }
+
 

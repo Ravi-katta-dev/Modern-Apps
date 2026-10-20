@@ -43,7 +43,7 @@ impl MeshBuffer {
         unsafe {
             gl.bind_vertex_array(Some(vao));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
-            // pos@0 (3f) + normal@1 (3f) + uv@2 (2f) + joints@3 (4u) + weights@4 (4f).
+            // pos@0 (3f) + normal@1 (3f) + uv@2 (2f) + joints@3 (4f) + weights@4 (4f).
             gl.enable_vertex_attrib_array(0);
             gl.vertex_attrib_pointer_f32(0, 3, glow::FLOAT, false, stride, off_pos);
             gl.enable_vertex_attrib_array(1);
@@ -51,7 +51,7 @@ impl MeshBuffer {
             gl.enable_vertex_attrib_array(2);
             gl.vertex_attrib_pointer_f32(2, 2, glow::FLOAT, false, stride, off_uv);
             gl.enable_vertex_attrib_array(3);
-            gl.vertex_attrib_pointer_i32(3, 4, glow::UNSIGNED_INT, stride, off_joints);
+            gl.vertex_attrib_pointer_f32(3, 4, glow::FLOAT, false, stride, off_joints);
             gl.enable_vertex_attrib_array(4);
             gl.vertex_attrib_pointer_f32(4, 4, glow::FLOAT, false, stride, off_weights);
             gl.bind_buffer(glow::ARRAY_BUFFER, None);
