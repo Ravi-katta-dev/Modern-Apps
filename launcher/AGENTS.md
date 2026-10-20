@@ -2,27 +2,30 @@
 
 > Scoped supplement. Global rules in root `AGENTS.md` apply. Stay inside `launcher/` + allowed shared modules. Do not root-scan.
 
-_Install: ./install launcher (dev by default)._
-<!-- last-reviewed: 2026-10-16 -->
+_Install: ./install launcher (dev by default). For a TV over Wi-Fi: `sh launcher/install-tv.sh <TV_IP>` builds, installs and offers to set it as the default home; `sh launcher/undo-tv.sh <TV_IP>` restores the stock home._
+<!-- last-reviewed: 2026-10-20 -->
 - Gradle: :launcher / dir: launcher/
-- Package roots present: ui, data, domain, platform
-- Entry files: MainActivity.kt, Route.kt, Navigation.kt
-- Deps: :library:room
-- Metadata: metadata_data/launcher.md (present)
+- Package roots present: ui, data, domain, platform + tv/{ui,data,domain,platform}
+- Entry files: MainActivity.kt (UiMode-routed), Route.kt + Navigation.kt (phone), tv/TvRoute.kt + tv/TvNavigation.kt (TV)
+- Deps: :library:room + androidx.tv.material (via common-conventions-tv)
+- Metadata: metadata_data/launcher.md (present, mentions TV mode)
 - Rust: no / screenshotTest: yes
 
 ## Overview
-**Purpose:** Offline home-screen replacement — paged grid, hotseat, folders, searchable drawer, real widget hosting. Layout in encrypted Room; no account, nothing uploaded.
+**Purpose:** Offline home-screen replacement — paged grid, hotseat, folders, searchable drawer, real widget hosting on phones; calm banner home with HDMI inputs and D-pad reorder on TVs. One APK routes by UI mode. Layout in encrypted Room (phone) / DataStore order (TV); no account, nothing uploaded.
 **Key features:**
 - Workspace grid with drag/drop/reorder/folder-merge, drop-bar targets, page-edge dwell, widget resize frames (`ui/components/` drag system + `domain/` placement math)
 - App drawer with fast scroll + predictions; widget host incl. configurable providers (`platform/LauncherWidgetHost`)
 - Icon cache, app-change monitor, privilege-gated surfaces; settings pages
-**Architecture / data-flow:** `ui/` home/drawer/folder/settings → `platform/LauncherViewModel` (+ `LauncherUiContract`) → `data/LauncherRepository` over Room; `domain/` is pure grid math (occupancy, placement, reorder, folders, hotseat, pagination) — the single biggest pure-logic area in any app, testable without Compose.
-**Entry points + reading order:** `Route` → `MainActivity.kt` → `Navigation.kt` → `ui/HomeWorkspace.kt` → `platform/LauncherViewModel.kt` → `domain/GridPlacer.kt` + `domain/ReconcileUseCase.kt`.
+- TV mode (`tv/`): 6-per-row 16:9 banner grid, bottom glass row (App Store/HDMI/Settings/Reorder), clock + network header, single-OK pick-up/drop reorder with focus-chase and slot glide, edit/add menus, HOME role — DataStore order, no Room/widget init
+**Architecture / data-flow:** `ui/` home/drawer/folder/settings → `platform/LauncherViewModel` (+ `LauncherUiContract`) → `data/LauncherRepository` over Room; `domain/` is pure grid math (occupancy, placement, reorder, folders, hotseat, pagination) — the single biggest pure-logic area in any app, testable without Compose. `tv/ui/` → `tv/platform/TvHomeViewModel` (+ `TvUiContract`) → `tv/data/TvPrefs` (DataStore); `tv/domain/TvRowOrder` is pure row math. `MainActivity` routes by `UiModeManager`; neither mode initializes the other's stack.
+**Entry points + reading order:** `Route` → `MainActivity.kt` (UiMode branch) → phone `Navigation.kt` → `ui/HomeWorkspace.kt` → `platform/LauncherViewModel.kt` → `domain/GridPlacer.kt` + `domain/ReconcileUseCase.kt`; TV `TvRoute` → `tv/TvNavigation.kt` → `tv/ui/TvHomeScreen.kt` → `tv/platform/TvHomeViewModel.kt` → `tv/domain/TvRowOrder.kt`.
 **Gotchas:**
-- Exempt from the raw-animation rule: built on `animateBounds`/`Animatable` — do NOT "migrate" its motion to library helpers
+- Exempt from the raw-animation rule: built on `animateBounds`/`Animatable` — do NOT "migrate" its motion to library helpers. TV code under `tv/` keeps using `library.ui` helpers anyway — no regression just because the package is exempt.
 - Reconcile (installed-apps vs stored layout) runs on package changes — launcher bugs after installs live in `ReconcileUseCase` + `LauncherAppsMonitor`
 - Drag input math is in `domain/`, gesture plumbing in `ui/components/` — keep them separated
+- TV Back order: edit menu → cancel hold (quiet restore) → disarm reorder → no-op. TV hint slot is always composed (`TvReorderHint`) — never conditionally compose hints in the `SpaceBetween` column or the grid jumps.
+- One HOME filter carries MAIN+LAUNCHER+LEANBACK_LAUNCHER+HOME+DEFAULT together — split filters on one activity confuse resolver elections.
 
 ## Key files
 ### Root — entry + navigation
@@ -62,6 +65,25 @@ _Install: ./install launcher (dev by default)._
 - com/vayunmathur/launcher/platform/IconCache.kt
 - com/vayunmathur/launcher/platform/ActivityBridge.kt
 - com/vayunmathur/launcher/platform/LauncherPrivilege.kt
+### tv/ — TV mode (UiMode-routed, DataStore order, no Room/widgets)
+- com/vayunmathur/launcher/tv/TvRoute.kt
+- com/vayunmathur/launcher/tv/TvNavigation.kt
+- com/vayunmathur/launcher/tv/data/TvPrefs.kt
+- com/vayunmathur/launcher/tv/domain/TvRowOrder.kt
+- com/vayunmathur/launcher/tv/platform/TvHomeViewModel.kt
+- com/vayunmathur/launcher/tv/platform/TvUiContract.kt
+- com/vayunmathur/launcher/tv/platform/TvApps.kt
+- com/vayunmathur/launcher/tv/platform/TvInputs.kt
+- com/vayunmathur/launcher/tv/platform/TvHomeRole.kt
+- com/vayunmathur/launcher/tv/platform/TvArtCache.kt
+- com/vayunmathur/launcher/tv/ui/TvHomeScreen.kt
+- com/vayunmathur/launcher/tv/ui/TvHomePage.kt
+- com/vayunmathur/launcher/tv/ui/TvClockHeader.kt
+- com/vayunmathur/launcher/tv/ui/TvAppGrid.kt
+- com/vayunmathur/launcher/tv/ui/TvBottomRow.kt
+- com/vayunmathur/launcher/tv/ui/TvEditMenu.kt
+- com/vayunmathur/launcher/tv/ui/components/TvBannerTile.kt
+- com/vayunmathur/launcher/tv/ui/components/TvReorderHint.kt
 ### ui/ + ui/components/ — workspace, drawer, drag system
 - com/vayunmathur/launcher/ui/HomeWorkspace.kt
 - com/vayunmathur/launcher/ui/HomePage.kt

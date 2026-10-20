@@ -1,5 +1,9 @@
 plugins {
     id("common-conventions-app")
+    // androidx.tv, so the in-app TV mode is built on a design system that knows what a
+    // D-pad is. Named alongside (the cast:tv precedent): the launcherIcon/nativeAbis
+    // accessors are generated from directly-applied plugins.
+    id("common-conventions-tv")
     // Listing screenshots come from Compose previews (src/screenshotTest), not from an
     // instrumented test on a device. Same `:launcher:metadata` task name either way.
     id("common-conventions-preview-metadata")
@@ -8,6 +12,11 @@ plugins {
 
 launcherIcon {
     symbol = "apps"
+}
+
+// Google TV hardware runs a 32-bit userspace: an arm64-only APK is rejected at install.
+nativeAbis {
+    armv7 = true
 }
 
 android {

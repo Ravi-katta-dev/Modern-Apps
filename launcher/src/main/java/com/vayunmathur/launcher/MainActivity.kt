@@ -3,10 +3,13 @@ package com.vayunmathur.launcher
 import android.app.Activity
 import android.app.ActivityOptions
 import android.app.PendingIntent
+import android.app.UiModeManager
 import android.app.role.RoleManager
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -16,6 +19,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.vayunmathur.launcher.platform.ActivityBridge
 import com.vayunmathur.launcher.platform.LauncherPrivilege
 import com.vayunmathur.launcher.platform.LauncherViewModel
@@ -23,6 +29,9 @@ import com.vayunmathur.launcher.platform.onStartImpl
 import com.vayunmathur.launcher.platform.reconcileNowImpl
 import com.vayunmathur.launcher.platform.onStopImpl
 import com.vayunmathur.launcher.platform.refreshDefaultHomeImpl
+import com.vayunmathur.launcher.tv.platform.TvHomeViewModel
+import com.vayunmathur.launcher.tv.TvNavigation
+import com.vayunmathur.launcher.tv.TvRoute
 import com.vayunmathur.library.ui.MaActivity
 import com.vayunmathur.library.util.AppMessages
 import com.vayunmathur.library.util.NavBackStack
@@ -39,7 +48,16 @@ import com.vayunmathur.library.util.rememberNavBackStack
 class MainActivity : MaActivity(), ActivityBridge {
 
     private val viewModel: LauncherViewModel by viewModels()
+    private val tvViewModel: TvHomeViewModel by viewModels()
     private var backStack: NavBackStack<Route>? = null
+    private var tvBackStack: NavBackStack<TvRoute>? = null
+
+    /**
+     * Phone or TV content, decided once per resume from the current UI mode. A `var` rather
+     * than a `val`: HDMI-CEC/dock changes can flip `uiMode` at runtime, and the next resume
+     * re-routes (the merged-tvlauncher contract).
+     */
+    private var tvMode: Boolean = false
 
     /** Asked before anything a stock device cannot do is offered. See [LauncherPrivilege]. */
     private val privilege get() = viewModel.privilege
@@ -61,33 +79,75 @@ class MainActivity : MaActivity(), ActivityBridge {
             callback?.invoke(result.resultCode == Activity.RESULT_OK)
         }
 
+    override val edgeToEdge: Boolean
+        get() = !tvMode
+
     override fun onCreateBeforeContent() {
+        tvMode = isTvMode()
         viewModel.bridge = this
     }
 
     @Composable
     override fun Content() {
-        val stack = rememberNavBackStack<Route>(Route.Home)
-        SideEffect { backStack = stack }
-        Navigation(viewModel, this, stack)
+        if (tvMode) {
+            val stack = rememberNavBackStack<TvRoute>(TvRoute.Home)
+            SideEffect { tvBackStack = stack }
+            TvNavigation(tvViewModel, stack)
+        } else {
+            val stack = rememberNavBackStack<Route>(Route.Home)
+            SideEffect { backStack = stack }
+            Navigation(viewModel, this, stack)
+        }
     }
 
     override fun onStart() {
         super.onStart()
+        if (tvMode) return
         viewModel.onStartImpl()
         viewModel.refreshDefaultHomeImpl()
     }
 
     override fun onResume() {
         super.onResume()
+        val nowTv = isTvMode()
+        if (nowTv != tvMode) {
+            // UI mode flipped underneath us (dock/HDMI-CEC): re-route on next composition.
+            tvMode = nowTv
+        }
+        if (tvMode) {
+            tvViewModel.refreshApps()
+            tvViewModel.refreshDefaultHome(this)
+            return
+        }
         // Cheap enough to redo every time we come back: an app may have been installed or
         // uninstalled while we were away without us being alive to hear the callback.
         viewModel.reconcileNowImpl()
     }
 
     override fun onStop() {
-        viewModel.onStopImpl()
+        if (!tvMode) viewModel.onStopImpl()
         super.onStop()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (isTvMode() != tvMode) {
+            // Recreate to re-run onCreateBeforeContent + Content with the right mode rather
+            // than trying to swap nav graphs mid-composition.
+            recreate()
+        }
+    }
+
+    /**
+     * True when this device is a television. Single fact, mirrored from the appstore
+     * DeviceAttributesProvider notion of TV — leanback present, no touchscreen.
+     */
+    private fun isTvMode(): Boolean {
+        val uiMode = getSystemService(UiModeManager::class.java)
+            ?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION
+        if (uiMode) return true
+        return packageManager.hasSystemFeature(PackageManager.FEATURE_LEANBACK) &&
+            !packageManager.hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN)
     }
 
     override fun onDestroy() {
@@ -102,7 +162,7 @@ class MainActivity : MaActivity(), ActivityBridge {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        backStack?.reset(Route.Home)
+        if (tvMode) tvBackStack?.reset(TvRoute.Home) else backStack?.reset(Route.Home)
     }
 
     // ------------------------------------------------------------------

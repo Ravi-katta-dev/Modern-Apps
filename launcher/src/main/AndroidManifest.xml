@@ -11,6 +11,11 @@
     <uses-permission android:name="android.permission.MODIFY_QUIET_MODE"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+    <!-- Only for the TV network tile: Wi-Fi, Ethernet or offline, and the Wi-Fi signal. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Lets "Uninstall" in the TV edit menu open Android's uninstall prompt. -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
     <queries>
         <intent>
@@ -20,10 +25,37 @@
         <intent>
             <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
         </intent>
+        <!-- Android 11+ only shows a home screen the TV apps it asks to see. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+        </intent>
+        <!-- Settings screens the TV network tile opens. -->
+        <intent>
+            <action android:name="android.settings.WIFI_SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.WIRELESS_SETTINGS" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.SETTINGS" />
+        </intent>
+        <!-- Google TV's HDMI input player, so TV HDMI tiles open the right surface. -->
+        <package android:name="com.google.android.tv.inputplayer" />
     </queries>
+
+    <!-- Leanback rows list the app on TV; touch stays available so phones keep it.
+      required=true on leanback would be wrong here — this APK also serves phones. -->
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
 
     <application
         android:allowBackup="true"
+        android:banner="@drawable/tv_banner"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -38,9 +70,16 @@
             android:resizeableActivity="true"
             android:stateNotNeeded="true"
             android:theme="@style/Theme.Launcher">
+            <!--
+              One filter carrying every category: separate filters on one activity build
+              separate resolve entries that confuse launcher resolution (learned merging
+              tvlauncher in). LEANBACK_LAUNCHER puts the app in TV rows; HOME + DEFAULT
+              keep it offerable as the default home on both form factors.
+            -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
