@@ -135,8 +135,8 @@ if (file("personal/amazon").exists()) {
 if (file("personal/kaiser").exists()) {
     include(":personal:kaiser")
 }
-if (file("personal/uniflix").exists()) {
-    include(":personal:uniflix")
+if (file("personal/uniflix_strem").exists()) {
+    include(":personal:uniflix_strem")
 }
 
 // Desktop JVM shells (Phase 2): host-side sync over the shared core.

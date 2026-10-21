@@ -15,6 +15,7 @@ import com.vayunmathur.library.ui.CircularProgressIndicator
 import com.vayunmathur.library.ui.DesktopMaxWidthContainer
 import com.vayunmathur.library.ui.IconAdd
 import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.IconRefresh
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
@@ -38,6 +39,7 @@ fun AddonsContent(
     onMoveDown: (AddonRow) -> Unit,
     onRemove: (AddonRow) -> Unit,
     onRefresh: (AddonRow) -> Unit,
+    onRefreshAll: () -> Unit,
     onOpenDetail: (addonDbId: Long) -> Unit,
 ) {
     AppScaffold(
@@ -45,6 +47,7 @@ fun AddonsContent(
         onNavigateBack = onBack,
         scrollBehavior = appBarScrollBehavior(),
         actions = {
+            IconButton(onClick = onRefreshAll, enabled = !refreshing) { IconRefresh() }
             IconButton(onClick = onAddClick) { IconAdd() }
         },
     ) { padding ->

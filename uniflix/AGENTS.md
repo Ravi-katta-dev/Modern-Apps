@@ -26,7 +26,7 @@ Watch/Detail link to the addon manager.
 - Manifest `resources` accepts Stremio string-or-object forms; only `stream` for movie/series validates
 - URL addons enforce HTTPS except loopback/private (dev); remote `http://` is rejected as `InsecureUrl`
 - `UniflixDatabase` v1→v2 migration adds `AddonEntity`; default addon id lives in DataStore, ordering in Room priority
-- Private `personal/uniflix/` keeps the native Strem provider + hardcoded TMDB key — never copy those into `uniflix/`
+- Private `personal/uniflix_strem/` keeps the native Strem provider + hardcoded TMDB key — never copy those into `uniflix/`
 
 ## Key files
 ### Root — entry + navigation

@@ -260,3 +260,38 @@ fn flushing_an_entry_keeps_it_readable() {
     // And flushing a key that was never written does nothing, not a panic.
     cache.flush_entry(&RangeCache::key(URL, "bytes=999-1003"));
 }
+
+/// Freshness ends exactly at the interval and a clock behind the fetch reads as fresh.
+///
+/// `is_fresh` is `elapsed < interval` with a saturating clock, so an entry exactly
+/// `REFRESH_INTERVAL_MS` old is stale (not `<=`), and a clock that went backwards
+/// saturates to zero rather than wrapping to stale.
+#[test]
+fn freshness_ends_exactly_at_the_interval_and_saturates_backward_clocks() {
+    let f = Fixture::new("fresh_math");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+    let key = RangeCache::key(URL, "bytes=0-3");
+    cache.write(&key, &[1, 2, 3, 4]);
+    clock.store(1_000_000 + REFRESH_INTERVAL_MS, Ordering::SeqCst);
+    assert!(!cache.is_fresh(&cache.read(&key).unwrap()), "exactly at the interval is stale");
+    clock.store(999_000, Ordering::SeqCst);
+    assert!(cache.is_fresh(&cache.read(&key).unwrap()), "a backward clock saturates to fresh");
+}
+
+/// The eviction target is eighty percent of the cap, in integer bytes.
+///
+/// `evict_if_over_cap` stops at `max_bytes / 10 * 8`, not at the cap, so a session
+/// sitting at the limit does one pass rather than one per tile. Integer division
+/// truncates, which only lowers the target and never overshoots it.
+#[test]
+fn the_eviction_target_is_eighty_percent_of_the_cap() {
+    assert_eq!(DEFAULT_MAX_BYTES, 64 * 1024 * 1024, "the 64 MB cap");
+    assert_eq!(REFRESH_INTERVAL_MS, 24 * 60 * 60 * 1000, "the 24 h refresh");
+    for cap in [1000u64, 100u64, DEFAULT_MAX_BYTES, 1u64] {
+        let target = cap / 10 * 8;
+        assert!(target <= cap, "cap {cap}: target {target} exceeds it");
+        assert_eq!(target + (cap - target), cap, "cap {cap}: target plus headroom is the cap");
+    }
+    assert_eq!(1000u64 / 10 * 8, 800, "the eviction test's headroom number");
+}

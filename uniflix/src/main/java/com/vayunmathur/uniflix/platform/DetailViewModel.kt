@@ -30,8 +30,8 @@ import kotlinx.coroutines.launch
 
 /**
  * Builds the live [PluginRegistry] from installed addons. Public
- * implementations stay pure-HTTP; the personal overlay swaps this factory to
- * also register its native provider.
+ * implementations stay pure-HTTP; a private native-plugin overlay can swap
+ * this factory to also register its own provider.
  */
 fun interface RegistryFactory {
     suspend fun current(repository: UniflixRepository, prefs: AddonPrefs): PluginRegistry

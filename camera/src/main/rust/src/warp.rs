@@ -18,3 +18,20 @@ pub fn mean_luma(f: &Rgba) -> f32 {
     }
     if n > 0.0 { (sum / n) as f32 } else { 0.0 }
 }
+
+#[cfg(test)]
+mod warp_host_tests {
+    use super::*;
+    use crate::imgbuf::Rgba;
+
+    #[test]
+    fn mean_luma_ignores_transparent_pixels() {
+        let mut img = Rgba::new(2, 1);
+        img.set(0, 0, [255, 0, 0, 255]);
+        img.set(1, 0, [0, 0, 0, 0]);
+        let got = mean_luma(&img);
+        let want = (0.299 * 255.0) as f32;
+        assert!((got - want).abs() < 1e-3, "got {got} want {want}");
+        assert_eq!(mean_luma(&Rgba::new(2, 2)), 0.0);
+    }
+}

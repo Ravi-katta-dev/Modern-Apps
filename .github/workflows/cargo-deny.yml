@@ -48,7 +48,7 @@ jobs:
     # code/, games/, library/ and scripts/maps/ is a member of that workspace
     # (no [workspace] table of its own, `workspace = true` inheritance) — so
     # one `cargo deny` run covers the whole tree. Do NOT reintroduce a matrix:
-    # `personal/uniflix` is a detached workspace of its own precisely so the
+    # `personal/uniflix_strem` is a detached workspace of its own precisely so the
     # gitignored personal/ tree never affects this job (see the root Cargo.toml
     # `exclude`), and it is intentionally not monitored here.
     name: "cargo-deny (.)"

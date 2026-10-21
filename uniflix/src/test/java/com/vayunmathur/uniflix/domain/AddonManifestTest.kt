@@ -1,5 +1,6 @@
 package com.vayunmathur.uniflix.domain
 
+import com.vayunmathur.uniflix.data.AddonStreamProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -90,5 +91,63 @@ class AddonIdMappingTest {
         assertEquals("https://cdn.example/stream.m3u8", source.streamUrl)
         assertEquals("1080p", source.title)
         assertTrue(source.subtitles.single().url.endsWith("/en.vtt"))
+    }
+}
+
+/** Base-URL normalization: bare hosts, manifest URLs, slashes, scheme policy. */
+class AddonUrlNormalizationTest {
+
+    @Test
+    fun strips_manifest_suffix_and_trailing_slash() {
+        assertEquals(
+            "https://example.com",
+            AddonStreamProvider.normalizeBaseUrl("https://example.com/manifest.json"),
+        )
+        assertEquals(
+            "https://example.com",
+            AddonStreamProvider.normalizeBaseUrl("https://example.com///"),
+        )
+    }
+
+    @Test
+    fun defaults_bare_host_to_https() {
+        assertEquals(
+            "https://example.com",
+            AddonStreamProvider.normalizeBaseUrl("example.com"),
+        )
+    }
+
+    @Test
+    fun keeps_path_and_port() {
+        assertEquals(
+            "https://example.com:8080/addon",
+            AddonStreamProvider.normalizeBaseUrl("https://example.com:8080/addon/manifest.json"),
+        )
+    }
+
+    @Test
+    fun rejects_remote_http() {
+        assertFailsWith<ManifestError.InsecureUrl> {
+            AddonStreamProvider.normalizeBaseUrl("http://example.com/manifest.json")
+        }
+    }
+
+    @Test
+    fun allows_loopback_and_private_http() {
+        assertEquals(
+            "http://localhost:8080",
+            AddonStreamProvider.normalizeBaseUrl("http://localhost:8080/manifest.json"),
+        )
+        assertEquals(
+            "http://192.168.1.10:7000",
+            AddonStreamProvider.normalizeBaseUrl("http://192.168.1.10:7000/manifest.json"),
+        )
+    }
+
+    @Test
+    fun rejects_non_http_schemes() {
+        assertFailsWith<ManifestError.Parse> {
+            AddonStreamProvider.normalizeBaseUrl("ftp://example.com/manifest.json")
+        }
     }
 }

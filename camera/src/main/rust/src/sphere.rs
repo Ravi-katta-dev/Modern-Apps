@@ -333,3 +333,29 @@ pub fn warp_one(frame: &Rgba, k: &Matrix3<f64>, r: &Matrix3<f64>, scale: f64) ->
     }
     Some(WarpedTile { img, corner_x: cx, corner_y: cy })
 }
+
+#[cfg(test)]
+mod sphere_host_tests {
+    use super::*;
+    use crate::linalg::Matrix3;
+
+    #[test]
+    fn estimate_focal_falls_back_without_valid_pairs() {
+        assert_eq!(estimate_focal(&[], 640, 480), 1120.0);
+        let (f0, f1) = focals_from_homography(&Matrix3::identity());
+        assert!(f0.is_none() && f1.is_none());
+        assert_eq!(estimate_focal(&[Matrix3::identity()], 640, 480), 1120.0);
+    }
+
+    #[test]
+    fn proj_center_round_trips() {
+        let k = k_matrix(800.0, 320.0, 240.0);
+        let r = Matrix3::identity();
+        let proj = Proj::new(&k, &r, 800.0).expect("proj");
+        let (u, v) = proj.forward(320.0, 240.0);
+        assert!(u.is_finite() && v.is_finite());
+        let (x, y) = proj.backward(u, v).expect("backward");
+        assert!((x - 320.0).abs() < 1e-6, "x {x}");
+        assert!((y - 240.0).abs() < 1e-6, "y {y}");
+    }
+}

@@ -4,6 +4,7 @@ import androidx.room3.Dao
 import androidx.room3.Entity
 import androidx.room3.PrimaryKey
 import androidx.room3.Query
+import androidx.room3.Transaction
 import androidx.room3.Upsert
 import kotlinx.coroutines.flow.Flow
 
@@ -54,6 +55,13 @@ interface AddonDao {
 
     @Query("UPDATE AddonEntity SET priority = :priority WHERE dbId = :dbId")
     suspend fun setPriority(dbId: Long, priority: Int)
+
+    /** Swaps two addons' priorities atomically so reorder never leaves a duplicate. */
+    @Transaction
+    suspend fun swapPriorities(first: AddonEntity, second: AddonEntity) {
+        setPriority(first.dbId, second.priority)
+        setPriority(second.dbId, first.priority)
+    }
 
     @Query("UPDATE AddonEntity SET lastError = :error WHERE dbId = :dbId")
     suspend fun setError(dbId: Long, error: String?)

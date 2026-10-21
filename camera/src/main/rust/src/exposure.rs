@@ -283,3 +283,32 @@ pub fn compensate(tiles: &[WarpedTile]) -> Vec<Vec<f32>> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod exposure_host_tests {
+    use super::*;
+    use crate::imgbuf::Rgba;
+    use crate::sphere::WarpedTile;
+
+    fn opaque_tile(w: usize, h: usize, cx: i32, cy: i32) -> WarpedTile {
+        let mut img = Rgba::new(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                img.set(x, y, [200, 200, 200, 255]);
+            }
+        }
+        WarpedTile { img, corner_x: cx, corner_y: cy }
+    }
+
+    #[test]
+    fn compensate_empty_and_disjoint_returns_unity_gains() {
+        assert!(compensate(&[]).is_empty());
+        let tiles = vec![opaque_tile(32, 32, 0, 0), opaque_tile(32, 32, 500, 500)];
+        let gains = compensate(&tiles);
+        assert_eq!(gains.len(), 2);
+        for (g, t) in gains.iter().zip(tiles.iter()) {
+            assert_eq!(g.len(), t.img.w * t.img.h);
+            assert!(g.iter().all(|v| *v == 1.0), "disjoint tiles must stay at unity gain");
+        }
+    }
+}

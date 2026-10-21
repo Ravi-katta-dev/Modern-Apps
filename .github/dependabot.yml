@@ -45,7 +45,7 @@ updates:
   # and one tracked Cargo.lock (`git ls-files '*Cargo.lock'`). Every crate
   # under code/, games/, library/ and scripts/maps/ is a member of that
   # workspace (no [workspace] table of its own), so monitoring "/" covers them
-  # all. `personal/uniflix` is a detached workspace of its own but lives under
+  # all. `personal/uniflix_strem` is a detached workspace of its own but lives under
   # gitignored personal/, so neither Dependabot nor CI can see it — nothing to
   # add here. Do NOT add per-crate directories unless another tracked
   # workspace root with its own tracked lockfile appears (keep in sync with

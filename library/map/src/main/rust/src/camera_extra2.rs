@@ -372,4 +372,39 @@ pub(crate) mod tests {
             assert!(y.abs() < 1e-5, "bearing {bearing}: y {y}");
         }
     }
+
+    /// Antimeridian and high-latitude round-trips plus the pole clamp and the doubling scale.
+    ///
+    /// The existing round-trip pins mid-latitude cities; this pins the edges the map hits:
+    /// +-180 lon (the Pacific), +-85 lat (near the Mercator limit), and that a clamped pole
+    /// projects exactly where the limit does rather than leaving the world.
+    #[test]
+    fn project_round_trips_across_the_antimeridian_and_clamped_poles() {
+        for zoom in [0.0, 8.0, 14.0, 22.0] {
+            for &(lon, lat) in &[
+                (-179.99, 0.0),
+                (179.99, 0.0),
+                (-122.4194, 85.0),
+                (139.6917, -85.0),
+                (0.0, 85.051_128_78),
+                (0.0, -85.051_128_78),
+            ] {
+                let p = project(lon, lat, zoom);
+                assert!(p.x.is_finite() && p.y.is_finite(), "z{zoom} {lon},{lat}: {p:?}");
+                let (back_lon, back_lat) = unproject(p.x, p.y, zoom);
+                assert!((back_lon - lon).abs() < 1e-9, "z{zoom} lon: {back_lon} vs {lon}");
+                assert!((back_lat - lat).abs() < 1e-9, "z{zoom} lat: {back_lat} vs {lat}");
+            }
+        }
+        // The world edges: -180 is x 0 and +180 is x size, so the Pacific meets itself.
+        let size = world_size(0.0);
+        assert!((project(-180.0, 0.0, 0.0).x - 0.0).abs() < 1e-9);
+        assert!((project(180.0, 0.0, 0.0).x - size).abs() < 1e-9);
+        // Past the limit clamps exactly onto it rather than leaving the world.
+        assert_eq!(project(0.0, 90.0, 4.0), project(0.0, 85.051_128_78, 4.0));
+        assert_eq!(project(0.0, -90.0, 4.0), project(0.0, -85.051_128_78, 4.0));
+        // Each zoom doubles the world.
+        assert_eq!(world_size(1.0), world_size(0.0) * 2.0);
+        assert_eq!(world_size(14.0), 512.0 * 16384.0);
+    }
 }

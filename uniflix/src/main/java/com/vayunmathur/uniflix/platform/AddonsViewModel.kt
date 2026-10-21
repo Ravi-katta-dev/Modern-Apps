@@ -15,6 +15,7 @@ import com.vayunmathur.uniflix.data.UniflixRepository
 import com.vayunmathur.uniflix.domain.ManifestError
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -114,8 +115,36 @@ class AddonsViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun swap(upper: AddonRow, lower: AddonRow) {
         viewModelScope.launch {
-            repository.setAddonPriority(upper.entity.dbId, lower.entity.priority)
-            repository.setAddonPriority(lower.entity.dbId, upper.entity.priority)
+            repository.swapAddonPriorities(upper.entity, lower.entity)
+        }
+    }
+
+    /** Re-fetches every installed manifest; per-addon failures land on that row's badge. */
+    fun refreshAll() {
+        viewModelScope.launch {
+            refreshing = true
+            val rows = addons.first()
+            var failures = 0
+            for (row in rows) {
+                runCatching {
+                    val (base, manifest) = AddonStreamProvider.fetchManifest(row.entity.manifestUrl)
+                    repository.upsertAddon(
+                        row.entity.copy(
+                            baseUrl = base,
+                            addonId = manifest.id,
+                            name = manifest.name,
+                            version = manifest.version,
+                            lastError = null,
+                            updatedAt = System.currentTimeMillis(),
+                        ),
+                    )
+                }.onFailure {
+                    failures++
+                    repository.setAddonError(row.entity.dbId, it.message ?: "Refresh failed")
+                }
+            }
+            refreshing = false
+            AppMessages.show(if (failures == 0) "Refreshed ${rows.size} addons" else "$failures of ${rows.size} addons failed to refresh")
         }
     }
 

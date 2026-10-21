@@ -236,4 +236,33 @@ mod tests {
         assert!((hw - 14.0).abs() < 1e-6, "{hw}");
         assert!((hh - 14.0).abs() < 1e-6, "{hh}");
     }
+
+    /// A wide sprite scales by its wider side, so the draw and the blocker stay the same box.
+    ///
+    /// A 38x19 Dp sheet icon is twice as wide as tall: the larger side lands on
+    /// `MARKER_SIZE_DP` (half 14) and the shorter side halves proportionally (half 7).
+    #[test]
+    fn icon_half_extents_scale_a_wide_sprite_by_its_wider_side() {
+        let sprite = crate::tile::sprite::Sprite {
+            uv: crate::tile::glyph::UvRect { u0: 0.0, v0: 0.0, u1: 1.0, v1: 1.0 },
+            width_dp: 38.0,
+            height_dp: 19.0,
+        };
+        let (hw, hh) = marker_icon_half_extents(sprite);
+        assert!((hw - 14.0).abs() < 1e-6, "{hw}");
+        assert!((hh - 7.0).abs() < 1e-6, "{hh}");
+    }
+
+    /// The pin label starts clear of the icon edge: half the icon plus the gap.
+    ///
+    /// The label offset is not a second implementation elsewhere, it is these two
+    /// constants composed, so this pins both: a 28 Dp icon holds a 14 Dp half-box
+    /// and the 4 Dp gap puts the label start 18 Dp from the anchor.
+    #[test]
+    fn marker_label_starts_clear_of_the_icon_edge() {
+        assert!(MARKER_SIZE_DP > 0.0 && MARKER_LABEL_GAP_DP > 0.0);
+        assert!(MARKER_LABEL_DP > 0.0, "the label has a real size");
+        let label_start = MARKER_SIZE_DP * 0.5 + MARKER_LABEL_GAP_DP;
+        assert!((label_start - 18.0).abs() < 1e-6, "{label_start}");
+    }
 }

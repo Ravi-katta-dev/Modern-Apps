@@ -156,8 +156,8 @@ abstract class UniflixDatabase : RoomDatabase() {
         override val migrations = listOf(
             object : Migration(1, 2) {
                 override suspend fun migrate(connection: SQLiteConnection) {
-                    // v1 shipped only on personal/dev devices; addons are new in the
-                    // public app, so the table starts empty on every upgrade.
+                    // Addons are new in the public app, so the table starts
+                    // empty on every upgrade from the catalog-only v1.
                     connection.execSQL(
                         "CREATE TABLE IF NOT EXISTS AddonEntity (" +
                             "dbId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +

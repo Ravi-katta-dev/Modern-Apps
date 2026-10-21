@@ -57,7 +57,8 @@ class UniflixRepository private constructor(context: Context) :
     suspend fun addonCount(): Int = addonDao.count()
     suspend fun deleteAddon(dbId: Long) = addonDao.deleteById(dbId)
     suspend fun setAddonEnabled(dbId: Long, enabled: Boolean) = addonDao.setEnabled(dbId, enabled)
-    suspend fun setAddonPriority(dbId: Long, priority: Int) = addonDao.setPriority(dbId, priority)
+    suspend fun swapAddonPriorities(first: AddonEntity, second: AddonEntity) =
+        addonDao.swapPriorities(first, second)
     suspend fun setAddonError(dbId: Long, error: String?) = addonDao.setError(dbId, error)
     suspend fun setAddonConfig(dbId: Long, config: String) = addonDao.setConfig(dbId, config)
 

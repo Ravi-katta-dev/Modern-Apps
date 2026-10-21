@@ -57,12 +57,14 @@ fun AddonCard(
                 Switch(checked = entity.enabled, onCheckedChange = { onToggle() })
             }
             entity.lastError?.let { error ->
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconWarning()
-                    Text(error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                TextButton(onClick = onOpenDetail) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        IconWarning()
+                        Text(error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                    }
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {

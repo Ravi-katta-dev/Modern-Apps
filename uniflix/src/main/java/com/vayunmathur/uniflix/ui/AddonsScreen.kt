@@ -34,6 +34,7 @@ fun AddonsScreen(onBack: () -> Unit, onOpenDetail: (addonDbId: Long) -> Unit) {
         onMoveDown = { row -> vm.moveDown(rows, row) },
         onRemove = { row -> vm.remove(row) },
         onRefresh = { row -> vm.refreshManifest(row) },
+        onRefreshAll = { vm.refreshAll() },
         onOpenDetail = onOpenDetail,
     )
 

@@ -41,6 +41,7 @@ class MetadataPreviews {
                 onMoveDown = {},
                 onRemove = {},
                 onRefresh = {},
+                onRefreshAll = {},
                 onOpenDetail = {},
             )
         }
@@ -94,6 +95,7 @@ class MetadataPreviews {
                 onMoveDown = {},
                 onRemove = {},
                 onRefresh = {},
+                onRefreshAll = {},
                 onOpenDetail = {},
             )
         }

@@ -403,3 +403,28 @@ fn a_missing_tile_falls_back_through_its_parent_to_the_water_background() {
     assert_eq!(water.light, water_light, "water fill matches the light backdrop");
     assert_eq!(water.dark, water_dark, "water fill matches the dark backdrop");
 }
+
+/// Ancestor levels halve the coordinates each step, level zero is the tile itself,
+/// and anything past the root is `None` rather than a wrapped tile.
+///
+/// The keep list and the overzoom reader both rely on this: a wrong shift fetches
+/// the neighbour's parent, and a wrapping root ancestor would pin the whole world
+/// resident under every viewport.
+#[test]
+fn tile_ancestor_chain_halves_each_level_and_stops_at_root() {
+    let tile = TileId { z: 12, x: 2048, y: 1362 };
+    assert_eq!(tile.ancestor(0), Some(tile), "level zero is the tile itself");
+    let parent = tile.ancestor(1).expect("z12 has a parent");
+    assert_eq!((parent.z, parent.x, parent.y), (11, 1024, 681));
+    let grandparent = tile.ancestor(2).expect("z12 has a grandparent");
+    assert_eq!((grandparent.z, grandparent.x, grandparent.y), (10, 512, 340));
+    assert_eq!(tile.ancestor(12), Some(TileId { z: 0, x: 0, y: 0 }), "the root");
+    assert!(tile.ancestor(13).is_none(), "past the root is nothing, not a wrap");
+    assert!(TileId { z: 0, x: 0, y: 0 }.ancestor(1).is_none(), "the root has no parent");
+    // And the depth gate agrees: the tile stands in for itself and its parent chain only.
+    let root = TileId { z: 0, x: 0, y: 0 };
+    assert!(tile.descends_from(&tile, 0), "depth zero still covers self");
+    assert!(!tile.descends_from(&parent, 0), "depth zero stops past self");
+    assert!(tile.descends_from(&grandparent, 2), "depth two covers two levels");
+    assert!(!root.descends_from(&tile, 4), "an ancestor never descends from its child");
+}
