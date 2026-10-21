@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Calcolatrice</string>
-    <string name="history">Cronologia</string>
-    <string name="no_calculations_yet">Nessun calcolo presente.</string>
     <string name="add_function">Aggiungi funzione</string>
     <string name="toggle_curve_visibility">Mostra o nascondi questa curva</string>
     <string name="feature_root">radice</string>

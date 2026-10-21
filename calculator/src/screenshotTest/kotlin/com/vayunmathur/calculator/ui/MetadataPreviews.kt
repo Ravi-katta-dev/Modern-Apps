@@ -118,7 +118,6 @@ class MetadataPreviews {
                     ),
                 ),
                 actions = CalculatorActions.Noop,
-                initialShowHistory = true,
             )
         }
     }

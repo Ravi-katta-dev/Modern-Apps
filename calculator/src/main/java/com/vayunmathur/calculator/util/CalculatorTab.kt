@@ -99,8 +99,6 @@ class CalculatorTab {
 
     fun useHistory(entry: HistoryEntry) = updateInput(entry.result)
 
-    fun clearHistory() = history.clear()
-
     fun selectOutputUnit(token: String) {
         val unit = unitOptions.firstOrNull { it.token == token } ?: return
         selectedUnit = unit
@@ -161,6 +159,5 @@ internal fun calculatorActionAdapter(tab: CalculatorTab): CalculatorActions = ob
     override fun memoryAdd() = tab.memoryAdd()
     override fun memorySubtract() = tab.memorySubtract()
     override fun useHistory(entry: HistoryEntry) = tab.useHistory(entry)
-    override fun clearHistory() = tab.clearHistory()
     override fun selectOutputUnit(token: String) = tab.selectOutputUnit(token)
 }

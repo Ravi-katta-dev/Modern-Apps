@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">الحاسبة</string>
-    <string name="history">السجل</string>
-    <string name="no_calculations_yet">لا عمليات حساب بعد.</string>
     <string name="add_function">إضافة دالة</string>
     <string name="toggle_curve_visibility">إظهار أو إخفاء هذا المنحنى</string>
     <string name="feature_root">جذر</string>

@@ -20,7 +20,6 @@ import com.vayunmathur.library.ui.AppBarAlignment
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.HorizontalDivider
 import com.vayunmathur.library.ui.IconButton
-import com.vayunmathur.library.ui.IconHistory
 import com.vayunmathur.library.ui.IconRuler
 import com.vayunmathur.library.ui.VerticalDivider
 import com.vayunmathur.library.ui.appBarScrollBehavior
@@ -41,15 +40,13 @@ fun CalculatorScreen(
     state: CalculatorUiState,
     actions: CalculatorActions,
     /**
-     * Seeds for the screen's own UI-only state (which dialog is open, whether the "2nd"
-     * modifier is latched). The app always takes the defaults; previews set them so a
-     * given screen can be captured without driving the UI to get there.
+     * Seeds for the screen's own UI-only state (whether the "2nd" modifier is latched,
+     * whether the unit picker sheet is open). The app always takes the defaults;
+     * previews set them so a given screen can be captured without driving the UI to get there.
      */
-    initialShowHistory: Boolean = false,
     initialSecond: Boolean = false,
     initialShowUnitPicker: Boolean = false,
 ) {
-    var showHistory by remember { mutableStateOf(initialShowHistory) }
     var second by remember { mutableStateOf(initialSecond) }
     var showUnitPicker by remember { mutableStateOf(initialShowUnitPicker) }
 
@@ -60,7 +57,6 @@ fun CalculatorScreen(
         alignment = AppBarAlignment.Center,
         actions = {
             IconButton({ showUnitPicker = true }) { IconRuler() }
-            IconButton({ showHistory = true }) { IconHistory() }
         },
         scrollBehavior = appBarScrollBehavior(),
     ) { padding ->
@@ -82,6 +78,5 @@ fun CalculatorScreen(
         }
     }
 
-    if (showHistory) HistoryDialog(state.history, actions) { showHistory = false }
     if (showUnitPicker) UnitPickerSheet(state, actions) { showUnitPicker = false }
 }

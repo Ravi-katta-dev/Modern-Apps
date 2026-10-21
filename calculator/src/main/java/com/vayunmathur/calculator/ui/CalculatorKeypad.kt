@@ -1,5 +1,6 @@
 package com.vayunmathur.calculator.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,20 +13,28 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vayunmathur.calculator.R
 import com.vayunmathur.calculator.util.AngleMode
 import com.vayunmathur.calculator.util.CalculatorActions
 import com.vayunmathur.calculator.util.CalculatorUiState
+import com.vayunmathur.calculator.util.HistoryEntry
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.ButtonDefaults
 import com.vayunmathur.library.ui.FilterChip
+import com.vayunmathur.library.ui.HorizontalDivider
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.rememberHaptics
@@ -148,16 +157,29 @@ internal fun buildCalculatorRows(angleMode: AngleMode): List<List<Key>> {
 }
 
 /** The readout column: extracted so the compact (stacked) and expanded (side-by-side)
- * layouts share one implementation. */
+ * layouts share one implementation. Past calculations stack above the current input,
+ * newest directly above it, each ringed by dividers. */
 @Composable
 internal fun DisplayColumn(state: CalculatorUiState, actions: CalculatorActions, modifier: Modifier = Modifier) {
+    val verticalScroll = rememberScrollState()
+    // New evaluations prepend to history; keep the current equation pinned in view.
+    LaunchedEffect(state.history.size) { verticalScroll.scrollTo(verticalScroll.maxValue) }
     Column(
-        modifier.padding(horizontal = 20.dp),
+        modifier.padding(horizontal = 20.dp).verticalScroll(verticalScroll),
         verticalArrangement = Arrangement.Bottom,
         horizontalAlignment = Alignment.End,
     ) {
         if (state.memory != 0.0) {
             Text("M", color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+        }
+        if (state.history.isNotEmpty()) {
+            // Stored newest-first; reversed iteration lands the newest entry
+            // directly above the current equation.
+            state.history.reversed().forEach { entry ->
+                HorizontalDivider()
+                HistoryRow(entry, actions)
+                HorizontalDivider()
+            }
         }
         Text(
             com.vayunmathur.calculator.util.renderInputForDisplay(state.input).ifEmpty { "0" }
@@ -186,6 +208,35 @@ internal fun DisplayColumn(state: CalculatorUiState, actions: CalculatorActions,
             // compact and expanded layouts.
             UnitOptionsRow(state, actions)
         }
+    }
+}
+
+/** One past calculation in the inline history stack: tapping reuses its result. */
+@Composable
+private fun HistoryRow(entry: HistoryEntry, actions: CalculatorActions, modifier: Modifier = Modifier) {
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClick = { actions.useHistory(entry) })
+            .semantics { contentDescription = "${entry.expression} equals ${entry.result}" }
+            .padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.End,
+    ) {
+        Text(
+            entry.expression,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 14.sp,
+            maxLines = 2,
+            softWrap = true,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            "= ${entry.result}",
+            fontSize = 20.sp,
+            maxLines = 2,
+            softWrap = true,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

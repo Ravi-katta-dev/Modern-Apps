@@ -1,13 +1,11 @@
 package com.vayunmathur.calculator.ui
 
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -32,12 +30,10 @@ import androidx.compose.ui.unit.sp
 import com.vayunmathur.calculator.R
 import com.vayunmathur.calculator.util.CalculatorActions
 import com.vayunmathur.calculator.util.CalculatorUiState
-import com.vayunmathur.calculator.util.HistoryEntry
 import com.vayunmathur.calculator.util.UnitCategory
 import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.library.ui.AlertDialog
 import com.vayunmathur.library.ui.AssistChip
-import com.vayunmathur.library.ui.Card
 import com.vayunmathur.library.ui.ModalBottomSheet
 import com.vayunmathur.library.ui.NavigationDrawerItem
 import com.vayunmathur.library.ui.Text
@@ -222,45 +218,4 @@ private fun AbsoluteTimePickers(onPick: (AbsoluteTimePicker) -> Unit, modifier: 
         AssistChip(onClick = { onPick(AbsoluteTimePicker.Time) }, label = { Text(stringResource(R.string.key_time)) })
         AssistChip(onClick = { onPick(AbsoluteTimePicker.DtDate) }, label = { Text(stringResource(R.string.key_datetime)) })
     }
-}
-
-@Composable
-internal fun HistoryDialog(
-    history: List<HistoryEntry>,
-    actions: CalculatorActions,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.history)) },
-        text = {
-            if (history.isEmpty()) {
-                Text(stringResource(R.string.no_calculations_yet))
-            } else {
-                LazyColumn(Modifier.height(320.dp)) {
-                    items(history) { entry ->
-                        Card(
-                            onClick = { actions.useHistory(entry); onDismiss() },
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        ) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text(
-                                    entry.expression,
-                                    color = com.vayunmathur.library.ui.MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 14.sp,
-                                )
-                                Text("= ${entry.result}", fontSize = 20.sp)
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onDismiss) { Text(stringResource(UiR.string.close)) } },
-        dismissButton = {
-            if (history.isNotEmpty()) {
-                TextButton({ actions.clearHistory(); onDismiss() }) { Text(stringResource(UiR.string.clear)) }
-            }
-        },
-    )
 }

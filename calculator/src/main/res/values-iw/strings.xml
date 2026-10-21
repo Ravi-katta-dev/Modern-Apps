@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">מחשבון</string>
-    <string name="history">היסטוריה</string>
-    <string name="no_calculations_yet">עדיין אין חישובים.</string>
     <string name="add_function">הוספת פונקציה</string>
     <string name="feature_root">שורש</string>
     <string name="feature_minimum">מינימום</string>

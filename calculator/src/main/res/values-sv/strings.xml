@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Kalkylator</string>
-    <string name="history">Historik</string>
-    <string name="no_calculations_yet">Inga beräkningar ännu.</string>
     <string name="add_function">Lägg till funktion</string>
     <string name="toggle_curve_visibility">Visa eller dölj denna kurva</string>
     <string name="feature_root">nollställe</string>

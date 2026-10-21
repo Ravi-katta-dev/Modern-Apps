@@ -115,7 +115,6 @@ interface CalculatorActions {
     fun memoryAdd() {}
     fun memorySubtract() {}
     fun useHistory(entry: HistoryEntry) {}
-    fun clearHistory() {}
 
     /** Show the result in the compatible unit identified by [token]. */
     fun selectOutputUnit(token: String) {}
