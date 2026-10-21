@@ -186,4 +186,26 @@ mod tests {
         assert_eq!(notes[0].operation, "enable");
         assert_eq!(notes[0].address, "smdp.example.com");
     }
+
+    #[test]
+    fn enable_request_round_trip_and_result_edges() {
+        let iccid = [0x98u8, 0x10, 0x32, 0x54];
+        let req = build_enable(&iccid, true);
+        let outer = asn1::find(&req, TAG_ENABLE).unwrap();
+        let choice = asn1::find(outer, TAG_PROFILE_CHOICE).unwrap();
+        assert_eq!(asn1::find(choice, TAG_ICCID).unwrap(), &iccid);
+        assert_eq!(asn1::find(choice, TAG_REFRESH_FLAG).unwrap(), &[0xFF]);
+        let off = build_disable(&iccid, false);
+        let off_body = asn1::find(&off, TAG_DISABLE).unwrap();
+        let off_choice = asn1::find(off_body, TAG_PROFILE_CHOICE).unwrap();
+        assert_eq!(asn1::find(off_choice, TAG_REFRESH_FLAG).unwrap(), &[0x00]);
+        assert!(parse_result(&[0x00], RESULT_TAG_ENABLE).is_err());
+        assert!(parse_result(&asn1::tlv(TAG_ENABLE, &[]), RESULT_TAG_ENABLE).is_err());
+        let neg = asn1::tlv(TAG_ENABLE, &asn1::tlv(TAG_RESULT, &[0xFF]));
+        assert_eq!(parse_result(&neg, RESULT_TAG_ENABLE).unwrap(), -1);
+        assert_eq!(parse_int(&[]), 0);
+        assert_eq!(encode_int_minimal(0), vec![0x00]);
+        assert_eq!(encode_int_minimal(0x80), vec![0x00, 0x80]);
+        assert_eq!(decode_iccid(&[]), "");
+    }
 }

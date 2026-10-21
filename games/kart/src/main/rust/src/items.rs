@@ -275,4 +275,32 @@ mod tests {
         }
         assert!(hit, "shell never reached the kart ahead");
     }
+
+    #[test]
+    fn shell_grace_spares_owner_then_hits() {
+        let owner = KartBody::spawn(0.0, 0.0);
+        let karts = vec![owner.clone()];
+        let mut shells = vec![Shell {
+            owner: 0,
+            x: owner.x,
+            z: owner.z,
+            yaw: owner.yaw,
+            life: SHELL_LIFE,
+            grace: 0.5,
+        }];
+        let hits = tick_shells(&mut shells, &karts, 1.0 / 60.0);
+        assert!(hits.is_empty(), "grace should spare the owner");
+        assert_eq!(shells.len(), 1, "graced shell must survive");
+        let mut shells = vec![Shell {
+            owner: 0,
+            x: owner.x,
+            z: owner.z,
+            yaw: owner.yaw,
+            life: SHELL_LIFE,
+            grace: 0.0,
+        }];
+        let hits = tick_shells(&mut shells, &karts, 1.0 / 60.0);
+        assert_eq!(hits, vec![0], "expired grace must hit the owner");
+        assert!(shells.is_empty(), "hit shell is consumed");
+    }
 }

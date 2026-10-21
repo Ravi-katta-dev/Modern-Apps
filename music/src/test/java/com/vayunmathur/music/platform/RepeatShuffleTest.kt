@@ -6,33 +6,40 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pins the repeat/shuffle transitions behind the transport buttons.
+ * Pins the repeat and shuffle transitions behind the transport buttons.
  *
- * The buttons themselves talk to a service controller, so what is pinned here
- * is the transition each press applies: repeat cycles off, one, all and wraps,
+ * The buttons drive a service controller, so what is pinned here is the
+ * transition each press applies: repeat cycles off, one, all and wraps,
  * while shuffle flips independently of it.
  */
 class RepeatShuffleTest {
 
+    private fun nextRepeatMode(mode: Int): Int = when (mode) {
+        0 -> 1
+        1 -> 2
+        else -> 0
+    }
+
+    private fun toggleShuffle(enabled: Boolean): Boolean = !enabled
+
     @Test
     fun repeatCyclesOffOneAllThenWraps() {
-        assertEquals(REPEAT_ONE, nextRepeatMode(REPEAT_OFF))
-        assertEquals(REPEAT_ALL, nextRepeatMode(REPEAT_ONE))
-        assertEquals(REPEAT_OFF, nextRepeatMode(REPEAT_ALL))
+        assertEquals(1, nextRepeatMode(0))
+        assertEquals(2, nextRepeatMode(1))
+        assertEquals(0, nextRepeatMode(2))
     }
 
     @Test
     fun unknownRepeatModeFallsBackToOff() {
-        // Mirrors the else branch: anything unrecognised restarts the cycle.
-        assertEquals(REPEAT_OFF, nextRepeatMode(99))
-        assertEquals(REPEAT_OFF, nextRepeatMode(-1))
+        assertEquals(0, nextRepeatMode(99))
+        assertEquals(0, nextRepeatMode(-1))
     }
 
     @Test
     fun threePressesReturnToTheStart() {
-        var mode = REPEAT_OFF
+        var mode = 0
         repeat(3) { mode = nextRepeatMode(mode) }
-        assertEquals(REPEAT_OFF, mode)
+        assertEquals(0, mode)
     }
 
     @Test
@@ -45,38 +52,21 @@ class RepeatShuffleTest {
 
     @Test
     fun repeatPressesNeverTouchShuffle() {
-        var shuffle = true
-        var mode = REPEAT_OFF
+        val shuffle = true
+        var mode = 0
         repeat(4) { mode = nextRepeatMode(mode) }
         assertTrue(shuffle)
-        assertEquals(REPEAT_ONE, mode)
+        assertEquals(1, mode)
     }
 
     @Test
     fun shufflePressesNeverTouchRepeat() {
-        var mode = REPEAT_ALL
+        val mode = 2
         var shuffle = toggleShuffle(false)
         assertTrue(shuffle)
-        assertEquals(REPEAT_ALL, mode)
+        assertEquals(2, mode)
         shuffle = toggleShuffle(shuffle)
         assertFalse(shuffle)
-        assertEquals(REPEAT_ALL, mode)
-    }
-
-    companion object {
-        // Media3 Player.REPEAT_MODE_OFF/ONE/ALL, restated so this stays host-only.
-        private const val REPEAT_OFF = 0
-        private const val REPEAT_ONE = 1
-        private const val REPEAT_ALL = 2
-
-        // Mirrors PlaybackManager.toggleRepeat's when branch.
-        private fun nextRepeatMode(mode: Int): Int = when (mode) {
-            REPEAT_OFF -> REPEAT_ONE
-            REPEAT_ONE -> REPEAT_ALL
-            else -> REPEAT_OFF
-        }
-
-        // Mirrors PlaybackManager.toggleShuffle's negation.
-        private fun toggleShuffle(enabled: Boolean): Boolean = !enabled
+        assertEquals(2, mode)
     }
 }

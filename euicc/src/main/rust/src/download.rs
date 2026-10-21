@@ -480,4 +480,25 @@ mod tests {
         );
         assert!(es10b::extract_transaction_id(&[0x30, 0x00]).is_err());
     }
+
+    #[test]
+    fn activation_code_edges_and_hash_boundaries() {
+        let spaced = parse_activation_code("  LPA:1$smdp.example.com$ABC-123  ").unwrap();
+        assert_eq!(spaced.matching_id, "ABC-123");
+        assert!(!spaced.confirmation_code_required);
+        let bare = parse_activation_code("1$smdp.example.com$ABC-123").unwrap();
+        assert_eq!(bare.smdp, "smdp.example.com");
+        let flag_off = parse_activation_code("1$smdp.example.com$ABC$$0").unwrap();
+        assert!(!flag_off.confirmation_code_required);
+        let flag_on = parse_activation_code("1$smdp.example.com$ABC$$1").unwrap();
+        assert!(flag_on.confirmation_code_required);
+        assert!(parse_activation_code("LPA:1$.bad.host$ABC").is_err());
+        assert!(parse_activation_code("LPA:1$bad.host.$ABC").is_err());
+        assert!(parse_activation_code("LPA:1$bad_host$ABC").is_err());
+        let empty_hash = hash_confirmation_code("", &[]);
+        let code_hash = hash_confirmation_code("", &[0x01]);
+        assert_ne!(empty_hash, code_hash);
+        assert_eq!(empty_hash.len(), 32);
+        assert_eq!(hash_confirmation_code("x", &[]).len(), 32);
+    }
 }

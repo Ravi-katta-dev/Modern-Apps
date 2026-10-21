@@ -292,4 +292,16 @@ mod tests {
         // Body top (6) + front/back/sides (24) + cabin (12) + 4 wheels (4x30).
         assert!(out.len() >= 100, "verts={}", out.len());
     }
+
+    #[test]
+    fn track_mesh_counts_match_quads() {
+        let mesh = build_track_mesh();
+        let steps = (track::TRACK_LENGTH / MESH_STEP).ceil() as usize;
+        assert_eq!(mesh.len(), steps * 42, "verts={}", mesh.len());
+        assert_eq!(mesh.len() % 6, 0);
+        for v in &mesh {
+            assert!(v.pos.iter().all(|c| c.is_finite()));
+            assert!(v.color.iter().all(|c| (0.0..=1.0).contains(c)));
+        }
+    }
 }

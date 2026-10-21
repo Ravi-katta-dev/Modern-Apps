@@ -47,14 +47,16 @@ class LaunchNoCrashTest {
         targetContext.startActivity(intent)
 
         // Past the permission screen: the gate wall never appears and the
-        // contacts list search field is showing.
+        // contacts tab row is showing ("Contacts" label; verified on device
+        // via uiautomator dump — the search hint text never reaches the
+        // accessibility tree, so the tab label is the stable marker).
         assertNull(
             "permission gate is showing; grants did not clear it",
             device.wait(Until.findObject(By.text(PERMISSION_GATE_TITLE)), GATE_TIMEOUT_MS),
         )
         assertNotNull(
             "contacts list never appeared; the app may have crashed on launch",
-            device.wait(Until.findObject(By.text(SEARCH_PLACEHOLDER)), CONTENT_TIMEOUT_MS),
+            device.wait(Until.findObject(By.text(CONTACTS_TAB)), CONTENT_TIMEOUT_MS),
         )
         // Still alive in front: the process did not crash after painting content.
         assertEquals(packageName, device.currentPackageName)
@@ -94,7 +96,7 @@ class LaunchNoCrashTest {
     private companion object {
         private const val CONTENT_TIMEOUT_MS = 15_000L
         private const val GATE_TIMEOUT_MS = 5_000L
-        private const val SEARCH_PLACEHOLDER = "Search contacts"
+        private const val CONTACTS_TAB = "Contacts"
         private const val PERMISSION_GATE_TITLE = "Grant Required Permissions"
 
         /**

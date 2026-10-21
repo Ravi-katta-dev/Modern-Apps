@@ -116,3 +116,34 @@ fn rejects_oversized_signature() {
 fn rejects_all_zero_signature() {
     assert!(!verify(&pubkey(), REPODATA, &[0u8; 64]));
 }
+
+#[test]
+fn rejects_message_with_appended_byte() {
+    let mut extended = REPODATA.to_vec();
+    extended.push(b'\n');
+    assert!(!verify(&pubkey(), &extended, &signature()));
+}
+
+#[test]
+fn rejects_message_truncated_by_one_byte() {
+    let truncated = &REPODATA[..REPODATA.len() - 1];
+    assert!(!verify(&pubkey(), truncated, &signature()));
+}
+
+#[test]
+fn rejects_all_zero_public_key() {
+    assert!(!verify(&[0u8; 32], REPODATA, &signature()));
+}
+
+#[test]
+fn rejects_single_byte_key_and_signature() {
+    assert!(!verify(&[1u8; 1], REPODATA, &signature()));
+    assert!(!verify(&pubkey(), REPODATA, &[1u8; 1]));
+}
+
+#[test]
+fn rejects_signature_with_middle_byte_flip() {
+    let mut sig = signature();
+    sig[32] ^= 1;
+    assert!(!verify(&pubkey(), REPODATA, &sig));
+}

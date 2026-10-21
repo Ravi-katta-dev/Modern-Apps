@@ -360,4 +360,27 @@ mod tests {
             "camera on top of the kart"
         );
     }
+
+    #[test]
+    fn standings_orders_by_lap_then_progress() {
+        let mut race = Race::new(&["p1".to_string()]);
+        assert!(race.seat_count() >= 2, "needs a rival to order");
+        race.seats[0].kart.lap = 1;
+        race.seats[0].kart.track_s = 10.0;
+        race.seats[1].kart.lap = 1;
+        race.seats[1].kart.track_s = 100.0;
+        let order = race.standings();
+        assert_eq!(order[0].0, race.seats[1].id);
+        race.seats[0].kart.lap = 2;
+        let order = race.standings();
+        assert_eq!(order[0].0, race.seats[0].id);
+    }
+
+    #[test]
+    fn winner_needs_finish_flag() {
+        let mut race = Race::new(&["p1".to_string()]);
+        assert_eq!(race.winner(), None, "no winner before the line");
+        race.finished = true;
+        assert!(race.winner().is_some(), "leader wins once flagged");
+    }
 }

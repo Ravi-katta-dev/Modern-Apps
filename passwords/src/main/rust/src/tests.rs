@@ -171,3 +171,88 @@ fn std_json_escape_handles_newlines() {
     let parsed = entries_of(&js);
     assert_eq!(parsed[0]["Websites"], "a\nb");
 }
+
+#[test]
+fn empty_vault_round_trips_to_empty_array() {
+    let bytes = export_kdbx(PW, "[]").expect("export empty");
+    let out = import_kdbx(PW, &bytes).expect("import empty");
+    assert!(entries_of(&out).is_empty(), "empty vault stays empty");
+
+    let db = Database::new();
+    let mut raw = Vec::new();
+    db.save(&mut raw, DatabaseKey::new().with_password(PW)).expect("save empty db");
+    let out2 = import_kdbx(PW, &raw).expect("import empty db");
+    assert!(entries_of(&out2).is_empty(), "fresh db imports to empty");
+}
+
+#[test]
+fn unicode_field_values_survive_round_trip() {
+    let mut m = EntryMap::new();
+    m.insert("Title".into(), "caf\u{00e9} \u{2615}\u{fe0f} \u{65e5}\u{672c}\u{8a9e}".into());
+    m.insert("UserName".into(), "\u{7528}\u{6237}_\u{03b1}\u{03b2}\u{03b3}".into());
+    m.insert("Password".into(), "p\u{00e4}ssw\u{00f6}rd_\u{1f511}".into());
+    m.insert("URL".into(), "https://\u{4f8b}\u{5b50}.example/\u{30d1}\u{30b9}".into());
+    m.insert("Notes".into(), "\u{0645}\u{0631}\u{062d}\u{0628}\u{0627}\n\u{1f600}\t\"quoted\"".into());
+    let json_str = json_array_of(&[m]);
+
+    let bytes = export_kdbx(PW, &json_str).expect("export");
+    let parsed = entries_of(&import_kdbx(PW, &bytes).expect("import"));
+    assert_eq!(parsed.len(), 1, "single unicode entry preserved");
+
+    let e = find_entry(&parsed, "caf\u{00e9} \u{2615}\u{fe0f} \u{65e5}\u{672c}\u{8a9e}");
+    assert_eq!(e.get("UserName").map(|s| s.as_str()), Some("\u{7528}\u{6237}_\u{03b1}\u{03b2}\u{03b3}"));
+    assert_eq!(e.get("Password").map(|s| s.as_str()), Some("p\u{00e4}ssw\u{00f6}rd_\u{1f511}"));
+    assert_eq!(e.get("URL").map(|s| s.as_str()), Some("https://\u{4f8b}\u{5b50}.example/\u{30d1}\u{30b9}"));
+    assert_eq!(
+        e.get("Notes").map(|s| s.as_str()),
+        Some("\u{0645}\u{0631}\u{062d}\u{0628}\u{0627}\n\u{1f600}\t\"quoted\"")
+    );
+}
+
+#[test]
+fn corrupted_header_and_truncation_return_none() {
+    let mut m = EntryMap::new();
+    m.insert("Title".into(), "x".into());
+    m.insert("Password".into(), "p".into());
+    let bytes = export_kdbx(PW, &json_array_of(&[m])).expect("export");
+
+    let mut bad_magic = bytes.clone();
+    let prefix = bad_magic.len().min(8);
+    for b in bad_magic.iter_mut().take(prefix) {
+        *b ^= 0xFF;
+    }
+    assert!(import_kdbx(PW, &bad_magic).is_none(), "bad magic rejected");
+
+    let half = bytes.len() / 2;
+    assert!(import_kdbx(PW, &bytes[..half]).is_none(), "truncated vault rejected");
+    assert!(import_kdbx(PW, &[]).is_none(), "empty input rejected");
+}
+
+#[test]
+fn sibling_nested_groups_all_flattened_on_import() {
+    let mut db = Database::new();
+    db.root_mut().add_entry().set_unprotected(fields::TITLE, "RootEntry");
+    let left = db.root_mut().add_group().edit(|g| g.name = "Left".into()).id();
+    let right = db.root_mut().add_group().edit(|g| g.name = "Right".into()).id();
+    db.group_mut(left).expect("left group").add_entry().set_unprotected(fields::TITLE, "LeftEntry");
+    db.group_mut(right).expect("right group").add_entry().set_unprotected(fields::TITLE, "RightEntry");
+
+    let mut bytes = Vec::new();
+    db.save(&mut bytes, DatabaseKey::new().with_password(PW)).expect("save");
+    let parsed = entries_of(&import_kdbx(PW, &bytes).expect("import"));
+
+    assert_eq!(parsed.len(), 3, "all nested entries flattened");
+    let titles: Vec<String> = parsed.iter().filter_map(|e| e.get("Title").cloned()).collect();
+    assert!(titles.contains(&"RootEntry".to_string()), "root kept");
+    assert!(titles.contains(&"LeftEntry".to_string()), "left kept");
+    assert!(titles.contains(&"RightEntry".to_string()), "right kept");
+}
+
+#[test]
+fn import_with_empty_password_is_rejected() {
+    let mut m = EntryMap::new();
+    m.insert("Title".into(), "x".into());
+    m.insert("Password".into(), "p".into());
+    let bytes = export_kdbx(PW, &json_array_of(&[m])).expect("export");
+    assert!(import_kdbx("", &bytes).is_none(), "empty password rejected");
+}

@@ -1,95 +1,118 @@
 package com.vayunmathur.contacts.pure
 
-import java.text.Collator
-import java.util.Locale
+import com.vayunmathur.contacts.data.Contact
+import com.vayunmathur.contacts.data.ContactDetails
+import com.vayunmathur.contacts.data.Name
+import com.vayunmathur.contacts.util.ContactSorting
+import com.vayunmathur.contacts.util.ContactSorting.sectionKey
+import com.vayunmathur.contacts.util.ContactSorting.sortDisplayName
+import com.vayunmathur.contacts.util.ContactSorting.sortedByMode
+import com.vayunmathur.contacts.util.ContactSorting.sortedByNameLocale
+import com.vayunmathur.contacts.util.ContactSorting.sortedLocale
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
+/**
+ * Pins locale-aware contact sorting through the production sorter:
+ * section keys, first/last-name modes, accent-insensitive ordering and
+ * the name join/split helpers the sort names are built from.
+ *
+ * Builds Contact graphs directly (their constructors are pure data);
+ * no provider, database or device is touched.
+ */
 class ContactSortTest {
+    private fun contact(first: String, last: String, id: Long = 0L): Contact =
+        Contact(id, null, null, false, ContactDetails.empty().copy(names = listOf(Name(0, "", first, "", last, ""))))
 
-    private enum class Mode { First, Last }
-
-    private data class SortFixture(val first: String, val last: String)
-
-    private fun displayOf(contact: SortFixture): String {
-        return listOf(contact.first, contact.last)
-            .map { it.trim() }
-            .filter { it.isNotEmpty() }
-            .joinToString(" ")
-    }
-
-    private fun sortName(contact: SortFixture, mode: Mode): String {
-        if (mode == Mode.First) return displayOf(contact)
-        val last = contact.last.trim()
-        val first = contact.first.trim()
-        return when {
-            last.isNotEmpty() && first.isNotEmpty() -> "$last $first"
-            last.isNotEmpty() -> last
-            displayOf(contact).isNotBlank() -> displayOf(contact)
-            else -> first
-        }
-    }
-
-    private fun collator(): Collator {
-        return Collator.getInstance(Locale.ROOT).apply {
-            strength = Collator.PRIMARY
-            decomposition = Collator.CANONICAL_DECOMPOSITION
-        }
-    }
-
-    private fun sortedByMode(contacts: List<SortFixture>, mode: Mode): List<SortFixture> {
-        val col = collator()
-        return contacts.map { it to col.getCollationKey(sortName(it, mode)) }
-            .sortedWith(compareBy { it.second })
-            .map { it.first }
+    @Test
+    fun sectionKeyUppercasesAscii() {
+        assertEquals('J', ContactSorting.groupKey("jane"))
     }
 
     @Test
-    fun sortsByFirstNameIgnoringCase() {
-        val contacts = listOf(SortFixture("bob", "B"), SortFixture("alice", "A"), SortFixture("Carol", "C"))
-        val result = sortedByMode(contacts, Mode.First)
-        assertEquals(listOf("alice", "bob", "Carol"), result.map { it.first })
+    fun sectionKeyStripsDiacritics() {
+        assertEquals('E', ContactSorting.groupKey("Émile"))
+        assertEquals('C', ContactSorting.groupKey("çedille"))
     }
 
     @Test
-    fun sortsByLastNameMode() {
-        val contacts = listOf(SortFixture("Ada", "Zebra"), SortFixture("Bob", "Apple"))
-        val result = sortedByMode(contacts, Mode.Last)
-        assertEquals(listOf("Apple", "Zebra"), result.map { it.last })
+    fun sectionKeyRejectsBlanksDigitsAndSymbols() {
+        assertEquals('#', ContactSorting.groupKey(""))
+        assertEquals('#', ContactSorting.groupKey("   "))
+        assertEquals('#', ContactSorting.groupKey("9lives"))
+        assertEquals('#', ContactSorting.groupKey("@home"))
     }
 
     @Test
-    fun accentedSortsWithBaseLetter() {
-        val contacts = listOf(SortFixture("Victor", "V"), SortFixture("Véronique", "V"))
-        val result = sortedByMode(contacts, Mode.First)
-        assertEquals("Véronique", result[0].first)
-        assertEquals("Victor", result[1].first)
+    fun firstNameModeUsesDisplayValue() {
+        val c = contact("John", "Doe")
+        assertEquals("John Doe", c.sortDisplayName(ContactSorting.ContactSortMode.FirstName))
     }
 
     @Test
-    fun emptyDisplaySortsBeforeLetters() {
-        val contacts = listOf(SortFixture("Amy", "A"), SortFixture("", ""))
-        val result = sortedByMode(contacts, Mode.First)
-        assertEquals("", result[0].first)
-        assertEquals("Amy", result[1].first)
+    fun lastNameModePutsFamilyNameFirst() {
+        val c = contact("John", "Doe")
+        assertEquals("Doe John", c.sortDisplayName(ContactSorting.ContactSortMode.LastName))
     }
 
     @Test
-    fun singleNameFallsBackToFullValue() {
-        assertEquals("Madonna", sortName(SortFixture("Madonna", ""), Mode.Last))
+    fun singleNameFallsBackToDisplayValue() {
+        val c = contact("Madonna", "")
+        assertEquals("Madonna", c.sortDisplayName(ContactSorting.ContactSortMode.LastName))
+        assertEquals('M', c.sectionKey(ContactSorting.ContactSortMode.LastName))
     }
 
     @Test
-    fun lastNameModePrefersLastFirst() {
-        assertEquals("Doe John", sortName(SortFixture("John", "Doe"), Mode.Last))
+    fun sortIsAccentInsensitive() {
+        val names = listOf(contact("Victor", "Hugo"), contact("Véronique", "Alix"))
+        val sorted = names.sortedLocale().map { it.name.firstName }
+        assertEquals(listOf("Véronique", "Victor"), sorted)
     }
 
     @Test
-    fun unicodeSortIsStableAndLossless() {
-        val contacts = listOf(SortFixture("伟", "北京"), SortFixture("Amy", "A"), SortFixture("Émile", "B"))
-        val once = sortedByMode(contacts, Mode.First)
-        val twice = sortedByMode(once, Mode.First)
-        assertEquals(once.map { it.first }, twice.map { it.first })
-        assertEquals(setOf("伟", "Amy", "Émile"), once.map { it.first }.toSet())
+    fun sortIgnoresCase() {
+        val names = listOf(contact("bob", "B"), contact("Alice", "A"), contact("cherry", "C"))
+        val sorted = names.sortedLocale().map { it.name.firstName }
+        assertEquals(listOf("Alice", "bob", "cherry"), sorted)
+    }
+
+    @Test
+    fun sortByLastNameModeOrdersByFamilyName() {
+        val names = listOf(contact("John", "Doe"), contact("Amy", "Adams"))
+        val sorted = names.sortedByMode(ContactSorting.ContactSortMode.LastName)
+        assertEquals(listOf("Adams", "Doe"), sorted.map { it.name.lastName })
+    }
+
+    @Test
+    fun emptyListSortsToEmpty() {
+        assertEquals(emptyList(), emptyList<Contact>().sortedLocale())
+    }
+
+    @Test
+    fun genericNameSelectorSortsGroups() {
+        val groups = listOf("Zebra", "apple", "Mango")
+        assertEquals(listOf("apple", "Mango", "Zebra"), groups.sortedByNameLocale { it })
+    }
+
+    @Test
+    fun nameValueSkipsBlankPartsWithoutDoubleSpaces() {
+        assertEquals("Dr. Jane Ann Doe Jr.", Name(0, "Dr.", "Jane", "Ann", "Doe", "Jr.").value)
+        assertEquals("Jane Doe", Name(0, "", "Jane", "", "Doe", "").value)
+        assertEquals("", Name(0, "", "", "", "", "").value)
+    }
+
+    @Test
+    fun displaySplitKeepsMultiWordFamilyName() {
+        assertEquals("Mary" to "Kay Olsen", splitGivenFamily("Mary Kay Olsen"))
+        assertEquals("Madonna" to "", splitGivenFamily("Madonna"))
+        assertEquals("" to "", splitGivenFamily("   "))
+    }
+
+    private fun splitGivenFamily(display: String): Pair<String, String> {
+        val trimmed = display.trim()
+        if (trimmed.isEmpty()) return "" to ""
+        val first = trimmed.substringBefore(" ")
+        val last = if (" " in trimmed) trimmed.substringAfter(" ") else ""
+        return first to last
     }
 }

@@ -16,13 +16,14 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Library tabs journey: past the audio gate the pager paints all four tabs
- * (Home / Albums / Artists / Playlists), and tapping Home shows its content.
+ * Library tabs journey: past the audio gate the icon-only tab row paints
+ * (content descriptions Music/Album/Person — verified on device via
+ * uiautomator dump; the tabs carry no text labels), and tapping through
+ * them keeps the library in front.
  *
- * Each tab's list reuses the app name as its search-bar hint, so the tab bar
- * labels are the stable markers instead. UiDevice polling only; compose-test
- * idle-sync is broken on current releases. Cast and car flows are out of scope
- * here (they need a TV harness) and are not touched.
+ * Each tab's list reuses the app name as its search-bar hint. UiDevice
+ * polling only; compose-test idle-sync is broken on current releases. Cast
+ * and car flows are out of scope here (they need a TV harness).
  */
 @RunWith(AndroidJUnit4::class)
 class MusicLibraryTest {
@@ -44,16 +45,16 @@ class MusicLibraryTest {
         )
         for (tab in TABS) {
             assertNotNull(
-                "$tab tab never appeared; the library pager did not paint",
-                device.wait(Until.findObject(By.text(tab)), CONTENT_TIMEOUT_MS),
+                "$tab tab never appeared; the library tab row did not paint",
+                device.wait(Until.findObject(By.desc(tab)), CONTENT_TIMEOUT_MS),
             )
         }
-        requireNotNull(device.wait(Until.findObject(By.text(HOME_TAB)), CONTENT_TIMEOUT_MS)) {
+        requireNotNull(device.wait(Until.findObject(By.desc(HOME_TAB)), CONTENT_TIMEOUT_MS)) {
             "Home tab missing"
         }.click()
         assertNotNull(
             "Home content never painted",
-            device.wait(Until.findObject(By.text(HOME_TAB)), CONTENT_TIMEOUT_MS),
+            device.wait(Until.findObject(By.desc(HOME_TAB)), CONTENT_TIMEOUT_MS),
         )
         assertEquals(packageName, device.currentPackageName)
     }
@@ -88,8 +89,10 @@ class MusicLibraryTest {
         private const val CONTENT_TIMEOUT_MS = 15_000L
         private const val GATE_TIMEOUT_MS = 5_000L
         private const val PERMISSION_GATE_TITLE = "Grant Required Permissions"
-        private const val HOME_TAB = "Home"
-        private val TABS = arrayOf("Home", "Albums", "Artists", "Playlists")
+        // Icon-tab content descriptions observed on device; the row is
+        // Music(selected) / Album / Person / Music — first entry is Home.
+        private const val HOME_TAB = "Music"
+        private val TABS = arrayOf("Music", "Album", "Person")
         private val SPECIAL_ACCESS_COMMANDS = arrayOf(
             "appops set %s SCHEDULE_EXACT_ALARM allow",
             "appops set %s USE_FULL_SCREEN_INTENT allow",

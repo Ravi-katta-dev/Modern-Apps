@@ -406,4 +406,35 @@ mod tests {
         let empty = json!({});
         assert!(check_function_execution_status(&empty).is_err());
     }
+
+    #[test]
+    fn endpoint_edges_and_status_wording() {
+        assert_eq!(
+            endpoint("smdp.example.com:8443/", "cancelSession"),
+            "https://smdp.example.com:8443/gsma/rsp2/es9plus/cancelSession"
+        );
+        assert_eq!(base_url(" http://smdp.example.com//"), "http://smdp.example.com");
+        assert_eq!(base_url("https://smdp.example.com/"), "https://smdp.example.com");
+        assert_eq!(host_of("https://smdp.example.com:8443/"), "smdp.example.com:8443");
+        assert_eq!(host_of("  smdp.example.com  "), "smdp.example.com");
+        let ok = json!({"header": {"functionExecutionStatus": {"status": "Executed-Success"}}});
+        assert!(check_function_execution_status(&ok).is_ok());
+        let no_state = json!({"header": {"functionExecutionStatus": {}}});
+        assert!(check_function_execution_status(&no_state).is_err());
+        assert_eq!(
+            es9p_error_message("8.1", "4.8"),
+            Some("eUICC does not have sufficient space for this Profile")
+        );
+        assert_eq!(es9p_error_message("9.9", "9.9"), None);
+        let with_msg = json!({
+            "statusCodeData": {"subjectCode": "8.1", "subjectIdentifier": "id", "reasonCode": "4.8",
+                "message": "custom wording"}
+        });
+        assert!(status_detail(&with_msg).contains("custom wording"));
+        let fallback = json!({
+            "statusCodeData": {"subjectCode": "8.1", "subjectIdentifier": "id", "reasonCode": "4.8"}
+        });
+        assert!(status_detail(&fallback).contains("sufficient space"));
+        assert!(get_b64(&json!({"k": "!!!"}), "k").is_err());
+    }
 }

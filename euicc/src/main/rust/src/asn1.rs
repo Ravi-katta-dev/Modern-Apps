@@ -198,4 +198,35 @@ mod tests {
         assert_eq!(encode_len(0x80), vec![0x81, 0x80]);
         assert_eq!(encode_len(0x7F), vec![0x7F]);
     }
+
+    #[test]
+    fn encode_len_boundary_round_trip() {
+        for len in [0x00usize, 0x7F, 0x80, 0xFF, 0x100, 0x1234, 0xFFFF] {
+            let payload = vec![0x55u8; len];
+            let encoded = tlv(0x04, &payload);
+            let (parsed, rest) = parse(&encoded).unwrap();
+            assert_eq!(parsed.tag, 0x04);
+            assert_eq!(parsed.value, payload.as_slice());
+            assert!(rest.is_empty());
+        }
+        assert_eq!(encode_len(0x7F), vec![0x7F]);
+        assert_eq!(encode_len(0x80), vec![0x81, 0x80]);
+        assert_eq!(encode_len(0x100), vec![0x82, 0x01, 0x00]);
+        assert_eq!(header(0xA1, 3), vec![0xA1, 0x03]);
+        assert_eq!(wrap(0x5C, &[0x5A]), tlv(0x5C, &[0x5A]));
+    }
+
+    #[test]
+    fn rejects_malformed_tlv_vectors() {
+        assert!(parse(&[]).is_none());
+        assert!(parse(&[0x5A]).is_none());
+        assert!(parse(&[0x5A, 0x02, 0xAB]).is_none());
+        assert!(parse(&[0x04, 0x80, 0x00]).is_none());
+        assert!(parse(&[0x04, 0x85, 0x01, 0x02, 0x03, 0x04, 0x05]).is_none());
+        assert!(parse(&[0xBF, 0x3E, 0x81, 0x80]).is_none());
+        assert!(find(&[0x5A, 0x02, 0xAB], 0x5A).is_none());
+        assert!(children(&[0xFF]).is_none());
+        assert!(find(&[], 0x5A).is_none());
+        assert!(children(&[]).unwrap().is_empty());
+    }
 }

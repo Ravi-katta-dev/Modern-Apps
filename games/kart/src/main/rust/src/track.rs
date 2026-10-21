@@ -207,4 +207,15 @@ mod tests {
         let b = point_at(5.0);
         assert!((a.x - b.x).abs() < 0.001 && (a.z - b.z).abs() < 0.001);
     }
+
+    #[test]
+    fn tangent_yaw_matches_forward() {
+        for s in [0.0, 50.0, 250.0, 400.0, 600.0] {
+            let p = point_at(s);
+            let yaw = tangent_yaw(&p);
+            assert!((yaw.sin() - p.tx).abs() < 1e-5, "s={s} fx mismatch");
+            assert!((-yaw.cos() - p.tz).abs() < 1e-5, "s={s} fz mismatch");
+            assert!(heading_error(yaw, &p).abs() < 1e-5, "s={s} err");
+        }
+    }
 }
