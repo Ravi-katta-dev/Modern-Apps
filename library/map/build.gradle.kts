@@ -43,8 +43,9 @@ dependencies {
 
     // The on-device screenshot harness (`src/androidTest`), which is the only way to see what
     // the renderer draws: Vulkan needs a real GPU, so the host probes can only measure the CPU
-    // pipeline. These are the only androidTest dependencies in the repo; the coordinates live
-    // in the version catalog with the rest of the repo's dependencies.
+    // pipeline. The coordinates live in the version catalog with the rest of the repo's
+    // dependencies; every app module also gets the shared launch-no-crash androidTest
+    // dependencies from `common-conventions-app`.
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.core)
     androidTestImplementation(libs.androidx.test.ext.junit)

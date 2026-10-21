@@ -219,6 +219,9 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         versionCode = appVersionCode
         versionName = appVersionName
         targetSdk = 37
+        // Launch-no-crash tests run on-device (connectedDevAndroidTest). Mirrors
+        // :library:map, the only other module with an androidTest source set.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // arm64-v8a only by default — all phones/tablets + Apple Silicon emulator are
         // arm64. AGP otherwise configures buildCMakeDebug for armeabi-v7a/x86/x86_64
         // which wastes time and broke when offline router's sqlite3.c was removed.
@@ -307,6 +310,13 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
             }
             // initWith(release) copied DEV_BUILD=false; dev is a developer build, so flip it on.
             buildConfigField("boolean", "DEV_BUILD", "true")
+            // Coverage for the launch-no-crash rollout and everything after it:
+            // unit-test coverage via createDevUnitTestCoverageReport, on-device
+            // coverage via the connectedDevAndroidTest + coverage report tasks.
+            // Enable coverage for unit tests
+            enableUnitTestCoverage = true
+            // Enable coverage for instrumentation tests
+            enableAndroidTestCoverage = true
         }
     }
 
@@ -378,6 +388,18 @@ dependencies {
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit)
+
+    // Launch-no-crash tests (src/androidTest, run on-device via assemble +
+    // `am instrument`). Wired once here so no app build file needs its own
+    // block; modules without an androidTest source set compile nothing extra.
+    // Deliberately no compose ui-test: its Espresso idle-sync reflects on
+    // hidden InputManager APIs that no longer exist on current releases, so
+    // every compose-rule test dies before its first line. UiDevice polling
+    // covers Compose and non-Compose screens alike with no Espresso involved.
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.uiautomator)
 }
 
 fun DependencyHandlerScope.justSoItShowsAsUsedSomewhere() {

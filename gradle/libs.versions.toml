@@ -81,11 +81,15 @@ ink = "1.1.0-alpha09"
 # AndroidX – Android Auto (car app library), consumed by :maps, :music, :communicate, :weather, :auto
 carApp = "1.9.0-alpha03"
 
-# AndroidX – instrumentation test (androidTest). Only :library:map's on-device renderer
-# harness uses these; they are three independently versioned artifacts, not one train.
+# AndroidX – instrumentation test (androidTest). Shared by every app's
+# launch-no-crash test plus :library:map's on-device renderer harness;
+# they are three independently versioned artifacts, not one train.
 androidxTestRunner = "1.7.0"
 androidxTestCore = "1.7.0"
 androidxTestExtJunit = "1.3.0"
+# UIAutomator, for the one gesture the shell cannot perform: the VPN consent
+# dialog the OS forces a user tap on. Everything else grants headlessly.
+uiautomator = "2.3.0"
 
 # Google libraries
 # One key for the entire protobuf toolchain — protobuf-java, protobuf-javalite and the protoc
@@ -240,6 +244,7 @@ androidx-compose-adaptive-navigation3 = { group = "androidx.compose.material3.ad
 # AndroidX – Media3 (ExoPlayer & session)
 androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3Exoplayer" }
 androidx-media3-exoplayer-dash = { module = "androidx.media3:media3-exoplayer-dash", version.ref = "media3Exoplayer" }
+androidx-media3-exoplayer-hls = { module = "androidx.media3:media3-exoplayer-hls", version.ref = "media3Exoplayer" }
 androidx-media3-session = { module = "androidx.media3:media3-session", version.ref = "media3Exoplayer" }
 androidx-media3-ui-compose-material3 = { module = "androidx.media3:media3-ui-compose-material3", version.ref = "media3Exoplayer" }
 androidx-media3-transformer = { module = "androidx.media3:media3-transformer", version.ref = "media3Exoplayer" }
@@ -298,6 +303,7 @@ androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTes
 androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidxTestExtJunit" }
 # Versioned by the Compose BOM.
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+androidx-test-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "uiautomator" }
 
 # Google libraries
 protobuf-java = { module = "com.google.protobuf:protobuf-java", version.ref = "protobufVersion" }

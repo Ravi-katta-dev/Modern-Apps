@@ -33,6 +33,19 @@ configure<com.android.build.api.dsl.LibraryExtension> {
         minSdk = 31
     }
 
+    buildTypes {
+        named("release") {
+            // Coverage for unit tests, mirroring common-conventions-app so
+            // library modules report into the same per-module tasks.
+            // Enable coverage for unit tests
+            enableUnitTestCoverage = true
+        }
+        named("debug") {
+            // Enable coverage for unit tests
+            enableUnitTestCoverage = true
+        }
+    }
+
     lint {
         // Toast is banned repo-wide. Apps also catch this transitively via
         // checkDependencies, but failing here gives faster feedback when
