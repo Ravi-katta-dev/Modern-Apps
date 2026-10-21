@@ -229,7 +229,7 @@
     <string name="wallpaper_lock">Låsskärm</string>
     <string name="wallpaper_both">Båda</string>
     <string name="wallpaper_scrollable">Rullbar</string>
-    <string name="wallpaper_scrollable_desc">Rullbara bakgrunder är bredare och rör sig när du sveper mellan hemskärmar.</string>
+    <string name="wallpaper_scrollable_desc">Rullbara bakgrunder är bredare och rör sig när du sveper mellan hemskärmar</string>
     <string name="set_wallpaper">Ange bakgrund</string>
     <string name="setting_wallpaper">Anger bakgrund…</string>
     <string name="wallpaper_set_success">Bakgrunden har angetts!</string>
