@@ -3,11 +3,12 @@
 # Run locally with:
 #     cargo deny --config deny.toml check advisories bans licenses sources
 #
-# This file is the single config for every Cargo workspace root in the tree
-# (repo root, code/src/main/rust, games/voxels/src/main/rust,
-# library/tilecodec/src/main/rust and the scripts/maps/* host tools), which is
-# why CI passes it explicitly with --config rather than relying on a deny.toml
-# sitting next to each manifest. See .github/workflows/cargo-deny.yml.
+# This file is the single config for the repo-root Cargo workspace (the one
+# tracked Cargo.lock and monitored workspace root — see
+# .github/workflows/cargo-deny.yml). CI passes it explicitly with --config
+# rather than relying on a deny.toml sitting next to each manifest.
+# `personal/uniflix` is a detached workspace of its own with a gitignored
+# lockfile and is intentionally not monitored here.
 
 [graph]
 # Everything shipped in an APK is built for aarch64-linux-android; the

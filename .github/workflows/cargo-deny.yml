@@ -43,24 +43,15 @@ jobs:
     permissions:
       contents: read
 
-    strategy:
-      fail-fast: false
-      matrix:
-        # One entry per committed Cargo.lock, i.e. per independent workspace
-        # root. Kept in sync with the cargo `directories` list in
-        # .github/dependabot.yml.
-        root:
-          - "."
-          - "code/src/main/rust"
-          - "games/voxels/src/main/rust"
-          - "library/tilecodec/src/main/rust"
-          - "scripts/maps/gtfs_ingest"
-          - "scripts/maps/mamaps_build"
-          - "scripts/maps/osm_ingest"
-          - "scripts/maps/tile_build"
-          - "scripts/maps/wikidesc"
-
-    name: "cargo-deny (${{ matrix.root }})"
+    # Single job on the repo-root workspace. The tree has exactly one tracked
+    # Cargo.lock (see `git ls-files '*Cargo.lock*'`), and every crate under
+    # code/, games/, library/ and scripts/maps/ is a member of that workspace
+    # (no [workspace] table of its own, `workspace = true` inheritance) — so
+    # one `cargo deny` run covers the whole tree. Do NOT reintroduce a matrix:
+    # `personal/uniflix` is a detached workspace of its own precisely so the
+    # gitignored personal/ tree never affects this job (see the root Cargo.toml
+    # `exclude`), and it is intentionally not monitored here.
+    name: "cargo-deny (.)"
 
     steps:
       - name: Checkout Code
@@ -79,7 +70,7 @@ jobs:
       - name: Check advisories, bans and sources
         run: |
           cargo deny \
-            --manifest-path "${{ matrix.root }}/Cargo.toml" \
+            --manifest-path ./Cargo.toml \
             --config deny.toml \
             check advisories bans sources
 
@@ -91,6 +82,6 @@ jobs:
       - name: Check licenses
         run: |
           cargo deny \
-            --manifest-path "${{ matrix.root }}/Cargo.toml" \
+            --manifest-path ./Cargo.toml \
             --config deny.toml \
             check licenses

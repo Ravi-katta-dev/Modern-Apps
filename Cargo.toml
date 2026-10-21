@@ -10,7 +10,6 @@ members = [
   "networklocation/src/main/rust",
   "euicc/src/main/rust",
   "passwords/src/main/rust",
-  "personal/uniflix/src/main/rust",
   "appstore/src/main/rust",
   "vpn/src/main/rust",
   "library/e2ee-p2p/src/main/rust",
@@ -67,7 +66,13 @@ members = [
 # `scripts/maps/tile_build`. It lives inside this tree, so it has to be excluded
 # explicitly or cargo reports "multiple workspace roots found in the same workspace"
 # as soon as a member depends on it.
-exclude = ["library/tilecodec/src/main/rust"]
+# `personal/uniflix` is likewise a workspace root of its own (see its
+# Cargo.toml), for a different reason: it lives under gitignored personal/ and
+# may not exist in a given checkout, and cargo has no conditional members — a
+# missing member fails resolution of the whole workspace. Excluded entries may
+# match nothing, so this keeps the root workspace resolvable with and without
+# personal/ present.
+exclude = ["library/tilecodec/src/main/rust", "personal/uniflix/src/main/rust"]
 resolver = "2"
 
 [workspace.package]
