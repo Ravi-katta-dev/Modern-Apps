@@ -1,0 +1,766 @@
+#!/usr/bin/env bash
+# Unified test runner: rust tests + unit tests + instrumented tests, with coverage.
+#
+# Usage:
+#   ./test [--rust-only|--unit-only|--instrumented-only] [--no-coverage] [--device S] [--dry-run] [--help|-h] <module> [module...]
+#   ./test all [flags]                       # every app + library convention module
+#   ./test games/voxels maps                 # multi-module, minimal gradlew invocations
+#   ./test voxels                             # shorthand -> games:voxels (same as ./check)
+#   ./test --rust-only calculator             # only the rust phase
+#   ./test --unit-only calculator             # only the unit phase
+#   ./test --instrumented-only calculator     # only the instrumented phase
+#   ./test --no-coverage calculator           # skip coverage, plain test tasks
+#   ./test --device 9 calculator              # Pixel 9 by model (8 = Pixel 8)
+#   ./test --device SERIAL calculator         # explicit device serial
+#   ./test --dry-run calculator               # prints what would run without executing
+#
+# Module notation mirrors ./check: slash == colon, leading/trailing slashes and
+# colons trimmed, doubled separators collapsed, lowercased, games:/personal:
+# shorthand, 'all' keyword, deduped. Tasks run with --continue so one broken
+# module does not block the rest; exit code is nonzero if anything failed.
+#
+# Phases (skipped by --rust-only / --unit-only / --instrumented-only):
+#   Rust: same ROOT_CRATES / STANDALONE split as ./check. Coverage on (default)
+#     ensures llvm-tools-preview + cargo-llvm-cov, then runs cargo llvm-cov for
+#     workspace crates (--workspace when 'all', else -p flags for in-scope
+#     crates) plus one cargo llvm-cov per standalone dir. --no-coverage runs
+#     plain `cargo test --locked` equivalents instead.
+#   Unit: app modules -> :mod:createDevUnitTestCoverageReport, library modules
+#     -> :mod:createDebugUnitTestCoverageReport (single gradlew invocation with
+#     --continue; app vs library decided by grepping the module build.gradle.kts
+#     for common-conventions-app, like check's all_module_dirs). --no-coverage
+#     -> :mod:testDevUnitTest / :mod:testDebugUnitTest. Afterwards prints
+#     per-module INSTRUCTION covered/missed from
+#     build/reports/coverage/test/*/report.xml plus a TOTAL line.
+#   Instrumented: scope = in-scope modules having any *.kt under src/androidTest.
+#     Per-module assemble via one gradlew invocation
+#     (:mod:assembleDev :mod:assembleDevAndroidTest, --continue), then per module
+#     session-install the app APK (./install logic incl. versionCodeOverride and
+#     .idsig staging; never plain adb install for the app APK), plain
+#     `adb install -r` for the test APK, `am instrument` the runner, and with
+#     coverage pull /data/data/<pkg>/files/coverage.ec via run-as.
+#
+# Device: --device accepts a serial or 8|9 (Pixel 8 / Pixel 9 by model, mirroring
+#   ./install); default is the first non-emulator device. No device connected is
+#   a hard error when instrumented tests are in scope (unless --dry-run).
+# Big-heap escalation when 'all' is expanded: same flags as install-all
+#   (-Dorg.gradle.jvmargs=-Xmx46144m ... --max-workers=32).
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$SCRIPT_DIR"
+
+print_help() {
+  sed -n '2,/^set -euo/p' "$SCRIPT_DIR/test" | sed 's/^# \{0,1\}//' | head -n -1
+}
+
+normalize_module() {
+  local m="$1"
+  m="$(echo "$m" | xargs)"
+  m="$(echo "$m" | sed -e 's|^[/:]*||' -e 's|[/:]*$||')"
+  m="$(echo "$m" | tr '/' ':')"
+  while echo "$m" | grep -q "::"; do m="$(echo "$m" | sed 's/::/:/g')"; done
+  echo "$m" | tr '[:upper:]' '[:lower:]'
+}
+
+# all = app + library convention modules (both apply dev.detekt; pure-JVM
+# modules like youpipe:extractor do not, so they are excluded here but still
+# accepted when named explicitly and left for Gradle to report on).
+all_module_dirs() {
+  grep -E 'include\(":[^"]+"\)' "$ROOT/settings.gradle.kts" 2>/dev/null \
+    | sed -E 's/.*include\(":([^"]+)"\).*/\1/' \
+    | tr ':' '/' \
+    | while IFS= read -r p; do
+        case "$p" in "" ) continue;; esac
+        if [[ -f "$ROOT/$p/build.gradle.kts" ]] \
+          && grep -qE 'common-conventions-(app|library)' "$ROOT/$p/build.gradle.kts" 2>/dev/null; then
+          echo "$p"
+        fi
+      done | sort -u
+}
+
+is_app_module() {
+  local fs="$1"
+  grep -qF 'common-conventions-app' "$ROOT/$fs/build.gradle.kts" 2>/dev/null
+}
+
+module_application_id() {
+  sed -nE 's/^[[:space:]]*applicationId[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' \
+    "$ROOT/$(echo "$1" | tr ':' '/')/build.gradle.kts" | head -1
+}
+
+# APK built for a module; output-metadata.json names the file authoritatively
+# (nested modules like cast:tv build tv-dev.apk, not cast-tv-dev.apk).
+built_app_apk() {
+  local mod="$1" fs_path out_dir meta base_name file_name
+  fs_path="$(echo "$mod" | tr ':' '/')"
+  out_dir="$ROOT/$fs_path/build/outputs/apk/dev"
+  meta="$out_dir/output-metadata.json"
+  base_name="${mod##*:}"
+  file_name="$base_name-dev.apk"
+  if [[ -f "$meta" ]]; then
+    local found
+    found="$(grep -oE '"outputFile"[[:space:]]*:[[:space:]]*"[^"]+"' "$meta" | head -1 | sed -E 's/.*\"([^\"]+)\"$/\1/')"
+    [[ -n "$found" ]] && file_name="$found"
+  fi
+  if [[ -f "$out_dir/$file_name" ]]; then
+    echo "$out_dir/$file_name"
+    return 0
+  fi
+  return 1
+}
+
+built_test_apk() {
+  local mod="$1" fs_path out_dir meta base_name file_name
+  fs_path="$(echo "$mod" | tr ':' '/')"
+  out_dir="$ROOT/$fs_path/build/outputs/apk/androidTest/dev"
+  meta="$out_dir/output-metadata.json"
+  base_name="${mod##*:}"
+  file_name="$base_name-dev-androidTest.apk"
+  if [[ -f "$meta" ]]; then
+    local found
+    found="$(grep -oE '"outputFile"[[:space:]]*:[[:space:]]*"[^"]+"' "$meta" | head -1 | sed -E 's/.*\"([^\"]+)\"$/\1/')"
+    [[ -n "$found" ]] && file_name="$found"
+  fi
+  if [[ -f "$out_dir/$file_name" ]]; then
+    echo "$out_dir/$file_name"
+    return 0
+  fi
+  return 1
+}
+
+# on-device versionCode for a package, empty when not installed.
+device_version_code() {
+  "$ADB_BIN" -s "$TARGET_SERIAL" shell pm list packages --show-versioncode "$1" 2>/dev/null \
+    | sed -nE 's/^package:\S+[[:space:]]+versionCode:([0-9]+).*/\1/p' | head -1
+}
+
+# exit 0 when the package is installed as a system app.
+is_system_app() {
+  "$ADB_BIN" -s "$TARGET_SERIAL" shell pm list packages -s "$1" 2>/dev/null \
+    | tr -d '\r' | grep -qFx "package:$1"
+}
+
+install_apk_via_session() {
+  local apk="$1" package_id="$2" cur="${3:-}" total="${4:-}"
+  local apk_name apk_size apk_mb session device_apk idsig device_idsig commit_out prefix
+  apk_name="$(basename "$apk")"
+  apk_size="$(wc -c < "$apk" | tr -d ' ')"
+  apk_mb="$(awk "BEGIN {printf \"%.1f\", $apk_size/1048576}")"
+  device_apk="/data/local/tmp/install_${package_id}.apk"
+  if [[ -n "$cur" && -n "$total" ]]; then
+    prefix="[$cur/$total] "
+  else
+    prefix=""
+  fi
+  echo "${prefix}Installing $package_id ($apk_name, ${apk_mb} MB)..."
+  echo "  ${prefix}[1/4] Pushing APK to device..."
+  "$ADB_BIN" -s "$TARGET_SERIAL" push "$apk" "$device_apk" >/dev/null 2>&1 || {
+    echo "  ${prefix}Error: adb push failed for $apk_name."; return 1
+  }
+  echo "  ${prefix}[2/4] Creating install session..."
+  session="$("$ADB_BIN" -s "$TARGET_SERIAL" shell pm install-create -r 2>&1 \
+    | sed -nE 's/.*created install session \[([0-9]+)\].*/\1/p')"
+  if [[ -z "$session" ]]; then
+    echo "  ${prefix}Error: could not create install session."
+    "$ADB_BIN" -s "$TARGET_SERIAL" shell rm -f "$device_apk" >/dev/null 2>&1
+    return 1
+  fi
+  # Stage the APK first, then its .idsig sidecar (V4 signature) under the
+  # matching name. PackageManager enables fs-verity from a staged idsig, which
+  # MAOS/GrapheneOS requires for updates to preinstalled system apps. Plain
+  # `adb install` never stages the sidecar, so those updates always fail.
+  echo "  ${prefix}[3/4] Staging APK into session $session..."
+  "$ADB_BIN" -s "$TARGET_SERIAL" shell pm install-write -S "$apk_size" "$session" base.apk "$device_apk" >/dev/null 2>&1 || {
+    echo "  ${prefix}Error: failed to stage $apk_name into session $session."
+    "$ADB_BIN" -s "$TARGET_SERIAL" shell pm install-abandon "$session" >/dev/null 2>&1
+    "$ADB_BIN" -s "$TARGET_SERIAL" shell rm -f "$device_apk" >/dev/null 2>&1
+    return 1
+  }
+  idsig="$apk.idsig"
+  if [[ -f "$idsig" ]]; then
+    device_idsig="$device_apk.idsig"
+    echo "  ${prefix}Staging .idsig sidecar..."
+    if "$ADB_BIN" -s "$TARGET_SERIAL" push "$idsig" "$device_idsig" >/dev/null 2>&1; then
+      "$ADB_BIN" -s "$TARGET_SERIAL" shell pm install-write -S "$(wc -c < "$idsig" | tr -d ' ')" \
+        "$session" base.apk.idsig "$device_idsig" >/dev/null 2>&1 || \
+        echo "  ${prefix}Warning: could not stage .idsig; system-app updates may fail fs-verity."
+    else
+      echo "  ${prefix}Warning: could not push .idsig; system-app updates may fail fs-verity."
+    fi
+    "$ADB_BIN" -s "$TARGET_SERIAL" shell rm -f "$device_idsig" >/dev/null 2>&1
+  else
+    echo "  ${prefix}Warning: no .idsig sidecar next to the APK; system-app updates may fail fs-verity."
+  fi
+  echo "  ${prefix}[4/4] Committing install session $session..."
+  commit_out="$("$ADB_BIN" -s "$TARGET_SERIAL" shell pm install-commit "$session" 2>&1)"
+  "$ADB_BIN" -s "$TARGET_SERIAL" shell rm -f "$device_apk" >/dev/null 2>&1
+  # `pm install-commit` prints "Success" but exits 0 either way; fail on absence.
+  if ! echo "$commit_out" | grep -qi "^Success"; then
+    echo "  ${prefix}Error: install failed for $package_id: $commit_out"
+    return 1
+  fi
+  if [[ -n "$cur" && -n "$total" ]]; then
+    echo "  Installed $package_id. [$cur/$total done]"
+  else
+    echo "  Installed $package_id."
+  fi
+}
+
+if [[ $# -eq 0 ]]; then print_help; echo ""; echo "Error: no modules specified."; exit 1; fi
+for arg in "$@"; do case "$arg" in --help|-h|help) print_help; exit 0;; esac; done
+
+# --- flag parsing ---
+RUN_RUST=1; RUN_UNIT=1; RUN_INST=1
+SCOPE_FLAG=""
+NO_COV=0
+DRY_RUN=0
+DEVICE_HINT=""
+if [[ "${TEST_DRY_RUN:-0}" == "1" ]]; then DRY_RUN=1; fi
+MODULES_RAW=()
+ARGS=()
+for arg in "$@"; do ARGS+=("$arg"); done
+idx=0
+while [[ $idx -lt ${#ARGS[@]} ]]; do
+  arg="${ARGS[$idx]}"
+  case "$arg" in
+    --rust-only)
+      if [[ -n "$SCOPE_FLAG" && "$SCOPE_FLAG" != "rust" ]]; then
+        echo "Error: only one of --rust-only, --unit-only, --instrumented-only may be given." >&2; exit 1
+      fi
+      SCOPE_FLAG="rust"; RUN_RUST=1; RUN_UNIT=0; RUN_INST=0
+      idx=$((idx + 1)); continue ;;
+    --unit-only)
+      if [[ -n "$SCOPE_FLAG" && "$SCOPE_FLAG" != "unit" ]]; then
+        echo "Error: only one of --rust-only, --unit-only, --instrumented-only may be given." >&2; exit 1
+      fi
+      SCOPE_FLAG="unit"; RUN_RUST=0; RUN_UNIT=1; RUN_INST=0
+      idx=$((idx + 1)); continue ;;
+    --instrumented-only)
+      if [[ -n "$SCOPE_FLAG" && "$SCOPE_FLAG" != "inst" ]]; then
+        echo "Error: only one of --rust-only, --unit-only, --instrumented-only may be given." >&2; exit 1
+      fi
+      SCOPE_FLAG="inst"; RUN_RUST=0; RUN_UNIT=0; RUN_INST=1
+      idx=$((idx + 1)); continue ;;
+    --no-coverage)
+      NO_COV=1; idx=$((idx + 1)); continue ;;
+    --dry-run)
+      DRY_RUN=1; idx=$((idx + 1)); continue ;;
+    --device=*)
+      DEVICE_HINT="${arg#--device=}"
+      idx=$((idx + 1)); continue ;;
+    --device)
+      if [[ $((idx + 1)) -ge ${#ARGS[@]} ]]; then
+        echo "Error: --device requires a value (serial, 8, or 9)." >&2; exit 1
+      fi
+      DEVICE_HINT="${ARGS[$((idx + 1))]}"
+      idx=$((idx + 2)); continue ;;
+    --help|-h|help)
+      print_help; exit 0 ;;
+    --*)
+      echo "Error: unknown flag '$arg'." >&2; exit 1 ;;
+    8|9)
+      DEVICE_HINT="$arg"
+      idx=$((idx + 1)); continue ;;
+    *)
+      if [[ "$arg" =~ ^[0-9]+$ ]]; then
+        echo "Error: Invalid device '$arg'. Use --device with a serial, 8 (Pixel 8), or 9 (Pixel 9)." >&2; exit 1
+      fi
+      MODULES_RAW+=("$arg"); idx=$((idx + 1)); continue ;;
+  esac
+done
+if [[ ${#MODULES_RAW[@]} -eq 0 ]]; then
+  echo "Error: no modules specified." >&2; exit 1
+fi
+
+MODS=(); ALL_EXP=0
+for raw in ${MODULES_RAW[@]:-}; do
+  norm="$(normalize_module "$raw")"
+  [[ -z "$norm" ]] && continue
+  if [[ "$norm" == "all" ]]; then
+    if [[ $ALL_EXP -eq 0 ]]; then
+      while IFS= read -r sm; do
+        case "$sm" in "" ) continue;; esac
+        MODS+=("$sm")
+      done < <(all_module_dirs)
+      ALL_EXP=1
+    fi
+    continue
+  fi
+  if [[ "$norm" != *":"* ]]; then
+    for pfx in games personal; do
+      [[ -f "$ROOT/$pfx/$norm/build.gradle.kts" ]] && { norm="$pfx:$norm"; break; }
+    done
+  fi
+  fs="$(echo "$norm" | tr ':' '/')"
+  if [[ ! -f "$ROOT/$fs/build.gradle.kts" ]]; then
+    echo "Error: unknown module '$raw' (-> $fs/, no build.gradle.kts)." >&2; exit 1
+  fi
+  dup=0; for m in ${MODS[@]:-}; do [[ "$m" == "$fs" ]] && dup=1; done
+  [[ $dup -eq 0 ]] && MODS+=("$fs")
+done
+[[ ${#MODS[@]} -gt 0 ]] || { echo "Error: no valid modules." >&2; exit 1; }
+
+# --- rust scope: same ROOT_CRATES / STANDALONE split as ./check ---
+ROOT_CRATES=()
+STANDALONE_DIRS=()
+if [[ $RUN_RUST -eq 1 ]]; then
+  for mod in "${MODS[@]}"; do
+    rdir="$ROOT/$mod/src/main/rust"
+    ct="$rdir/Cargo.toml"
+    if [[ -f "$ct" ]]; then
+      if grep -qE '^\[workspace\][[:space:]]*$' "$ct"; then
+        STANDALONE_DIRS+=("$rdir")
+        echo "Rust: $mod -> standalone crate ($rdir)"
+      else
+        name="$(sed -nE 's/^name *= *"([^"]+)".*/\1/p' "$ct" | head -1)"
+        [[ -n "$name" ]] && ROOT_CRATES+=("$name") && echo "Rust: $mod -> workspace crate $name"
+      fi
+    fi
+  done
+fi
+
+# --- unit tasks: app -> Dev variant, library (or other) -> Debug variant ---
+UNIT_TASKS=()
+if [[ $RUN_UNIT -eq 1 ]]; then
+  for mod in "${MODS[@]}"; do
+    gmod="$(echo "$mod" | tr '/' ':')"
+    if is_app_module "$mod"; then
+      if [[ $NO_COV -eq 1 ]]; then UNIT_TASKS+=(":$gmod:testDevUnitTest");
+      else UNIT_TASKS+=(":$gmod:createDevUnitTestCoverageReport"); fi
+    else
+      if [[ $NO_COV -eq 1 ]]; then UNIT_TASKS+=(":$gmod:testDebugUnitTest");
+      else UNIT_TASKS+=(":$gmod:createDebugUnitTestCoverageReport"); fi
+    fi
+  done
+fi
+
+# --- instrumented scope: in-scope modules having any *.kt under src/androidTest ---
+INST_MODS=()
+if [[ $RUN_INST -eq 1 ]]; then
+  for mod in "${MODS[@]}"; do
+    if [[ -d "$ROOT/$mod/src/androidTest" ]] \
+      && find "$ROOT/$mod/src/androidTest" -name '*.kt' -print -quit 2>/dev/null | grep -q .; then
+      INST_MODS+=("$mod")
+    fi
+  done
+  if [[ ${#INST_MODS[@]} -eq 0 ]]; then
+    echo "No instrumented tests in scope (no *.kt under src/androidTest); instrumented phase skipped."
+  else
+    echo "Instrumented modules (${#INST_MODS[@]}): ${INST_MODS[*]}"
+  fi
+fi
+INST_TASKS=()
+if [[ $RUN_INST -eq 1 && ${#INST_MODS[@]} -gt 0 ]]; then
+  for mod in "${INST_MODS[@]}"; do
+    gmod="$(echo "$mod" | tr '/' ':')"
+    INST_TASKS+=(":$gmod:assembleDev" ":$gmod:assembleDevAndroidTest")
+  done
+fi
+
+echo "Modules (${#MODS[@]}): ${MODS[*]}"
+if [[ $RUN_UNIT -eq 1 ]]; then echo "Unit tasks: ${UNIT_TASKS[*]}"; fi
+if [[ $RUN_INST -eq 1 && ${#INST_TASKS[@]} -gt 0 ]]; then echo "Instrumented tasks: ${INST_TASKS[*]}"; fi
+if [[ $NO_COV -eq 1 ]]; then echo "Coverage: off (--no-coverage)"; else echo "Coverage: on"; fi
+echo ""
+
+# --- device selection (needed for the instrumented phase) ---
+ADB_BIN=""
+NEED_DEVICE=0
+if [[ $RUN_INST -eq 1 && ${#INST_MODS[@]} -gt 0 ]]; then NEED_DEVICE=1; fi
+if [[ $NEED_DEVICE -eq 1 ]]; then
+  if command -v adb >/dev/null 2>&1; then
+    ADB_BIN="adb"
+  else
+    for adb_base in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "$HOME/Android/Sdk" "$HOME/Library/Android/sdk"; do
+      if [[ -n "$adb_base" && -x "$adb_base/platform-tools/adb" ]]; then
+        ADB_BIN="$adb_base/platform-tools/adb"
+        break
+      fi
+    done
+  fi
+  TARGET_SERIAL=""
+  if [[ -n "$ADB_BIN" ]]; then
+    if [[ "$DEVICE_HINT" == "8" || "$DEVICE_HINT" == "9" ]]; then
+      # hint 8 = model Pixel_8; 9 = model Pixel_9* (covers Pixel_9 and Pixel_9_Pro_XL).
+      while read -r dev_line; do
+        dev_serial="$(echo "$dev_line" | awk '{print $1}')"
+        dev_state="$(echo "$dev_line" | awk '{print $2}')"
+        [[ "$dev_state" == "device" ]] || continue
+        case "$dev_serial" in emulator*) continue;; esac
+        case "$dev_serial" in "List"*) continue;; esac
+        dev_model="$(echo "$dev_line" | sed -nE 's/.*model:([^[:space:]]+).*/\1/p')"
+        if [[ "$DEVICE_HINT" == "8" && "$dev_model" == "Pixel_8" ]]; then
+          TARGET_SERIAL="$dev_serial"
+          break
+        fi
+        if [[ "$DEVICE_HINT" == "9" && "$dev_model" == Pixel_9* ]]; then
+          TARGET_SERIAL="$dev_serial"
+          break
+        fi
+      done < <("$ADB_BIN" devices -l 2>/dev/null)
+    elif [[ -n "$DEVICE_HINT" ]]; then
+      while read -r dev_line; do
+        dev_serial="$(echo "$dev_line" | awk '{print $1}')"
+        dev_state="$(echo "$dev_line" | awk '{print $2}')"
+        [[ "$dev_state" == "device" ]] || continue
+        case "$dev_serial" in "List"*) continue;; esac
+        if [[ "$dev_serial" == "$DEVICE_HINT" ]]; then
+          TARGET_SERIAL="$dev_serial"
+          break
+        fi
+      done < <("$ADB_BIN" devices -l 2>/dev/null)
+    else
+      while read -r dev_line; do
+        dev_serial="$(echo "$dev_line" | awk '{print $1}')"
+        dev_state="$(echo "$dev_line" | awk '{print $2}')"
+        [[ "$dev_state" == "device" ]] || continue
+        case "$dev_serial" in emulator*) continue;; esac
+        case "$dev_serial" in "List"*) continue;; esac
+        TARGET_SERIAL="$dev_serial"
+        break
+      done < <("$ADB_BIN" devices -l 2>/dev/null)
+    fi
+  fi
+  if [[ -z "$ADB_BIN" ]]; then
+    if [[ $DRY_RUN -eq 1 ]]; then
+      echo "[DRY-RUN] Warning: adb not found; a device could not be selected."
+    else
+      echo "Error: adb not found; cannot select a target device." >&2
+      echo "Install Android platform-tools and put adb on PATH (or set ANDROID_HOME)." >&2
+      exit 1
+    fi
+  elif [[ -n "$TARGET_SERIAL" ]]; then
+    export ANDROID_SERIAL="$TARGET_SERIAL"
+    if [[ "$DEVICE_HINT" == "8" || "$DEVICE_HINT" == "9" ]]; then
+      echo "Target device: $ANDROID_SERIAL (Pixel $DEVICE_HINT)"
+    elif [[ -n "$DEVICE_HINT" ]]; then
+      echo "Target device: $ANDROID_SERIAL (explicit --device)"
+    else
+      echo "Target device: $ANDROID_SERIAL (first connected device not starting with 'emulator')"
+    fi
+  elif [[ -n "$DEVICE_HINT" ]]; then
+    echo "Error: no connected device matching '$DEVICE_HINT' found (check 'adb devices')." >&2
+    exit 1
+  elif [[ $DRY_RUN -eq 1 ]]; then
+    echo "[DRY-RUN] Warning: no non-emulator device connected; ANDROID_SERIAL not set."
+  else
+    echo "Error: No non-emulator device connected." >&2
+    echo "Connect a physical device (check 'adb devices'); refusing to test on an emulator." >&2
+    exit 1
+  fi
+else
+  TARGET_SERIAL="${ANDROID_SERIAL:-}"
+  if command -v adb >/dev/null 2>&1; then ADB_BIN="adb"; fi
+fi
+
+# --- extra Gradle args: --continue so one broken module doesn't block the rest ---
+GRADLE_ARGS=(--continue --console=plain)
+gradle_args_str=" --continue --console=plain"
+if [[ $ALL_EXP -eq 1 ]]; then
+  GRADLE_ARGS+=(-D"org.gradle.jvmargs=-Xmx46144m -Xms4512m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -Dfile.encoding=UTF-8")
+  GRADLE_ARGS+=(--max-workers=32)
+  gradle_args_str="$gradle_args_str -Dorg.gradle.jvmargs=<46g-big-build-heap> --max-workers=32"
+fi
+
+# --- versionCodeOverride: MAOS refuses to update a system package to the same
+# versionCode, so an APK built from the same version.txt as the on-device OS image
+# can never be installed over it. Query the device once; for system apps bump to
+# one above the on-device version, for user apps just match it exactly
+# (version.txt itself stays untouched). Scoped to instrumented modules, the only
+# ones this script installs.
+REPO_VERSION="$(sed -n '1p' "$ROOT/version.txt" | tr -d '\r' | xargs)"
+NEED_BUMP="$REPO_VERSION"
+if [[ $NEED_DEVICE -eq 1 && -n "${TARGET_SERIAL:-}" && -n "$ADB_BIN" ]]; then
+  for mod in ${INST_MODS[@]:-}; do
+    colon_mod="$(echo "$mod" | tr '/' ':')"
+    pkg="$(module_application_id "$colon_mod")"
+    if [[ -n "$pkg" ]]; then
+      dev_v="$(device_version_code "$pkg")"
+      if [[ -n "$dev_v" && "$dev_v" -ge "$NEED_BUMP" ]]; then
+        if is_system_app "$pkg"; then
+          target=$((dev_v + 1))
+          kind="system app"
+        else
+          target=$dev_v
+          kind="user app"
+        fi
+        if [[ "$target" -gt "$NEED_BUMP" ]]; then
+          NEED_BUMP=$target
+          echo "Info: $pkg is a $kind at versionCode $dev_v on-device (>= repo $REPO_VERSION); will build with -PversionCodeOverride=$target."
+        fi
+      fi
+    fi
+  done
+fi
+if [[ "$NEED_BUMP" -gt "$REPO_VERSION" ]]; then
+  GRADLE_ARGS+=(-P"versionCodeOverride=$NEED_BUMP")
+  gradle_args_str="$gradle_args_str -PversionCodeOverride=$NEED_BUMP"
+fi
+
+if command -v cargo >/dev/null 2>&1; then
+  CARGO_BIN="cargo"
+else
+  CARGO_BIN="${CARGO_HOME:-$HOME/.cargo}/bin/cargo"
+fi
+
+# --- dry run: print modules/tasks/commands, run nothing ---
+if [[ $DRY_RUN -eq 1 ]]; then
+  echo "[DRY-RUN] Modules (${#MODS[@]}): ${MODS[*]}"
+  if [[ $RUN_RUST -eq 1 ]]; then
+    if [[ ${#ROOT_CRATES[@]} -gt 0 || ${#STANDALONE_DIRS[@]} -gt 0 ]]; then
+      if [[ $NO_COV -eq 1 ]]; then
+        if [[ ${#ROOT_CRATES[@]} -gt 0 ]]; then
+          pargs=""; for c in "${ROOT_CRATES[@]}"; do pargs="$pargs -p $c"; done
+          if [[ $ALL_EXP -eq 1 ]]; then
+            echo "[DRY-RUN] Would execute: cargo test --locked --workspace --exclude tilecodec (in $ROOT)"
+          else
+            echo "[DRY-RUN] Would execute: cargo test --locked$pargs (in $ROOT)"
+          fi
+        fi
+        for rdir in ${STANDALONE_DIRS[@]:-}; do
+          echo "[DRY-RUN] Would execute: cargo test --locked (in $rdir)"
+        done
+      else
+        if [[ ${#ROOT_CRATES[@]} -gt 0 ]]; then
+          pargs=""; for c in "${ROOT_CRATES[@]}"; do pargs="$pargs -p $c"; done
+          if [[ $ALL_EXP -eq 1 ]]; then
+            echo "[DRY-RUN] Would execute: cargo llvm-cov --workspace --locked --exclude tilecodec --lcov --output-path target/llvm-cov.lcov (in $ROOT)"
+          else
+            echo "[DRY-RUN] Would execute: cargo llvm-cov --locked$pargs --lcov --output-path target/llvm-cov.lcov (in $ROOT)"
+          fi
+        fi
+        for rdir in ${STANDALONE_DIRS[@]:-}; do
+          echo "[DRY-RUN] Would execute: cargo llvm-cov --locked --lcov --output-path $rdir/llvm-cov.lcov (in $rdir)"
+        done
+      fi
+    else
+      echo "[DRY-RUN] Rust: no crates in scope; cargo steps skipped."
+    fi
+  else
+    echo "[DRY-RUN] Rust phase skipped."
+  fi
+  if [[ $RUN_UNIT -eq 1 ]]; then
+    echo "[DRY-RUN] Would execute: $SCRIPT_DIR/gradlew ${UNIT_TASKS[*]}$gradle_args_str"
+    for mod in "${MODS[@]}"; do
+      echo "[DRY-RUN] Would summarize unit coverage from $mod/build/reports/coverage/test/*/report.xml"
+    done
+  else
+    echo "[DRY-RUN] Unit phase skipped."
+  fi
+  if [[ $RUN_INST -eq 1 ]]; then
+    if [[ ${#INST_MODS[@]} -gt 0 ]]; then
+      echo "[DRY-RUN] Would execute: $SCRIPT_DIR/gradlew ${INST_TASKS[*]}$gradle_args_str"
+      for mod in "${INST_MODS[@]}"; do
+        colon_mod="$(echo "$mod" | tr '/' ':')"
+        pkg="$(module_application_id "$colon_mod")"
+        [[ -z "$pkg" ]] && pkg="<applicationId from $mod/build.gradle.kts>"
+        base="${mod##*/}"
+        echo "[DRY-RUN] Would session-install $pkg from $mod/build/outputs/apk/dev/$base-dev.apk (or output-metadata.json outputFile)"
+        echo "[DRY-RUN] Would run: adb install -r $mod/build/outputs/apk/androidTest/dev/$base-dev-androidTest.apk"
+        if [[ $NO_COV -eq 1 ]]; then
+          echo "[DRY-RUN] Would run: adb -s \${ANDROID_SERIAL:-<device>} shell am instrument -w -r $pkg.test/androidx.test.runner.AndroidJUnitRunner"
+        else
+          echo "[DRY-RUN] Would run: adb -s \${ANDROID_SERIAL:-<device>} shell am instrument -w -r -e coverage true -e coverageFilePath /data/data/$pkg/files/coverage.ec $pkg.test/androidx.test.runner.AndroidJUnitRunner"
+          echo "[DRY-RUN] Would pull: adb exec-out run-as $pkg cat files/coverage.ec > $mod/build/outputs/coverage-manual/$pkg.ec"
+        fi
+      done
+    else
+      echo "[DRY-RUN] Instrumented phase skipped (nothing in scope)."
+    fi
+  else
+    echo "[DRY-RUN] Instrumented phase skipped."
+  fi
+  exit 0
+fi
+
+RUST_RC=0
+UNIT_RC=0
+INST_RC=0
+
+# --- rust phase ---
+if [[ $RUN_RUST -eq 1 ]]; then
+  if [[ ! -x "$CARGO_BIN" ]] && ! command -v "$CARGO_BIN" >/dev/null 2>&1; then
+    echo "Error: cargo not found ($CARGO_BIN)." >&2; exit 1
+  fi
+  if [[ ${#ROOT_CRATES[@]} -eq 0 && ${#STANDALONE_DIRS[@]} -eq 0 ]]; then
+    echo "No Rust crates in scope; cargo steps skipped."
+  elif [[ $NO_COV -eq 1 ]]; then
+    if [[ ${#ROOT_CRATES[@]} -gt 0 ]]; then
+      echo ""
+      CARGO_ARGS=()
+      if [[ $ALL_EXP -eq 1 ]]; then
+        CARGO_ARGS+=(--workspace --exclude tilecodec)
+      else
+        for c in "${ROOT_CRATES[@]}"; do CARGO_ARGS+=(-p "$c"); done
+      fi
+      echo "Running: cargo test --locked ${CARGO_ARGS[*]}"
+      ( cd "$ROOT" && "$CARGO_BIN" test --locked "${CARGO_ARGS[@]}" ) || RUST_RC=$?
+      [[ $RUST_RC -ne 0 ]] && echo "Warning: cargo test (workspace) reported failures (exit $RUST_RC)."
+    fi
+    for rdir in ${STANDALONE_DIRS[@]:-}; do
+      echo ""
+      echo "Running: cargo test --locked (in $rdir)"
+      ( cd "$rdir" && "$CARGO_BIN" test --locked ) || RUST_RC=$?
+      [[ $RUST_RC -ne 0 ]] && echo "Warning: cargo test ($rdir) reported failures (exit $RUST_RC)."
+    done
+  else
+    echo ""
+    echo "Ensuring rust coverage tools (llvm-tools-preview, cargo-llvm-cov)..."
+    COV_TOOLS_OK=1
+    if command -v rustup >/dev/null 2>&1; then
+      rustup component add llvm-tools-preview >/dev/null 2>&1 || COV_TOOLS_OK=0
+    else
+      echo "Warning: rustup not found; assuming llvm-tools-preview is already installed."
+    fi
+    if ! "$CARGO_BIN" llvm-cov --version >/dev/null 2>&1; then
+      "$CARGO_BIN" install cargo-llvm-cov --locked >/dev/null 2>&1 || COV_TOOLS_OK=0
+    fi
+    if [[ $COV_TOOLS_OK -eq 0 ]]; then
+      echo "Warning: rust coverage tools unavailable (offline?); falling back to plain cargo test without coverage."
+      if [[ ${#ROOT_CRATES[@]} -gt 0 ]]; then
+        echo ""
+        CARGO_ARGS=()
+        if [[ $ALL_EXP -eq 1 ]]; then
+          CARGO_ARGS+=(--workspace --exclude tilecodec)
+        else
+          for c in "${ROOT_CRATES[@]}"; do CARGO_ARGS+=(-p "$c"); done
+        fi
+        echo "Running: cargo test --locked ${CARGO_ARGS[*]}"
+        ( cd "$ROOT" && "$CARGO_BIN" test --locked "${CARGO_ARGS[@]}" ) || RUST_RC=$?
+        [[ $RUST_RC -ne 0 ]] && echo "Warning: cargo test (workspace) reported failures (exit $RUST_RC)."
+      fi
+      for rdir in ${STANDALONE_DIRS[@]:-}; do
+        echo ""
+        echo "Running: cargo test --locked (in $rdir)"
+        ( cd "$rdir" && "$CARGO_BIN" test --locked ) || RUST_RC=$?
+        [[ $RUST_RC -ne 0 ]] && echo "Warning: cargo test ($rdir) reported failures (exit $RUST_RC)."
+      done
+    else
+      if [[ ${#ROOT_CRATES[@]} -gt 0 ]]; then
+        echo ""
+        COV_ARGS=()
+        if [[ $ALL_EXP -eq 1 ]]; then
+          COV_ARGS+=(--workspace --exclude tilecodec)
+        else
+          for c in "${ROOT_CRATES[@]}"; do COV_ARGS+=(-p "$c"); done
+        fi
+        echo "Running: cargo llvm-cov --locked ${COV_ARGS[*]} --lcov --output-path target/llvm-cov.lcov"
+        ( cd "$ROOT" && "$CARGO_BIN" llvm-cov --locked "${COV_ARGS[@]}" --lcov --output-path target/llvm-cov.lcov ) || RUST_RC=$?
+        [[ $RUST_RC -ne 0 ]] && echo "Warning: cargo llvm-cov (workspace) reported failures (exit $RUST_RC)."
+      fi
+      for rdir in ${STANDALONE_DIRS[@]:-}; do
+        echo ""
+        echo "Running: cargo llvm-cov --locked --lcov --output-path $rdir/llvm-cov.lcov (in $rdir)"
+        ( cd "$rdir" && "$CARGO_BIN" llvm-cov --locked --lcov --output-path "$rdir/llvm-cov.lcov" ) || RUST_RC=$?
+        [[ $RUST_RC -ne 0 ]] && echo "Warning: cargo llvm-cov ($rdir) reported failures (exit $RUST_RC)."
+      done
+    fi
+  fi
+fi
+
+# --- unit phase: single gradlew invocation, then coverage summary ---
+if [[ $RUN_UNIT -eq 1 ]]; then
+  echo ""
+  echo "Running: $SCRIPT_DIR/gradlew ${UNIT_TASKS[*]}$gradle_args_str"
+  echo ""
+  set +u
+  "$SCRIPT_DIR/gradlew" "${UNIT_TASKS[@]}" "${GRADLE_ARGS[@]}" || UNIT_RC=$?
+  set -u
+  echo ""
+  [[ $UNIT_RC -ne 0 ]] && echo "Warning: unit test tasks reported failures (exit $UNIT_RC)."
+  if [[ $NO_COV -eq 0 ]]; then
+    echo ""
+    echo "Unit coverage (INSTRUCTION counters):"
+    TOTAL_COV=0; TOTAL_MISS=0
+    for mod in "${MODS[@]}"; do
+      xml=""
+      while IFS= read -r f; do
+        case "$f" in "" ) continue;; esac
+        xml="$f"; break
+      done < <(find "$ROOT/$mod/build/reports/coverage/test" -maxdepth 2 -name report.xml 2>/dev/null | sort)
+      if [[ -z "$xml" || ! -f "$xml" ]]; then
+        echo "  $mod: no coverage data (no tests?)"
+        continue
+      fi
+      line="$(grep -oE '<counter type="INSTRUCTION"[^>]*>' "$xml" 2>/dev/null | head -1 || true)"
+      missed="$(echo "$line" | sed -nE 's/.*missed="([0-9]+)".*/\1/p')"
+      covered="$(echo "$line" | sed -nE 's/.*covered="([0-9]+)".*/\1/p')"
+      if [[ -z "$missed" || -z "$covered" ]]; then
+        echo "  $mod: no coverage data (no tests?)"
+        continue
+      fi
+      echo "  $mod: covered=$covered missed=$missed"
+      TOTAL_COV=$((TOTAL_COV + covered))
+      TOTAL_MISS=$((TOTAL_MISS + missed))
+    done
+    echo "  TOTAL: covered=$TOTAL_COV missed=$TOTAL_MISS"
+  fi
+fi
+
+# --- instrumented phase: assemble, session-install, run, pull coverage ---
+if [[ $RUN_INST -eq 1 && ${#INST_MODS[@]} -gt 0 ]]; then
+  echo ""
+  echo "Running: $SCRIPT_DIR/gradlew ${INST_TASKS[*]}$gradle_args_str"
+  echo ""
+  set +u
+  "$SCRIPT_DIR/gradlew" "${INST_TASKS[@]}" "${GRADLE_ARGS[@]}" || INST_RC=$?
+  set -u
+  echo ""
+  [[ $INST_RC -ne 0 ]] && echo "Warning: instrumented assemble reported failures (exit $INST_RC); installing whatever APKs exist."
+  TOTAL=${#INST_MODS[@]}
+  echo ""
+  echo "Running instrumented tests on $TARGET_SERIAL ($TOTAL module(s))..."
+  idx=0
+  while [[ $idx -lt ${#INST_MODS[@]} ]]; do
+    mod="${INST_MODS[$idx]}"
+    colon_mod="$(echo "$mod" | tr '/' ':')"
+    cur=$((idx + 1))
+    pkg="$(module_application_id "$colon_mod")"
+    if [[ -z "$pkg" ]]; then
+      echo "[$cur/$TOTAL] Error: no applicationId found for :${colon_mod}."
+      INST_RC=1
+      idx=$((idx + 1))
+      continue
+    fi
+    if apk="$(built_app_apk "$colon_mod")"; then
+      install_apk_via_session "$apk" "$pkg" "$cur" "$TOTAL" || INST_RC=1
+    else
+      echo "[$cur/$TOTAL] Error: no app APK found for :${colon_mod} (assemble failed?)."
+      INST_RC=1
+      idx=$((idx + 1))
+      continue
+    fi
+    if test_apk="$(built_test_apk "$colon_mod")"; then
+      echo "[$cur/$TOTAL] Installing test APK for $pkg..."
+      "$ADB_BIN" -s "$TARGET_SERIAL" install -r "$test_apk" >/dev/null 2>&1 || {
+        echo "[$cur/$TOTAL] Error: test APK install failed for $pkg."
+        INST_RC=1
+        idx=$((idx + 1))
+        continue
+      }
+    else
+      echo "[$cur/$TOTAL] Error: no test APK found for :${colon_mod} (assemble failed?)."
+      INST_RC=1
+      idx=$((idx + 1))
+      continue
+    fi
+    echo "[$cur/$TOTAL] Running instrumented tests for $pkg..."
+    if [[ $NO_COV -eq 1 ]]; then
+      "$ADB_BIN" -s "$TARGET_SERIAL" shell am instrument -w -r "$pkg.test/androidx.test.runner.AndroidJUnitRunner" || INST_RC=1
+    else
+      "$ADB_BIN" -s "$TARGET_SERIAL" shell am instrument -w -r -e coverage true -e coverageFilePath "/data/data/$pkg/files/coverage.ec" "$pkg.test/androidx.test.runner.AndroidJUnitRunner" || INST_RC=1
+      ec_dir="$ROOT/$mod/build/outputs/coverage-manual"
+      mkdir -p "$ec_dir"
+      if "$ADB_BIN" -s "$TARGET_SERIAL" exec-out run-as "$pkg" cat files/coverage.ec > "$ec_dir/$pkg.ec" 2>/dev/null; then
+        echo "[$cur/$TOTAL] Coverage pulled: $ec_dir/$pkg.ec"
+      else
+        echo "[$cur/$TOTAL] Warning: could not pull coverage.ec for $pkg."
+      fi
+    fi
+    idx=$((idx + 1))
+  done
+fi
+
+if [[ $RUST_RC -ne 0 || $UNIT_RC -ne 0 || $INST_RC -ne 0 ]]; then exit 1; fi
+exit 0

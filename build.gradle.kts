@@ -130,14 +130,9 @@ tasks.register("checkMetadata") {
         // Module detection by grepping for the bare string
         // "common-conventions-app", which also matches library/map, where it appears only in a
         // comment. Matching the plugin application instead keeps this list to real apps.
-        // analysis/ and personal/ hold gitignored experiments with copied app build files;
-        // they are never published, so skip them (same exclusions as release-build.sh).
         val appPlugin = Regex("""id\("common-conventions-app"\)""")
         val moduleKeys = projectRoot.walkTopDown()
-            .onEnter {
-                it.name != "build" && it.name != ".git" &&
-                    it.name != "analysis" && it.name != "personal"
-            }
+            .onEnter { it.name != "build" && it.name != ".git" }
             .filter { it.isFile && it.name == "build.gradle.kts" }
             .filter { appPlugin.containsMatchIn(it.readText()) }
             .map { it.parentFile.relativeTo(projectRoot).invariantSeparatorsPath.replace('/', '-') }
@@ -167,5 +162,120 @@ tasks.register("checkMetadata") {
             )
         }
         println("checkMetadata: ${moduleKeys.size} store listing(s) are correctly formatted.")
+    }
+}
+
+// Jacoco XML summaries land under build/reports/coverage after unit or instrumented runs,
+// while manual runs drop .ec files under build/outputs/coverage-manual. This task only reads
+// existing outputs, so it never triggers test execution.
+tasks.register("coverageSummary") {
+    group = "verification"
+    description = "Sums per-module Jacoco report.xml counters " +
+        "into a per-module + total table (unit + instrumented + manual .ec inventory)."
+    val projectRoot = rootDir
+    doLast {
+        val reportMarker = "build/reports/coverage/"
+        // analysis/ holds gitignored reference-app checkouts, not modules.
+        val skipDirs = setOf(".git", "analysis")
+        val reports = projectRoot.walkTopDown()
+            .onEnter { it.name !in skipDirs }
+            .filter { it.isFile && it.name == "report.xml" }
+            .filter { it.relativeTo(projectRoot).invariantSeparatorsPath.contains(reportMarker) }
+            .toList()
+        if (reports.isEmpty()) {
+            println("coverageSummary: no coverage data yet, run ./test")
+        }
+        val factory = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+        factory.isValidating = false
+        factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+        val docBuilder = factory.newDocumentBuilder()
+        val coveredByModule = mutableMapOf<String, MutableMap<String, LongArray>>()
+        val moduleKeyFor = { file: File, marker: String ->
+            val rel = file.relativeTo(projectRoot).invariantSeparatorsPath
+            val modulePath = rel.substringBefore("/$marker").trim()
+            if (modulePath.isEmpty()) "root" else modulePath.replace('/', '-')
+        }
+        for (report in reports) {
+            val key = moduleKeyFor(report, reportMarker)
+            val counts = coveredByModule.getOrPut(key) { mutableMapOf() }
+            val doc = report.inputStream().use { docBuilder.parse(it) }
+            // Only the root <report> element's own counters: getElementsByTagName
+            // returns every nested package/class/method counter too, which would
+            // multiply-count the same instructions.
+            val root = doc.documentElement
+            val nodes = root.childNodes
+            for (i in 0 until nodes.length) {
+                val element = nodes.item(i) as? org.w3c.dom.Element ?: continue
+                if (element.tagName != "counter") continue
+                val type = element.getAttribute("type")
+                if (type != "INSTRUCTION" && type != "BRANCH" && type != "LINE") {
+                    if (type != "METHOD") continue
+                }
+                val slot = counts.getOrPut(type) { longArrayOf(0L, 0L) }
+                slot[0] += element.getAttribute("covered").toLongOrNull() ?: 0L
+                slot[1] += element.getAttribute("missed").toLongOrNull() ?: 0L
+            }
+        }
+        val pct = { covered: Long, total: Long ->
+            if (total > 0) "%.1f".format(covered * 100.0 / total) else "100.0"
+        }
+        val lineFor = { counts: Map<String, LongArray> ->
+            val instr = counts["INSTRUCTION"] ?: longArrayOf(0L, 0L)
+            val branch = counts["BRANCH"] ?: longArrayOf(0L, 0L)
+            val line = counts["LINE"] ?: longArrayOf(0L, 0L)
+            val instrTotal = instr[0] + instr[1]
+            val branchTotal = branch[0] + branch[1]
+            val lineTotal = line[0] + line[1]
+            "instr ${pct(instr[0], instrTotal)}% (${instr[0]}/$instrTotal), " +
+                "branch ${pct(branch[0], branchTotal)}%, line ${pct(line[0], lineTotal)}%"
+        }
+        for (key in coveredByModule.keys.sorted()) {
+            println("coverageSummary: $key: ${lineFor(coveredByModule.getValue(key))}")
+        }
+        if (coveredByModule.isNotEmpty()) {
+            val total = mutableMapOf<String, LongArray>()
+            for (counts in coveredByModule.values) {
+                for ((type, slot) in counts) {
+                    val acc = total.getOrPut(type) { longArrayOf(0L, 0L) }
+                    acc[0] += slot[0]
+                    acc[1] += slot[1]
+                }
+            }
+            println("coverageSummary: TOTAL: ${lineFor(total)}")
+        }
+        val ecMarker = "build/outputs/coverage-manual/"
+        val ecFiles = projectRoot.walkTopDown()
+            .onEnter { it.name !in skipDirs }
+            .filter { it.isFile && it.extension == "ec" }
+            .filter { it.relativeTo(projectRoot).invariantSeparatorsPath.contains(ecMarker) }
+            .sortedBy { it.relativeTo(projectRoot).invariantSeparatorsPath }
+            .toList()
+        if (ecFiles.isEmpty()) {
+            println("coverageSummary: no manual .ec files yet")
+        } else {
+            for (ec in ecFiles) {
+                val key = moduleKeyFor(ec, ecMarker)
+                val rel = ec.relativeTo(projectRoot).invariantSeparatorsPath
+                println("coverageSummary: ec $key: $rel (${ec.length()} bytes)")
+            }
+        }
+        val testedModules = projectRoot.walkTopDown()
+            .onEnter { it.name != ".git" && it.name != "build" && it.name != "analysis" }
+            .filter { it.isDirectory && (it.name == "test" || it.name == "androidTest") }
+            .filter { it.parentFile != null && it.parentFile.name == "src" }
+            .map {
+                val rel = it.relativeTo(projectRoot).invariantSeparatorsPath
+                val modulePath = rel.substringBefore("/src/")
+                if (modulePath.isEmpty()) "root" else modulePath.replace('/', '-')
+            }
+            .toSortedSet()
+        val gaps = (testedModules - coveredByModule.keys).sorted()
+        if (gaps.isEmpty()) {
+            println("coverageSummary: no coverage gaps.")
+        } else {
+            for (key in gaps) {
+                println("coverageSummary: no report for $key (has src/test or src/androidTest)")
+            }
+        }
     }
 }

@@ -43,6 +43,9 @@ configure<com.android.build.api.dsl.LibraryExtension> {
         named("debug") {
             // Enable coverage for unit tests
             enableUnitTestCoverage = true
+            // Enable coverage for instrumentation tests (the :library:map
+            // on-device renderer harness).
+            enableAndroidTestCoverage = true
         }
     }
 
