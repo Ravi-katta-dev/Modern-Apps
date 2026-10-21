@@ -67,7 +67,7 @@ object PersonalHealthRecords {
     private const val PREF_DATA_SOURCE_ID = "phr_data_source_id"
 
     private const val DATA_SOURCE_DISPLAY_NAME = "MA Health"
-    private val DATA_SOURCE_URI: Uri = "https://vayunmathur.com/fhir/ma-health".toUri()
+    private val DATA_SOURCE_URI: Uri = "https://maproj.org/fhir/ma-health".toUri()
 
     /** Serialises get-or-create so two screens opening at once cannot create two data sources. */
     private val dataSourceMutex = Mutex()
