@@ -14,9 +14,9 @@
     <string name="time_ago_days">för <xliff:g id="days" example="2">%1$d</xliff:g> dagar sedan</string>
     <string name="time_ago_months">för <xliff:g id="months" example="6">%1$d</xliff:g> månader sedan</string>
     <string name="time_ago_years">för <xliff:g id="years" example="1">%1$d</xliff:g> år sedan</string>
-    <string name="count_k_format"><xliff:g id="number" example="12.3">%1$s</xliff:g> t</string>
-    <string name="count_m_format"><xliff:g id="number" example="1.2">%1$s</xliff:g> mn</string>
-    <string name="count_b_format"><xliff:g id="number" example="3.4">%1$s</xliff:g> mdr</string>
+    <string name="count_k_format"><xliff:g id="number" example="12.3">%1$s</xliff:g>t</string>
+    <string name="count_m_format"><xliff:g id="number" example="1.2">%1$s</xliff:g>mn</string>
+    <string name="count_b_format"><xliff:g id="number" example="3.4">%1$s</xliff:g>mdr</string>
     <string name="video_load_error">Det gick inte att läsa in videon. YouTube kan ha blockerat anonym visning från den här IP-adressen</string>
     <string name="playback_error">Uppspelningen stoppades oväntat. Försök igen.</string>
     <string name="restore_unsupported_format">Det här säkerhetskopieringsformatet stöds inte.</string>
@@ -31,7 +31,7 @@
     <string name="video_stat_format"><xliff:g id="views" example="1M">%1$s</xliff:g> visningar | <xliff:g id="time" example="3 days ago">%2$s</xliff:g></string>
     <string name="video_stat_paid_format">Betalvideo | <xliff:g id="time" example="3 days ago">%1$s</xliff:g></string>
     <string name="video_info_paid_format"><xliff:g id="channel" example="Linus Tech Tips">%1$s</xliff:g> | Betalvideo | <xliff:g id="time" example="2 days ago">%2$s</xliff:g></string>
-    <string name="video_quality_fps_codec"><xliff:g id="quality" example="1080p">%1$s</xliff:g> (<xliff:g id="fps" example="60">%2$d</xliff:g> fps) <xliff:g id="codec" example="avc">%3$s</xliff:g></string>
+    <string name="video_quality_fps_codec"><xliff:g id="quality" example="1080p">%1$s</xliff:g> (<xliff:g id="fps" example="60">%2$d</xliff:g>fps) <xliff:g id="codec" example="avc">%3$s</xliff:g></string>
     <string name="action_subscribe">Prenumerera</string>
     <string name="action_unsubscribe">Avsluta prenumerationen</string>
     <string name="title_subscriptions">Prenumerationer</string>
