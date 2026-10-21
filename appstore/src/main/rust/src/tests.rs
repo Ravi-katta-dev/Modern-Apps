@@ -76,3 +76,43 @@ fn rejects_truncated_inputs() {
     assert!(!verify(&[], REPODATA, &sig));
     assert!(!verify(&pk, REPODATA, &[]));
 }
+
+#[test]
+fn rejects_empty_message() {
+    assert!(!verify(&pubkey(), &[], &signature()));
+}
+
+#[test]
+fn rejects_message_with_flipped_final_byte() {
+    let mut tampered = REPODATA.to_vec();
+    let last = tampered.len() - 1;
+    tampered[last] ^= 1;
+    assert!(!verify(&pubkey(), &tampered, &signature()));
+}
+
+#[test]
+fn rejects_signature_with_flipped_final_byte() {
+    let mut sig = signature();
+    let last = sig.len() - 1;
+    sig[last] ^= 1;
+    assert!(!verify(&pubkey(), REPODATA, &sig));
+}
+
+#[test]
+fn rejects_oversized_public_key() {
+    let mut pk = pubkey();
+    pk.push(0);
+    assert!(!verify(&pk, REPODATA, &signature()));
+}
+
+#[test]
+fn rejects_oversized_signature() {
+    let mut sig = signature();
+    sig.push(0);
+    assert!(!verify(&pubkey(), REPODATA, &sig));
+}
+
+#[test]
+fn rejects_all_zero_signature() {
+    assert!(!verify(&pubkey(), REPODATA, &[0u8; 64]));
+}

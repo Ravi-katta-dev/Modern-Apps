@@ -7,7 +7,7 @@ license = "MPL-2.0"
 
 [lib]
 name = "web_shields"
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Root catalog pins the version + features (see /Cargo.toml). default-features = false
