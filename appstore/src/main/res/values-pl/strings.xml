@@ -243,4 +243,9 @@
     <string name="source_proprietary_pin">Przypięty do klucza podpisującego serwera lustrzanego Play tego sklepu</string>
     <string name="nav_sources">Źródła</string>
     <string name="action_browse">Przeglądaj</string>
+    <string name="tv_detail_back">Wróć</string>
+    <string name="tv_detail_about">O aplikacji</string>
+    <string name="tv_detail_author">Deweloper</string>
+    <string name="tv_compat_declared">Działa na telewizorze — źródło wskazuje wersję na TV</string>
+    <string name="tv_compat_unverified">Zgodność z TV niezweryfikowana — sprawdzane podczas instalacji</string>
 </resources>
