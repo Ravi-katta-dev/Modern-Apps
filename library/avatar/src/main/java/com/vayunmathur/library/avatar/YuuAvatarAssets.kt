@@ -8,6 +8,11 @@ import com.vayunmathur.library.log.Log
  * Loads `models/base_upperbody.glb` from this module's assets and hands the
  * detached fd to native (ClipHandle/MaiaHandle pattern in `:library:ml`).
  * Best-effort: absent asset keeps the procedural fallback mesh.
+ *
+ * Packed-mesh contract (`models/README.md`): the glb holds the base body plus
+ * named attachment nodes (`hair_00..11`, `glasses_01..06`, `beard_01..05`);
+ * native parses once and assembles base + trait-selected attachments per
+ * surface, so a hair/glasses/beard change re-assembles without re-parsing.
  */
 object YuuAvatarAssets {
     /** Asset path of the rigged upper-body base mesh. */

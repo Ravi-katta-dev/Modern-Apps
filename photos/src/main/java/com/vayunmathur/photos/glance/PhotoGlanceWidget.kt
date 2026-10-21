@@ -7,6 +7,7 @@ import android.net.Uri
 import com.vayunmathur.library.log.Log
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -37,7 +38,7 @@ class PhotoGlanceWidget : MaWidget<List<String>>() {
     @Composable
     override fun Content(data: List<String>) {
         val uris = data.map { it.toUri() }
-        var uri by remember(uris) { mutableStateOf(uris.randomOrNull()) }
+        var uri: Uri? by remember(uris) { mutableStateOf(uris.randomOrNull()) }
         val context = LocalContext.current
         val bitmap by produceState<Bitmap?>(initialValue = null, uri) {
             value = withContext(Dispatchers.IO) {

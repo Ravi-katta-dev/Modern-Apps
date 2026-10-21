@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
@@ -21,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
@@ -36,9 +38,13 @@ import androidx.tv.material3.Text
 import com.vayunmathur.library.ui.ExternalIntents
 import com.vayunmathur.library.ui.IconDownload
 import com.vayunmathur.library.ui.IconShare
+import com.vayunmathur.library.ui.IconThumbDown
+import com.vayunmathur.library.ui.IconThumbUp
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.youpipe.platform.CastPlayback
 import com.vayunmathur.youpipe.R
+import com.vayunmathur.youpipe.ui.Comment
+import com.vayunmathur.youpipe.ui.LinkifiedText
 import com.vayunmathur.youpipe.ui.VideoInfo
 import com.vayunmathur.youpipe.ui.videoRowState
 import com.vayunmathur.youpipe.util.applyDownloadedStreams
@@ -101,6 +107,9 @@ fun TvVideoPage(
     val audioStreams = videoState.audioStreams
     val subtitles = videoState.subtitles
     val segments = videoState.segments
+    // Comments: the data is already fetched by loadVideo (same VideoState.comments the
+    // phone's CommentsSection reads) — this screen only renders it.
+    val comments = videoState.comments
     val relatedVideos = videoState.relatedVideos
     val history by ypvm.historyVideos.collectAsState()
     val progressById = remember(history) { history.associate { it.id to it.progress } }
@@ -126,6 +135,7 @@ fun TvVideoPage(
     }
 
     val errorFocus = remember { FocusRequester() }
+    var showDownloadSheet by remember { mutableStateOf(false) }
 
     // Error / unavailable states: a focused message, never a silent spinner.
     // Downloads play locally with no PO-token, so only the streaming path is gated
@@ -215,12 +225,22 @@ fun TvVideoPage(
                 }
                 item(key = "byline") {
                     Text(
-                        text = resources.getString(
-                            R.string.video_info_format,
-                            data.author,
-                            com.vayunmathur.youpipe.ui.countString(context, data.views),
-                            com.vayunmathur.youpipe.ui.uploadTimeAgo(context, data.uploadDate),
-                        ),
+                        // Paid-content branch mirrors the phone VideoPage byline: views < 0
+                        // means paid, so the byline uses video_info_paid_format instead.
+                        text = if (data.views < 0) {
+                            resources.getString(
+                                R.string.video_info_paid_format,
+                                data.author,
+                                com.vayunmathur.youpipe.ui.uploadTimeAgo(context, data.uploadDate),
+                            )
+                        } else {
+                            resources.getString(
+                                R.string.video_info_format,
+                                data.author,
+                                com.vayunmathur.youpipe.ui.countString(context, data.views),
+                                com.vayunmathur.youpipe.ui.uploadTimeAgo(context, data.uploadDate),
+                            )
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = Color.White.copy(alpha = 0.7f),
                     )
@@ -243,23 +263,7 @@ fun TvVideoPage(
                                 )
                             }
                         } else if (videoStreams.isNotEmpty()) {
-                            Surface(
-                                onClick = {
-                                    val best = videoStreams.maxByOrNull { it.height }
-                                    val audio = audioStreams.maxByOrNull { it.bitrate }
-                                    if (best != null) {
-                                        DownloadManager.enqueueDownload(
-                                            context,
-                                            VideoInfo(
-                                                data.title, videoID, data.duration, data.views,
-                                                data.uploadDate, data.thumbnailURL, data.author,
-                                            ),
-                                            best.url,
-                                            audio?.url,
-                                        )
-                                    }
-                                },
-                            ) {
+                            Surface(onClick = { showDownloadSheet = true }) {
                                 Row(Modifier.padding(12.dp)) {
                                     IconDownload()
                                 }
@@ -281,11 +285,24 @@ fun TvVideoPage(
                     }
                 }
                 item(key = "description") {
-                    Text(
+                    LinkifiedText(
                         text = data.description,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.8f),
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            color = Color.White.copy(alpha = 0.8f),
+                        ),
                     )
+                }
+                if (comments.isNotEmpty()) {
+                    item(key = "comments-header") {
+                        Text(
+                            text = stringResource(R.string.label_comments),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                        )
+                    }
+                    items(comments, key = { "${it.author}|${it.text.hashCode()}" }) { comment ->
+                        TvCommentRow(comment = comment)
+                    }
                 }
             }
             items(relatedRows, key = { it.videoID }) { row ->
@@ -296,12 +313,71 @@ fun TvVideoPage(
             }
         }
     }
+
+    val sheetData = videoData
+    if (showDownloadSheet && sheetData != null && videoStreams.isNotEmpty()) {
+        TvDownloadSheet(
+            videoStreams = videoStreams,
+            audioStreams = audioStreams,
+            onConfirm = { videoUrl, audioUrl ->
+                DownloadManager.enqueueDownload(
+                    context,
+                    VideoInfo(
+                        sheetData.title, videoID, sheetData.duration, sheetData.views,
+                        sheetData.uploadDate, sheetData.thumbnailURL, sheetData.author,
+                    ),
+                    videoUrl,
+                    audioUrl,
+                )
+                showDownloadSheet = false
+            },
+            onDismiss = { showDownloadSheet = false },
+        )
+    }
 }
 
 /** Whether the system WebView can mint PO tokens on this TV box. */
 private sealed interface TvWebViewStatus {
     data object Ready : TvWebViewStatus
     data class Unavailable(val reason: String) : TvWebViewStatus
+}
+
+/**
+ * One TV comment row: author + likes line, linkified body. Mirrors the phone
+ * `ui/VideoSections.kt` CommentItem without the phone-only ListItem chrome — a plain
+ * column in the TV detail list, reachable by DOWN rather than a tab.
+ */
+@Composable
+private fun TvCommentRow(
+    comment: Comment,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = comment.author,
+            style = MaterialTheme.typography.titleSmall,
+            color = Color.White,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconThumbUp(Modifier.size(16.dp))
+            Text(
+                text = comment.likes.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.padding(start = 6.dp),
+            )
+            IconThumbDown(Modifier.size(16.dp).padding(start = 16.dp))
+        }
+        LinkifiedText(
+            text = comment.text,
+            style = MaterialTheme.typography.bodyMedium.copy(
+                color = Color.White.copy(alpha = 0.8f),
+            ),
+        )
+    }
 }
 
 /**

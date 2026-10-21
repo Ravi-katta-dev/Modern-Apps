@@ -18,6 +18,12 @@ import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.library.util.MainNavigation
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.rememberNavBackStack
+import com.vayunmathur.youpipe.DEFAULT_PAGE_ALL_SUBSCRIPTIONS
+import com.vayunmathur.youpipe.DEFAULT_PAGE_DOWNLOADS
+import com.vayunmathur.youpipe.DEFAULT_PAGE_HISTORY
+import com.vayunmathur.youpipe.DEFAULT_PAGE_SAVED
+import com.vayunmathur.youpipe.DEFAULT_PAGE_SETTINGS
+import com.vayunmathur.youpipe.DEFAULT_PAGE_SUBSCRIPTIONS
 import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.util.YouPipeViewModel
 
@@ -31,8 +37,8 @@ import com.vayunmathur.youpipe.util.YouPipeViewModel
  * tabs, DOWN drops into content. Each tab keeps its own screen so focus restores per tab.
  */
 @Composable
-fun TvNavigation(ypvm: YouPipeViewModel) {
-    val backStack = rememberNavBackStack<TvRoute>(TvRoute.Main())
+fun TvNavigation(ypvm: YouPipeViewModel, initialBackStack: List<TvRoute> = listOf(TvRoute.Main())) {
+    val backStack = rememberNavBackStack(initialBackStack)
     MainNavigation(backStack) {
         entry<TvRoute.Main> { TvMainTabs(backStack, ypvm, it.initialTab) }
         entry<TvRoute.Search> { TvSearchPage(backStack, ypvm) }
@@ -50,6 +56,23 @@ fun TvNavigation(ypvm: YouPipeViewModel) {
         entry<TvRoute.SettingsData> { TvDataSettingsPage(backStack, ypvm) }
         entry<TvRoute.ManageInterests> { TvManageInterestsPage(backStack, ypvm) }
     }
+}
+
+/**
+ * Map a persisted default-page key to the TV initial backstack, mirroring the phone
+ * [com.vayunmathur.youpipe.defaultBackStack] mapping. Tab indices match [TvMainTabs]:
+ * the same five tabs the phone offers minus swipe. `all_subscriptions` seeds the
+ * Subscriptions root beneath the feed so BACK returns to the list instead of exiting.
+ */
+fun tvDefaultBackStack(key: String?): List<TvRoute> = when (key) {
+    DEFAULT_PAGE_SUBSCRIPTIONS -> listOf(TvRoute.Main(TV_TAB_SUBSCRIPTIONS))
+    DEFAULT_PAGE_ALL_SUBSCRIPTIONS ->
+        listOf(TvRoute.Main(TV_TAB_SUBSCRIPTIONS), TvRoute.SubscriptionFeed(null))
+    DEFAULT_PAGE_HISTORY -> listOf(TvRoute.Main(TV_TAB_HISTORY))
+    // Both the legacy "downloads" key and the new "saved" key open the Saved hub.
+    DEFAULT_PAGE_DOWNLOADS, DEFAULT_PAGE_SAVED -> listOf(TvRoute.Main(TV_TAB_SAVED))
+    DEFAULT_PAGE_SETTINGS -> listOf(TvRoute.Main(TV_TAB_SETTINGS))
+    else -> listOf(TvRoute.Main(TV_TAB_HOME)) // home / unset / unknown
 }
 
 /**

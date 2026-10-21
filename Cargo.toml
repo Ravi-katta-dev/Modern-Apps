@@ -10,6 +10,7 @@ members = [
   "networklocation/src/main/rust",
   "euicc/src/main/rust",
   "passwords/src/main/rust",
+  "personal/uniflix/src/main/rust",
   "appstore/src/main/rust",
   "vpn/src/main/rust",
   "library/e2ee-p2p/src/main/rust",

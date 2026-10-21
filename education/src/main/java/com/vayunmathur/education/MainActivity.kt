@@ -9,7 +9,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import com.vayunmathur.education.content.ContentRepository
@@ -32,6 +31,7 @@ import com.vayunmathur.education.util.EducationViewModel
 import com.vayunmathur.education.util.EducationViewModelFactory
 import com.vayunmathur.education.util.LocalNarrator
 import com.vayunmathur.education.util.rememberNarrator
+import com.vayunmathur.library.ui.AchievementNotification
 import com.vayunmathur.library.ui.MaActivity
 import com.vayunmathur.library.util.DialogPage
 import com.vayunmathur.library.util.FullscreenPage

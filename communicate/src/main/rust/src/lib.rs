@@ -28,7 +28,7 @@ mod jni_bridge;
 #[cfg(test)]
 mod tests;
 
-/// The OS CSPRNG. Re-exported from `rand` so call sites keep one accessor;
-/// `SysRng` satisfies the `RngCore + CryptoRng` bounds on the crypto fns
-/// (`RngCore` is a deprecated blanket alias for `Rng` in rand_core 0.10).
-pub use rand::rngs::SysRng as OsRng;
+/// The thread-local CSPRNG, seeded from the OS. `ThreadRng` satisfies the
+/// infallible `Rng + CryptoRng` bounds on the crypto fns; `SysRng` cannot,
+/// since it is a fallible `TryRng` in rand_core 0.10.
+pub use rand::rngs::ThreadRng as OsRng;

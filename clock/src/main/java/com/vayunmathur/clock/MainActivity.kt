@@ -18,7 +18,7 @@ class MainActivity : MaActivity() {
         ClockViewModelFactory(application, ClockRepository.get(application))
     }
     private lateinit var ds: DataStoreUtils
-    private lateinit var initialRoute: Route
+    private var initialRoute: Route? = null
 
     override fun onCreateBeforeContent() {
         createNotificationChannels(this)

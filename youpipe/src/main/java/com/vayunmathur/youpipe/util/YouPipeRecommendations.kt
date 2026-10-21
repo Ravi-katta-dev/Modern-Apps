@@ -188,6 +188,8 @@ internal suspend fun YouPipeViewModel.loadTrendingCandidates(): List<Candidate> 
     Log.error(TAG, "Trending candidates error", e); emptyList()
 } catch (e: java.io.IOException) {
     Log.error(TAG, "Trending candidates error", e); emptyList()
+} catch (e: RuntimeException) {
+    Log.error(TAG, "Trending candidates error", e); emptyList()
 }
 
 /** Top-channel candidates; one failing channel must not blank the feed. */
@@ -213,6 +215,8 @@ internal suspend fun YouPipeViewModel.loadTopChannelCandidates(
         Log.error(TAG, "Top-channel candidates error", e); emptyList()
     } catch (e: java.io.IOException) {
         Log.error(TAG, "Top-channel candidates error", e); emptyList()
+    } catch (e: RuntimeException) {
+        Log.error(TAG, "Top-channel candidates error", e); emptyList()
     }
 }
 
@@ -229,6 +233,8 @@ internal suspend fun YouPipeViewModel.loadSearchCandidates(
     } catch (e: org.schabi.newpipe.extractor.exceptions.ExtractionException) {
         Log.error(TAG, "Search candidates error", e); emptyList()
     } catch (e: java.io.IOException) {
+        Log.error(TAG, "Search candidates error", e); emptyList()
+    } catch (e: RuntimeException) {
         Log.error(TAG, "Search candidates error", e); emptyList()
     }
 }

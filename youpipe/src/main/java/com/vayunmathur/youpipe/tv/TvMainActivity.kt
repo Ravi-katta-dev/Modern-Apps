@@ -6,6 +6,8 @@ import androidx.compose.runtime.Composable
 import androidx.tv.material3.darkColorScheme
 import androidx.tv.material3.MaterialTheme
 import com.vayunmathur.library.ui.MaActivity
+import com.vayunmathur.library.util.DataStoreUtils
+import com.vayunmathur.youpipe.DEFAULT_PAGE_KEY
 import com.vayunmathur.youpipe.data.SubscriptionRepository
 import com.vayunmathur.youpipe.util.YouPipeViewModel
 import com.vayunmathur.youpipe.util.YouPipeViewModelFactory
@@ -27,9 +29,14 @@ class TvMainActivity : MaActivity() {
         )
     }
 
+    private lateinit var initialBackStack: List<TvRoute>
+
     override fun onCreateBeforeContent() {
         // Same arming the phone does: touch the VM so its hourly subscription task schedules.
         youPipeViewModel
+        // Honor the "Open to" default page (same DataStore key + mapping the phone uses),
+        // read synchronously here because this runs in onCreate before setContent.
+        initialBackStack = tvDefaultBackStack(DataStoreUtils.getInstance(this).getString(DEFAULT_PAGE_KEY))
         TvDpadInput.attach(this)
     }
 
@@ -59,6 +66,6 @@ class TvMainActivity : MaActivity() {
 
     @Composable
     override fun Content() {
-        TvNavigation(youPipeViewModel)
+        TvNavigation(youPipeViewModel, initialBackStack)
     }
 }

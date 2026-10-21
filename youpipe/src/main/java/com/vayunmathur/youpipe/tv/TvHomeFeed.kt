@@ -1,6 +1,7 @@
 package com.vayunmathur.youpipe.tv
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -18,10 +19,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
+import androidx.tv.material3.Text
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.ui.countString
 import com.vayunmathur.youpipe.ui.videoRowState
+import com.vayunmathur.youpipe.util.VideoRowState
 import com.vayunmathur.youpipe.util.blockChannel
 import com.vayunmathur.youpipe.util.boostChannel
 import com.vayunmathur.youpipe.util.loadRecommendations
@@ -107,11 +112,63 @@ fun TvHomeFeedPage(
                 TvVideoCard(
                     row = row,
                     onOpen = { backStack.add(TvRoute.Video(row.videoID)) },
+                    trailingContent = {
+                        TvTrainingActionsRow(
+                            row = row,
+                            ypvm = ypvm,
+                        )
+                    },
                 )
             }
         }
     }
     TvInitialFocus(searchFocus)
+}
+
+/**
+ * Per-card training actions: not-interested / more-like / pin / block, same four the phone
+ * `SearchPage` offers as overflow actions. Rendered as a focusable row inside the card so
+ * RIGHT from the focused card lands on the first action, keeping one focus axis.
+ */
+@Composable
+private fun TvTrainingActionsRow(
+    row: VideoRowState,
+    ypvm: YouPipeViewModel,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier.padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Surface(onClick = { ypvm.removeInterest(channelKey = row.channelKey) }) {
+            Text(
+                text = stringResource(R.string.action_not_interested),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
+        Surface(onClick = { ypvm.boostChannel(row.channelKey) }) {
+            Text(
+                text = stringResource(R.string.action_more_like_this),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
+        Surface(onClick = { ypvm.pinChannel(row.channelKey) }) {
+            Text(
+                text = stringResource(R.string.action_pin_channel),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
+        Surface(onClick = { ypvm.blockChannel(row.channelKey) }) {
+            Text(
+                text = stringResource(R.string.action_block_channel),
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            )
+        }
+    }
 }
 
 /**

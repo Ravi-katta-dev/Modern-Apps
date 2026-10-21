@@ -1,6 +1,7 @@
 package com.vayunmathur.appstore.data
 
 import android.Manifest
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -24,10 +25,12 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.vayunmathur.appstore.MainActivity
 import com.vayunmathur.appstore.R
-import com.vayunmathur.appstore.data.installer.InstallCoordinator
 import com.vayunmathur.appstore.data.accrescent.AccrescentRepository
+import com.vayunmathur.appstore.data.accrescent.DeviceAttributesProvider
+import com.vayunmathur.appstore.data.installer.InstallCoordinator
 import com.vayunmathur.appstore.data.play.PlayRepository
 import com.vayunmathur.appstore.data.security.ApkCertificates
+import com.vayunmathur.appstore.tv.TvMainActivity
 import com.vayunmathur.library.network.NetworkClient
 import com.vayunmathur.library.network.TrustBundle
 import kotlinx.coroutines.CoroutineScope
@@ -219,6 +222,17 @@ class UpdateCheckWorker(
     }
 
     /**
+     * Where an update notification lands: the TV entry on a TV, the phone pager elsewhere.
+     *
+     * "Am I a TV" is the same client-side fact the update streams filter on (see
+     * [DeviceAttributesProvider.isTv]), so a notification about a TV-compatible update never
+     * drops the user onto the phone pager on a device with no touch.
+     */
+    private fun openActivity(): Class<out Activity> =
+        if (DeviceAttributesProvider(context.applicationContext).isTv()) TvMainActivity::class.java
+        else MainActivity::class.java
+
+    /**
      * Notify only when the set of updatable packages differs from last time.
      *
      * Without this, a daily check on a phone with one perpetually-stale app would post the
@@ -253,7 +267,7 @@ class UpdateCheckWorker(
         val open = PendingIntent.getActivity(
             context,
             0,
-            Intent(context, MainActivity::class.java)
+            Intent(context, openActivity())
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -355,7 +369,7 @@ class UpdateCheckWorker(
         val open = PendingIntent.getActivity(
             context,
             0,
-            Intent(context, MainActivity::class.java)
+            Intent(context, openActivity())
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )

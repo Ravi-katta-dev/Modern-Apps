@@ -91,7 +91,7 @@ internal fun TvVideoCard(
             .fillMaxWidth()
             .onFocusChanged { onFocusChanged(it.isFocused) },
     ) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(16.dp)) {
             Box {
                 if (row.thumbnailURL.isNotEmpty()) {
                     AsyncImage(
@@ -113,13 +113,13 @@ internal fun TvVideoCard(
                 style = MaterialTheme.typography.titleMedium,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 8.dp),
+                modifier = Modifier.padding(top = 12.dp),
             )
             val author = row.author
             if (author != null) {
                 Text(
                     text = author,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -128,7 +128,7 @@ internal fun TvVideoCard(
             if (row.stats.isNotEmpty()) {
                 Text(
                     text = row.stats,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -207,13 +207,14 @@ internal fun TvSettingsRow(
     summary: String? = null,
 ) {
     Surface(onClick = onClick, modifier = modifier.fillMaxWidth()) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Text(text = title, style = MaterialTheme.typography.titleMedium)
+        Column(Modifier.padding(horizontal = 24.dp, vertical = 16.dp)) {
+            Text(text = title, style = MaterialTheme.typography.titleLarge)
             if (summary != null) {
                 Text(
                     text = summary,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
         }
@@ -231,16 +232,17 @@ internal fun TvSwitchRow(
 ) {
     Surface(onClick = { onCheckedChange(!checked) }, modifier = modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text(text = title, style = MaterialTheme.typography.titleMedium)
+                Text(text = title, style = MaterialTheme.typography.titleLarge)
                 if (summary != null) {
                     Text(
                         text = summary,
-                        style = MaterialTheme.typography.bodySmall,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
                     )
                 }
             }

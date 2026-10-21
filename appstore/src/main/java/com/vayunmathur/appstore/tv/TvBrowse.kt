@@ -152,21 +152,23 @@ private fun TvAppTile(
     stage: InstallStage?,
     onClick: () -> Unit,
 ) {
-    Card(onClick = onClick, modifier = Modifier.width(160.dp)) {
+    // Ten-foot density: 200–250dp cards with a larger icon and a titleMedium/bodyMedium
+    // floor, so tiles read from the couch instead of phone-scale.
+    Card(onClick = onClick, modifier = Modifier.width(220.dp)) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             TvAppIcon(app = app)
             Text(
                 text = app.name,
-                style = MaterialTheme.typography.titleSmall,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.height(40.dp),
+                modifier = Modifier.height(48.dp),
             )
             val status = when {
                 stage != null -> stage.tvLabel()
@@ -176,7 +178,7 @@ private fun TvAppTile(
             if (status != null) {
                 Text(
                     text = status,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = if (stage is InstallStage.Failed) {
                         MaterialTheme.colorScheme.error
                     } else {
@@ -193,8 +195,8 @@ private fun TvAppTile(
 @Composable
 private fun TvAppIcon(app: UnifiedApp) {
     val box = Modifier
-        .size(72.dp)
-        .clip(RoundedCornerShape(16.dp))
+        .size(96.dp)
+        .clip(RoundedCornerShape(20.dp))
     if (app.iconUrl != null) {
         AsyncImage(
             model = app.iconUrl,

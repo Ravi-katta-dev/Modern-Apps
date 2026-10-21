@@ -2,6 +2,7 @@ package com.vayunmathur.youpipe.tv
 
 import android.content.ComponentName
 import android.text.format.DateUtils
+import android.view.WindowManager
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +59,7 @@ import com.vayunmathur.library.ui.FadeVisibility
 import com.vayunmathur.library.ui.IconCheck
 import com.vayunmathur.library.ui.rememberMessenger
 import com.vayunmathur.library.util.AppMessages
+import com.vayunmathur.youpipe.findActivity
 import com.vayunmathur.youpipe.platform.CastPlayback
 import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.ui.AudioStream
@@ -96,10 +98,21 @@ fun TvPlayer(
     val context = LocalContext.current
     val messenger = rememberMessenger()
 
+    // Keep the screen on while the player is composed — same DisposableEffect pattern
+    // as the phone's VideoPlayerViewState.
+    DisposableEffect(Unit) {
+        val activity = context.findActivity()
+        activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var cues by remember { mutableStateOf<List<Cue>>(emptyList()) }
     var showChapters by remember { mutableStateOf(false) }
     var showQuality by remember { mutableStateOf(false) }
+    var showLanguage by remember { mutableStateOf(false) }
     var showCaptions by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
     val overlayVisible by TvTransportState.visible.collectAsState()
@@ -111,9 +124,23 @@ fun TvPlayer(
         mutableStateOf(selectDefaultVideoStream(videoStreams, deviceHeightPx) ?: videoStreams.first())
     }
     // TV keeps the phone's audio rule: highest-quality opus for the selected language.
-    val language = remember(audioStreams) {
-        val codes = audioStreams.map { it.language }.distinct()
-        if ("en" in codes) "en" else codes.firstOrNull().orEmpty()
+    // Use displayName for language UI when available, fallback to language code (same as phone).
+    val languageEntries = remember(audioStreams) {
+        audioStreams.map { it.language to (it.displayName ?: it.language) }
+            .distinctBy { it.first }
+            .sortedBy { it.first }
+    }
+    val audioLanguages = languageEntries.map { it.first }
+    var language by remember(audioStreams) {
+        mutableStateOf(
+            if ("en" in audioLanguages) "en" else audioLanguages.firstOrNull().orEmpty(),
+        )
+    }
+    // Keep language valid when audioStreams change (new video).
+    LaunchedEffect(audioLanguages) {
+        if (language !in audioLanguages) {
+            language = if ("en" in audioLanguages) "en" else audioLanguages.firstOrNull().orEmpty()
+        }
     }
     val currentAudioStream = remember(audioStreams, language) {
         audioStreams.filter { it.language == language }.maxByOrNull { it.bitrate }
@@ -229,11 +256,12 @@ fun TvPlayer(
     }
 
     // BACK dismisses the topmost overlay first: chapter sheet, then menus, then transport.
-    DisposableEffect(showChapters, showQuality, showCaptions, showSpeed, overlayVisible) {
+    DisposableEffect(showChapters, showQuality, showLanguage, showCaptions, showSpeed, overlayVisible) {
         TvDpadInput.overlayDismiss = {
             when {
                 showChapters -> { showChapters = false; true }
                 showQuality -> { showQuality = false; true }
+                showLanguage -> { showLanguage = false; true }
                 showCaptions -> { showCaptions = false; true }
                 showSpeed -> { showSpeed = false; true }
                 overlayVisible -> { TvTransportState.hide(); true }
@@ -305,15 +333,18 @@ fun TvPlayer(
                     hasNext = transport.hasNext,
                     hasPrevious = transport.hasPrevious,
                     speed = transport.speed,
+                    ypvm = ypvm,
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
-                // Focusable option rows above the transport: chapters, quality, captions, speed.
+                // Focusable option rows above the transport: chapters, quality, language, captions, speed.
                 TvPlayerOptionsRow(
                     onChapters = { showChapters = true },
                     onQuality = { showQuality = true },
+                    onLanguage = { showLanguage = true },
                     onCaptions = { showCaptions = true },
                     onSpeed = { showSpeed = true },
                     hasChapters = segments.isNotEmpty(),
+                    hasLanguage = languageEntries.size > 1,
                     hasCaptions = subtitles.isNotEmpty(),
                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp),
                 )
@@ -333,6 +364,14 @@ fun TvPlayer(
                 current = currentVideoStream,
                 onSelect = { currentVideoStream = it; showQuality = false },
                 onDismiss = { showQuality = false },
+            )
+        }
+        if (showLanguage) {
+            TvLanguageSheet(
+                entries = languageEntries,
+                selected = language,
+                onSelect = { language = it; showLanguage = false },
+                onDismiss = { showLanguage = false },
             )
         }
         if (showCaptions) {
@@ -373,14 +412,16 @@ fun TvPlayer(
     }
 }
 
-/** The focusable option row: chapters / quality / captions / speed. */
+/** The focusable option row: chapters / quality / language / captions / speed. */
 @Composable
 private fun TvPlayerOptionsRow(
     onChapters: () -> Unit,
     onQuality: () -> Unit,
+    onLanguage: () -> Unit,
     onCaptions: () -> Unit,
     onSpeed: () -> Unit,
     hasChapters: Boolean,
+    hasLanguage: Boolean,
     hasCaptions: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -395,6 +436,11 @@ private fun TvPlayerOptionsRow(
         }
         androidx.tv.material3.Button(onClick = onQuality) {
             Text(stringResource(R.string.label_quality))
+        }
+        if (hasLanguage) {
+            androidx.tv.material3.Button(onClick = onLanguage) {
+                Text(stringResource(R.string.language))
+            }
         }
         if (hasCaptions) {
             androidx.tv.material3.Button(onClick = onCaptions) {
@@ -571,7 +617,7 @@ internal fun TvSpeedSheet(
 
 /** Shared sheet frame: title + close, focus starts on close, BACK dismisses. */
 @Composable
-private fun TvOptionSheet(
+internal fun TvOptionSheet(
     title: String,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,

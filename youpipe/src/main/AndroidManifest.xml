@@ -27,6 +27,7 @@
         android:required="false" />
 
     <application
+        android:name=".YouPipeApplication"
         android:allowBackup="true"
         android:banner="@drawable/tv_banner"
         android:dataExtractionRules="@xml/data_extraction_rules"

@@ -1,6 +1,7 @@
 package com.vayunmathur.youpipe.tv
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
@@ -34,6 +37,8 @@ import com.vayunmathur.library.ui.IconPlay
 import com.vayunmathur.library.ui.IconSkipNext
 import com.vayunmathur.library.ui.IconSkipPrevious
 import com.vayunmathur.youpipe.platform.CastPlayback
+import com.vayunmathur.youpipe.util.SponsorSegment
+import com.vayunmathur.youpipe.util.YouPipeViewModel
 
 /**
  * Owns the one per-frame clock the TV player needs, and hands it down as a lambda.
@@ -82,6 +87,7 @@ fun TvTransportOverlay(
     hasNext: Boolean,
     hasPrevious: Boolean,
     speed: Float,
+    ypvm: YouPipeViewModel,
     modifier: Modifier = Modifier,
 ) {
     FadeVisibility(visible = true, modifier = modifier) {
@@ -99,6 +105,9 @@ fun TvTransportOverlay(
             TvPlaybackClock { positionMs ->
                 val transport by CastPlayback.transport.collectAsState()
                 val position = positionMs()
+                // Sponsor markers: same filtered segments the phone seek row draws yellow,
+                // read here so the transport already polling bufferedMs can also show them.
+                val sponsorSegments = rememberTvSponsorSegments(ypvm)
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -133,7 +142,9 @@ fun TvTransportOverlay(
                     }
                     TvSeekBar(
                         positionMs = position,
+                        bufferedMs = transport.bufferedMs,
                         durationMs = transport.durationMs,
+                        sponsorSegments = sponsorSegments,
                         scrubbing = TvDpadInput.scrubPreviewMs != null,
                     )
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -191,16 +202,40 @@ private fun TvPlayPauseButton() {
 }
 
 /**
+ * Filtered sponsor segments for the TV seek bar: same `category in categories` filter the
+ * phone `VideoPlayerSeekRow` draws as yellow markers. Reads the already-polled video state —
+ * the transport loop already polls `bufferedMs`, no new data path.
+ */
+@Composable
+private fun rememberTvSponsorSegments(ypvm: YouPipeViewModel): List<SponsorSegment> {
+    val sponsorSegments by ypvm.videoState.collectAsState()
+    val categories by ypvm.sponsorBlockCategories.collectAsState()
+    return remember(sponsorSegments.sponsorSegments, categories) {
+        sponsorSegments.sponsorSegments.filter { it.category in categories }
+    }
+}
+
+/**
  * The seek bar, drawn as nested boxes rather than as a `Slider`.
  *
  * A `Slider` is a touch control: it wants a drag gesture and a focusable thumb, and on a
  * television it would offer both to a device that has neither. The remote handling lives in
  * [TvDpadInput]; this is a progress indicator that happens to be movable by the remote.
+ *
+ * Layers mirror the phone `VideoPlayerSeekRow`: buffered ghost, yellow sponsor markers,
+ * played progress, thumb.
  */
 @Composable
-private fun TvSeekBar(positionMs: Long, durationMs: Long, scrubbing: Boolean) {
+private fun TvSeekBar(
+    positionMs: Long,
+    bufferedMs: Long,
+    durationMs: Long,
+    sponsorSegments: List<SponsorSegment>,
+    scrubbing: Boolean,
+) {
     if (durationMs <= 0) return
     val progress = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
+    val buffered = (bufferedMs.toFloat() / durationMs).coerceIn(0f, 1f)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -209,6 +244,25 @@ private fun TvSeekBar(positionMs: Long, durationMs: Long, scrubbing: Boolean) {
             .background(Color.White.copy(alpha = 0.25f)),
         contentAlignment = Alignment.CenterStart,
     ) {
+        // Buffered ghost under progress, like the phone's buffered slider.
+        Box(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(buffered)
+                .background(Color.White.copy(alpha = 0.3f)),
+        )
+        // Yellow sponsor markers over the buffered layer, like the phone's Canvas rects.
+        Canvas(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
+            sponsorSegments.forEach { segment ->
+                val startX = (segment.start.toFloat() / durationMs) * size.width
+                val endX = (segment.end.toFloat() / durationMs) * size.width
+                drawRect(
+                    color = Color.Yellow.copy(alpha = 0.7f),
+                    topLeft = Offset(startX, 0f),
+                    size = Size(endX - startX, size.height),
+                )
+            }
+        }
         Box(
             modifier = Modifier
                 .fillMaxHeight()
