@@ -36,9 +36,9 @@ object RelayRoles {
 object RelayLinks {
     const val SCHEME = "everysync"
     const val HOST_JOIN = "join"
-    const val SHARE_BASE = "https://ma.vayunmathur.com/es/share"
+    const val SHARE_BASE = "https://maproj.org/es/share"
 
-    /** `https://ma.vayunmathur.com/es/share#id=<vault>&owner=<device>&type=<dataType>` — ids in fragment. */
+    /** `https://maproj.org/es/share#id=<vault>&owner=<device>&type=<dataType>` — ids in fragment. */
     fun shareLinkFor(vaultId: String, ownerDeviceId: String, dataType: String): String =
         "$SHARE_BASE#id=$vaultId&owner=$ownerDeviceId&type=$dataType"
 

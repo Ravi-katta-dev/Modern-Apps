@@ -80,7 +80,7 @@ internal suspend fun OfficeViewModel.removePendingRequest(docId: String, request
  *  An https link that bounces to `office://join/...`, since messengers won't linkify
  *  a bare custom scheme. The ids ride in the fragment, which browsers never send. */
 fun OfficeViewModel.shareLinkFor(docId: String): String =
-    "https://ma.vayunmathur.com/of/share#id=$docId&owner=${OfficeSync.deviceId}"
+    "https://maproj.org/of/share#id=$docId&owner=${OfficeSync.deviceId}"
 
 /**
  * Sends a PQC-sealed join request to [ownerId]'s inbox after ensuring this device is registered.

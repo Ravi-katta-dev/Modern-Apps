@@ -20,7 +20,7 @@
   hundreds of megabytes against a ~25 MB Auto Backup quota, and going over does
   not merely skip the big files — it fails the backup for the entire app,
   silently taking Home/Work with it. Everything excluded here is re-downloadable
-  from data.vayunmathur.com or re-streamable from protomaps on demand.
+  from data.maproj.org or re-streamable from protomaps on demand.
 
   The databases/amenities.db copy matters and is easy to miss: it sits in the
   `database` domain, not `external`, so excluding external alone would still let

@@ -26,7 +26,7 @@ class MainActivity : MaFragmentActivity() {
     override val autoSetContent: Boolean = false
 
     override fun onCreateBeforeContent() {
-        // Reduced CA hardening: FIRST_PARTY covers api.vayunmathur.com / data.vayunmathur.com (ISRG+GTS)
+        // Reduced CA hardening: FIRST_PARTY covers api.maproj.org / data.maproj.org (ISRG+GTS)
         NetworkClient.init(this, TrustBundle.FIRST_PARTY)
 
         unlockDatabaseWithBiometrics(

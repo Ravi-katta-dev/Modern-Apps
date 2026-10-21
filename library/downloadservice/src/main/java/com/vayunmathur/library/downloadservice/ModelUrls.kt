@@ -3,7 +3,7 @@ package com.vayunmathur.library.downloadservice
 /**
  * Centralized model URL config for supply-chain mitigation #1.
  * Models are served ONLY from the self-hosted mirror (no HuggingFace fallback).
- * The server must host each file under https://data.vayunmathur.com/models/
+ * The server must host each file under https://data.maproj.org/models/
  * and set Content-Length + ETag.
  *
  * To populate the mirror, upload these HuggingFace source files under the given
@@ -19,7 +19,7 @@ package com.vayunmathur.library.downloadservice
  *     <- https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/resolve/main/tokenizer.model
  */
 object ModelUrls {
-    const val MIRROR_BASE = "https://data.vayunmathur.com/models/"
+    const val MIRROR_BASE = "https://data.maproj.org/models/"
 
     // On-disk file names (also the mirror path for the SigLIP2 files).
     const val GEMMA_FILE = "gemma4-2b.litertlm"

@@ -39,7 +39,7 @@ class MainActivity : MaActivity() {
     private var unitsRequest by mutableIntStateOf(0)
 
     override fun onCreateBeforeContent() {
-        // FIRST_PARTY covers api.vayunmathur.com, where the currency-rate proxy lives.
+        // FIRST_PARTY covers api.maproj.org, where the currency-rate proxy lives.
         NetworkClient.init(this, TrustBundle.FIRST_PARTY)
         updateWidgetPreviews(CalculatorGlanceWidgetReceiver::class)
         updateWidgetPreviews(UnitsGlanceWidgetReceiver::class)

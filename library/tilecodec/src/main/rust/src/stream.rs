@@ -344,7 +344,7 @@ mod tests {
     const REAL_HEAD: &[u8] = include_bytes!("../tests/fixtures/v5ca_header_rootdir.bin");
 
     /// The 127-byte header of the archive the apps actually stream,
-    /// `https://data.vayunmathur.com/v4.pmtiles`, fetched with a ranged GET.
+    /// `https://data.maproj.org/v4.pmtiles`, fetched with a ranged GET.
     const PLANET_HEAD: &[u8] = include_bytes!("../tests/fixtures/v4_planet_header.bin");
 
     #[test]

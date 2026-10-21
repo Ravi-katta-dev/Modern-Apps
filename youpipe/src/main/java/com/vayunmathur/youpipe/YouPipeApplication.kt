@@ -20,7 +20,7 @@ class YouPipeApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         Log.init(BuildConfig.DEV_BUILD)
-        // Reduced CA set: FIRST_PARTY = ISRG X1/X2 + GTS R1-R4 covers api.vayunmathur.com + YouTube (GTS)
+        // Reduced CA set: FIRST_PARTY = ISRG X1/X2 + GTS R1-R4 covers api.maproj.org + YouTube (GTS)
         NetworkClient.init(this, TrustBundle.FIRST_PARTY)
         appContext = applicationContext
         val language = DataStoreUtils.getInstance(this).getString("youtube_language").orEmpty()

@@ -56,7 +56,7 @@ class MainActivity : MaActivity() {
     private var ready by mutableStateOf(false)
 
     override fun onCreateBeforeContent() {
-        // Hardened trust: api.vayunmathur.com + data.vayunmathur.com + findfamily.cc are Cloudflare
+        // Hardened trust: api.maproj.org + data.maproj.org + findfamily.cc are Cloudflare
         // fronted, covered by ISRG X1/X2 + GTS R1-R4 in FIRST_PARTY bundle.
         NetworkClient.init(this, TrustBundle.FIRST_PARTY)
 

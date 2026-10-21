@@ -3,7 +3,7 @@
 ## `v5ca_z11_tile.mvt`
 
 One real tile lifted out of the published basemap,
-`https://data.vayunmathur.com/v5-ca.pmtiles` (PMTiles v3, tippecanoe-produced),
+`https://data.maproj.org/v5-ca.pmtiles` (PMTiles v3, tippecanoe-produced),
 via a ranged GET. Stored **inflated** -- the archive gzips its tiles, but that is
 the container's business, so the MVT tests work on the raw protobuf.
 

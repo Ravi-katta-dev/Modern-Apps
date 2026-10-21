@@ -7,7 +7,7 @@ import kotlinx.serialization.json.jsonPrimitive
 object Wikidata {
     // Proxied via self-hosted to avoid direct third-party (Wikidata rate-limits, privacy).
     // Server forwards to https://www.wikidata.org/w/rest.php/wikibase/v1/entities/items/{id} with 24h cache.
-    private const val BASE_URL = "https://api.vayunmathur.com/api/wikidata/items"
+    private const val BASE_URL = "https://api.maproj.org/api/wikidata/items"
 
     suspend fun get(wikidata: String): Wikidata {
         return NetworkClient.getJson("$BASE_URL/$wikidata")

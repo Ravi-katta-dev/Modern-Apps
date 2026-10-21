@@ -5,7 +5,7 @@ package com.vayunmathur.library.map
  *
  * Replaces `TileSource`, which named a CARTO raster URL template. There is no URL here
  * because there is no third-party tile source any more: every app renders the self-hosted
- * `data.vayunmathur.com/v4.pmtiles` archive, and the only choice left is how to paint it.
+ * `data.maproj.org/v4.pmtiles` archive, and the only choice left is how to paint it.
  *
  * Light and dark are a separate axis — see `VectorMap`'s `darkBasemap`, which follows the
  * system theme — so each of these has both.

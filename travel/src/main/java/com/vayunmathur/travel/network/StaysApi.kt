@@ -11,7 +11,7 @@ import kotlinx.serialization.json.Json
  */
 object StaysApi {
 
-    private const val BASE = "https://api.vayunmathur.com/api/stays"
+    private const val BASE = "https://api.maproj.org/api/stays"
 
     private val json = Json { ignoreUnknownKeys = true }
 

@@ -19,7 +19,7 @@ class UniqueNameTest {
 
     private fun spec(
         fileName: String,
-        url: String = "https://data.vayunmathur.com/models/$fileName",
+        url: String = "https://data.maproj.org/models/$fileName",
         sha256: String? = null,
     ) = DownloadSpec(fileName = fileName, description = fileName, url = url, sha256 = sha256)
 

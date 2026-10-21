@@ -25,8 +25,8 @@ impl Drop for Fixture {
     }
 }
 
-const URL: &str = "https://data.vayunmathur.com/planet.mamaps";
-const ORIGIN: &str = "v1|https://data.vayunmathur.com/planet.mamaps";
+const URL: &str = "https://data.maproj.org/planet.mamaps";
+const ORIGIN: &str = "v1|https://data.maproj.org/planet.mamaps";
 
 fn cache_with(dir: &Path, clock: Arc<AtomicU64>, max_bytes: u64) -> RangeCache {
     let c = clock.clone();

@@ -74,7 +74,7 @@ class MainActivity : MaActivity() {
     private val searchVm: MapsSearchViewModel by viewModels()
 
     override fun onCreateBeforeContent() {
-        // FIRST_PARTY: data.vayunmathur.com tiles + amenities + api.vayunmathur.com -> ISRG+GTS
+        // FIRST_PARTY: data.maproj.org tiles + amenities + api.maproj.org -> ISRG+GTS
         NetworkClient.init(this, TrustBundle.FIRST_PARTY)
         intentLauncher = IntentLauncher(this)
         // Reclaim the ~44 MB bundled basemap copied into filesDir by older

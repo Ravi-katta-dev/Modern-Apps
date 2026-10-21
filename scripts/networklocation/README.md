@@ -2,7 +2,7 @@
 
 The three databases `:networklocation` reads are built here. None of them ships in the APK:
 at 3.5 GB the old bundle pushed the MAOS factory zip past fastboot's 4 GiB limit, so they are
-published to `data.vayunmathur.com` and downloaded to device-protected storage on request.
+published to `data.maproj.org` and downloaded to device-protected storage on request.
 
 | Database | Built by | Holds |
 | --- | --- | --- |

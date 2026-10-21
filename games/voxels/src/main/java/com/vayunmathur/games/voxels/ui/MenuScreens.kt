@@ -237,7 +237,7 @@ fun ShareOnlineDialog(
                 // The ids ride in the fragment, which browsers never send to the server.
                 OutlinedButton(
                     onClick = {
-                        val link = "https://ma.vayunmathur.com/vx/share#id=${world.meta.worldId}&owner=${world.meta.ownerDeviceId}"
+                        val link = "https://maproj.org/vx/share#id=${world.meta.worldId}&owner=${world.meta.ownerDeviceId}"
                         ExternalIntents.shareText(context, link, context.getString(R.string.share_link_chooser))
                     },
                     modifier = Modifier.fillMaxWidth(),

@@ -101,7 +101,7 @@ The best seed is the previous-generation store, which is still published and hol
 millions of real BSSIDs:
 
 ```sh
-curl -O https://data.vayunmathur.com/wps/wifi.wpsdb
+curl -O https://data.maproj.org/wps/wifi.wpsdb
 ./target/release/wps_extract wifi.wpsdb --out seed-bssids.txt
 ```
 

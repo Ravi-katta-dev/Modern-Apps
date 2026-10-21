@@ -185,8 +185,8 @@ data class DeArrowBranding(
  * ajayyy/DeArrowThumbnailCache but written from scratch), with fallback proxy
  * to dearrow-thumb.ajay.app.
  */
-private const val SPONSORBLOCK_MIRROR = "https://api.vayunmathur.com"
-private const val DEARROW_THUMB_MIRROR = "https://api.vayunmathur.com/api/dearrow/thumbnail"
+private const val SPONSORBLOCK_MIRROR = "https://api.maproj.org"
+private const val DEARROW_THUMB_MIRROR = "https://api.maproj.org/api/dearrow/thumbnail"
 
 suspend fun getDeArrowBranding(videoId: Long): DeArrowBranding? {
     val idString = decodeVideoID(videoId)
@@ -210,7 +210,7 @@ fun DeArrowBranding.trustedThumbnailUrl(videoId: Long): String? {
     if (thumb.original) return null
     if (!thumb.locked && thumb.votes < 0) return null
     val timestamp = thumb.timestamp ?: return null
-    // Self-hosted renderer on api.vayunmathur.com (yt-dlp + ffmpeg), fallback proxy to ajay.app server-side
+    // Self-hosted renderer on api.maproj.org (yt-dlp + ffmpeg), fallback proxy to ajay.app server-side
     return "$DEARROW_THUMB_MIRROR?videoID=${decodeVideoID(videoId)}&time=$timestamp"
 }
 

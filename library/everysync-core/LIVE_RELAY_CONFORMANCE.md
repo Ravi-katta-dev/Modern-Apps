@@ -62,7 +62,7 @@ Channel names (`RelayContract.kt`): records `passwords:<vault>` /
 
 ## 6. `everysync://join` link parse (`RelayLinks`)
 
-1. `shareLinkFor(V, A, "notes")` → `https://ma.vayunmathur.com/es/share#id=V&owner=A&type=notes`;
+1. `shareLinkFor(V, A, "notes")` → `https://maproj.org/es/share#id=V&owner=A&type=notes`;
    contains no `key` (case-insensitive).
 2. `parseJoinLink("everysync", "join", V, A, "notes")` → `Triple(V, A, "notes")`;
    wrong scheme / blank vault / blank owner → null.

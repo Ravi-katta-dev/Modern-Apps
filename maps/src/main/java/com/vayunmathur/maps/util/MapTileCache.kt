@@ -19,7 +19,7 @@ object MapTileCache {
 
     /** Where [BASEMAP_ARCHIVE_FILE] is fetched from on a first launch that has no copy yet. */
     const val BASEMAP_ARCHIVE_URL =
-        "https://data.vayunmathur.com/planet2.mamaps"
+        "https://data.maproj.org/planet2.mamaps"
 
     /**
      * The single source of truth for the streamed basemap PMTiles URL.
@@ -31,7 +31,7 @@ object MapTileCache {
      * See `scripts/maps/build_v5_pmtiles.sh --no-base`.
      */
     const val BASEMAP_PMTILES_URL =
-        "pmtiles://https://data.vayunmathur.com/v4.pmtiles"
+        "pmtiles://https://data.maproj.org/v4.pmtiles"
 
     /**
      * Our overlay archive: `safety`, `roads`, `transit_lines`, `ma_pois`,
@@ -41,5 +41,5 @@ object MapTileCache {
      * `build_v5_pmtiles.sh --no-base` and streamed by range request like the base.
      */
     const val OVERLAY_PMTILES_URL =
-        "pmtiles://https://data.vayunmathur.com/v5-overlay.pmtiles"
+        "pmtiles://https://data.maproj.org/v5-overlay.pmtiles"
 }

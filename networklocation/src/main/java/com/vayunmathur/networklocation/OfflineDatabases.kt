@@ -31,8 +31,8 @@ object OfflineDatabases {
     /** Names shipped by earlier versions of the app, deleted on sight to reclaim space. */
     private val SUPERSEDED = listOf("geocoder.geodb", "wifi.wpsdb", "cells.wpsdb")
 
-    private const val GEOCODER_URL = "https://data.vayunmathur.com/geocoder/$GEOCODER"
-    private const val WPS_BASE_URL = "https://data.vayunmathur.com/wps/"
+    private const val GEOCODER_URL = "https://data.maproj.org/geocoder/$GEOCODER"
+    private const val WPS_BASE_URL = "https://data.maproj.org/wps/"
 
     /**
      * Expected SHA-256 of each published database, verified by `:library:downloadservice`

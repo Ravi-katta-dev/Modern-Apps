@@ -76,7 +76,7 @@ internal object OfflineRouterTrafficFetch {
         packedSquare: Int,
     ): TrafficPayload? {
         val (status, bytes) = NetworkClient.performRequestBytes(
-            url = "https://api.vayunmathur.com/maps/traffic" +
+            url = "https://api.maproj.org/maps/traffic" +
                 "?min_lat=$minLat&min_lon=$minLon&max_lat=$maxLat&max_lon=$maxLon",
         )
         Log.dev(

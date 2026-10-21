@@ -8,7 +8,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /** Base URL for the `/api/travel` endpoints on the self-hosted proxy. */
-internal const val TRAVEL_BASE = "https://api.vayunmathur.com/api/travel"
+internal const val TRAVEL_BASE = "https://api.maproj.org/api/travel"
 
 /** Max characters of an upstream error body surfaced to the user. */
 internal const val MAX_ERROR_SNIPPET_LENGTH = 300

@@ -92,7 +92,7 @@ fun AddPersonDialog(
                 // fetches the key from the relay and checks it against this.
                 OutlinedButton(
                     {
-                        val base = "https://ma.vayunmathur.com/ff/share#id=${Networking.userid.encodeBase26()}"
+                        val base = "https://maproj.org/ff/share#id=${Networking.userid.encodeBase26()}"
                         val link = Networking.myInviteFingerprint()?.let { "$base&k=$it" } ?: base
                         ExternalIntents.shareText(
                             context,

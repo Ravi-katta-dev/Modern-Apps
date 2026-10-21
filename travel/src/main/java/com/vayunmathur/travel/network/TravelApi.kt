@@ -4,7 +4,7 @@ import com.vayunmathur.library.network.NetworkClient
 
 /**
  * Thin wrapper over the shared [NetworkClient] for the `/api/travel` search and
- * reference endpoints on the self-hosted proxy (`api.vayunmathur.com`). The proxy
+ * reference endpoints on the self-hosted proxy (`api.maproj.org`). The proxy
  * holds the Duffel token server-side, so the app ships no secret; it just does
  * URL/body construction + delegation to the shared client.
  *

@@ -152,7 +152,7 @@ class MetadataPreviews {
             // re-running `:everysync:metadata` produces the same PNG.
             ShareVaultDialog(
                 vaultTitle = "Family contacts",
-                shareLink = "https://ma.vayunmathur.com/es/share#id=abc&owner=device-1&type=contacts",
+                shareLink = "https://maproj.org/es/share#id=abc&owner=device-1&type=contacts",
                 deviceId = "device-1",
                 roles = listOf("owner", "editor", "viewer"),
                 members = listOf(

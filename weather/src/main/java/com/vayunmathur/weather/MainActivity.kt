@@ -20,7 +20,7 @@ class MainActivity : MaActivity() {
     }
 
     override fun onCreateBeforeContent() {
-        // FIRST_PARTY covers api.vayunmathur.com (self-hosted weather bundle
+        // FIRST_PARTY covers api.maproj.org (self-hosted weather bundle
         // and tiles proxy — place search is on-device, no hosts remain).
         NetworkClient.init(this, TrustBundle.FIRST_PARTY)
         GeoDatabase.init(this)

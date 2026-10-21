@@ -1,9 +1,9 @@
 # The packed geocoder database is large (~1–1.5 GB) and is NOT committed. Generate it locally
 # with tools/extract-osm-addresses.sh + the GeocoderGenerator, then upload to
-# data.vayunmathur.com/geocoder/ ; release builds fetch it back into assets at build time.
+# data.maproj.org/geocoder/ ; release builds fetch it back into assets at build time.
 *.geodb
 
 # The offline WPSDB stores (wifi.wpsdb up to ~2 GB; cells.wpsdb far smaller) are NOT committed.
-# Build them with wtfps-experiment (see RUNBOOK.md), upload to data.vayunmathur.com/wps/ ;
+# Build them with wtfps-experiment (see RUNBOOK.md), upload to data.maproj.org/wps/ ;
 # release builds fetch them back into assets at build time (fetchWpsStores).
 *.wpsdb

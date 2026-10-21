@@ -63,7 +63,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 
 # Not an assets directory: these files are fetched at run time from
-# `data.vayunmathur.com/models/nllb600/`, so the build only has to produce them for upload.
+# `data.maproj.org/models/nllb600/`, so the build only has to produce them for upload.
 OUT = os.path.join(ROOT, "build", "nllb600")
 
 CHECKPOINT = "pytorch_model.bin"

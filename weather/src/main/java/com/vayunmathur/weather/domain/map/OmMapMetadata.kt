@@ -9,7 +9,7 @@ import kotlinx.serialization.json.Json
 
 /**
  * Metadata for a spatial model, from
- * `https://api.vayunmathur.com/data_spatial/<model>/latest.json` (P1 tiles
+ * `https://api.maproj.org/data_spatial/<model>/latest.json` (P1 tiles
  * passthrough; upstream is the model-data S3 bucket).
  *
  * - [referenceTime] is the model run (drives the `.om` folder path).
@@ -38,8 +38,8 @@ val WeatherMetric.omVariable: String
 private const val WIND_U = "wind_u_component_10m"
 private const val WIND_V = "wind_v_component_10m"
 
-/** Self-hosted tiles origin: axum Range proxy on `api.vayunmathur.com` (P1). */
-private const val SPATIAL_BASE = "https://api.vayunmathur.com/data_spatial"
+/** Self-hosted tiles origin: axum Range proxy on `api.maproj.org` (P1). */
+private const val SPATIAL_BASE = "https://api.maproj.org/data_spatial"
 
 private val metadataJson = Json { ignoreUnknownKeys = true }
 

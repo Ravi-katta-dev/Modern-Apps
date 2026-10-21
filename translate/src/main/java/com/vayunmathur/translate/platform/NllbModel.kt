@@ -19,11 +19,11 @@ import java.io.File
  * The model runs on `:library:ml`'s own Vulkan runtime. Native checks the maml's graph
  * id (18, `graph::NLLB`), so a wrong file fails at load.
  *
- * Files are fetched mirror-only from `data.vayunmathur.com/models/nllb600/` via
+ * Files are fetched mirror-only from `data.maproj.org/models/nllb600/` via
  * [downloadModels]. Auto-install via `InitialModelDownloadChecker` in MainActivity.
  */
 object NllbModel {
-    private const val BASE = "https://data.vayunmathur.com/models/nllb600/"
+    private const val BASE = "https://data.maproj.org/models/nllb600/"
     const val DIR = "nllb600"
 
     /** The 2 runtime files, SHA-256 pinned. Names and order come from [NllbHandle.FILES]. */

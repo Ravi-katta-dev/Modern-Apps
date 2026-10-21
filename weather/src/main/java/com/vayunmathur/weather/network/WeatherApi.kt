@@ -5,7 +5,7 @@ import com.vayunmathur.weather.data.GeoDatabase
 
 /**
  * Thin wrapper over the shared [NetworkClient] for the self-hosted `wx/v1`
- * bundle API on `api.vayunmathur.com` (+ self-hosted geocoding on the same
+ * bundle API on `api.maproj.org` (+ self-hosted geocoding on the same
  * host). One `bundle()` call carries everything the weather screen needs;
  * the mapper normalizes it into the existing DTOs so nothing downstream of
  * `network/` changes.
@@ -15,8 +15,8 @@ import com.vayunmathur.weather.data.GeoDatabase
  */
 object WeatherApi {
 
-    private const val BUNDLE_BASE = "https://api.vayunmathur.com/wx/v1"
-    private const val GEOCODE_BASE = "https://api.vayunmathur.com/wx/v1/search"
+    private const val BUNDLE_BASE = "https://api.maproj.org/wx/v1"
+    private const val GEOCODE_BASE = "https://api.maproj.org/wx/v1/search"
 
     /**
      * Fetch the full bundle (current + hourly + daily + 15-min + AQ) for a

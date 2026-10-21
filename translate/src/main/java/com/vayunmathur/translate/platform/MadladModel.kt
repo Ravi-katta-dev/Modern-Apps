@@ -19,11 +19,11 @@ import java.io.File
  * The model runs on `:library:ml`'s own Vulkan runtime. Native checks the maml's graph
  * id (25, `graph::MADLAD`), so a wrong file fails at load.
  *
- * Files are fetched mirror-only from `data.vayunmathur.com/models/madlad400/` via
+ * Files are fetched mirror-only from `data.maproj.org/models/madlad400/` via
  * [downloadModels]. Auto-install via `InitialModelDownloadChecker` in MainActivity.
  */
 object MadladModel {
-    private const val BASE = "https://data.vayunmathur.com/models/madlad400/"
+    private const val BASE = "https://data.maproj.org/models/madlad400/"
     const val DIR = "madlad400"
 
     /** The 2 runtime files, SHA-256 pinned. Names and order come from [MadladHandle.FILES]. */

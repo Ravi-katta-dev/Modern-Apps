@@ -4,7 +4,7 @@ Usage: python upload_planet.py <local-file>
 Verifies server-side size matches, then deletes nothing local. Progress
 prints every ~1 GB.
 
-Serves https://data.vayunmathur.com/planet2.mamaps, which the apps'
+Serves https://data.maproj.org/planet2.mamaps, which the apps'
 basemap URLs point at (library/map urls.rs, maps MapTileCache.kt).
 
 SECURITY: credentials/config come from ENVIRONMENT VARIABLES, never baked

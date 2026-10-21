@@ -200,7 +200,7 @@ object DefaultRepos {
     )
 
     val MODERN_APPS = RepoDescriptor(
-        url = "https://ma.vayunmathur.com/fdroid/repo",
+        url = "https://maproj.org/fdroid/repo",
         displayName = "Modern Apps",
         pinnedFingerprint =
             "176fcb2525573e5be8e1cb3a496dd97b137e81ca5b887a1d32cb894b4e5717b4",
@@ -209,7 +209,7 @@ object DefaultRepos {
     )
 
     val PROPRIETARY = RepoDescriptor(
-        url = "https://ma.vayunmathur.com/proprietary/repo",
+        url = "https://maproj.org/proprietary/repo",
         displayName = "Proprietary",
         pinnedFingerprint =
             "176fcb2525573e5be8e1cb3a496dd97b137e81ca5b887a1d32cb894b4e5717b4",

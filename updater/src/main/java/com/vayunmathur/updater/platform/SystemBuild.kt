@@ -26,7 +26,7 @@ object SystemBuild {
      * The default is only a fallback for a build that forgot to set the property.
      */
     fun otaServer(): String =
-        stringProperty("ro.maos.ota.server").ifEmpty { "https://ota.ma.vayunmathur.com" }
+        stringProperty("ro.maos.ota.server").ifEmpty { "https://ota.maproj.org" }
             .trimEnd('/')
 
     /** e.g. `shiba`. The OTA metadata and artifacts are named per device. */

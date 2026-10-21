@@ -73,7 +73,7 @@ class MainActivity : MaActivity() {
 
     override fun onCreateBeforeContent() {
         deepLinkAddInvite.value = parseAddDeepLink(intent)
-        // FIRST_PARTY: api.vayunmathur.com + data.vayunmathur.com + findfamily.cc (Cloudflare ISRG+GTS)
+        // FIRST_PARTY: api.maproj.org + data.maproj.org + findfamily.cc (Cloudflare ISRG+GTS)
         NetworkClient.init(this, TrustBundle.FIRST_PARTY)
     }
 

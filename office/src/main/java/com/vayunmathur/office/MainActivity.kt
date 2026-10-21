@@ -134,7 +134,7 @@ class MainActivity : MaActivity() {
     private var intentDocumentUri: Uri? = null
 
     override fun onCreateBeforeContent() {
-        // FIRST_PARTY: api.vayunmathur.com + data.vayunmathur.com -> ISRG+GTS
+        // FIRST_PARTY: api.maproj.org + data.maproj.org -> ISRG+GTS
         NetworkClient.init(this, TrustBundle.FIRST_PARTY)
         viewModel.loadSettings(this)
 

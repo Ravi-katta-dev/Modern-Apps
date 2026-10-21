@@ -13,7 +13,7 @@
   ~25 MB Auto Backup quota, and exceeding that quota fails the backup for the
   whole app, which would take the language preferences down with it. It is also
   fully regenerable — NllbModel downloads it mirror-only from
-  data.vayunmathur.com with SHA-256 pinning, and InitialModelDownloadChecker in
+  data.maproj.org with SHA-256 pinning, and InitialModelDownloadChecker in
   MainActivity re-fetches it automatically on first launch.
 
   It is kept for device transfer. D2D has no quota and runs over a direct local

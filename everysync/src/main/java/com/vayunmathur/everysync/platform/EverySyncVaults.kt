@@ -212,7 +212,7 @@ class EverySyncVaults(private val viewModel: EverySyncViewModel) {
         }
     }
 
-    /** `https://ma.vayunmathur.com/es/share#id=<vault>&owner=<device>&type=<dataType>` — ids in fragment. */
+    /** `https://maproj.org/es/share#id=<vault>&owner=<device>&type=<dataType>` — ids in fragment. */
     fun shareLinkFor(meta: VaultMeta): String =
         RelayLinks.shareLinkFor(meta.vaultId, meta.ownerDeviceId, meta.dataType)
 

@@ -30,7 +30,7 @@ ASCredentialProvider ext.
 | `core.provider.SyncDriver` + `core.platform.RelayCursorStore` | Sync cycles; cursor keys `relay_cursor:<type>:<vault>:<channel>`. |
 | `core.network.IosRelayTransport` | Ktor-Darwin + trust pinning (lands Phase 3; stub today). Envelopes: `Base64(AES_GCM)` per item; invites PQC-sealed to `inbox:<deviceId>`. |
 | `core.network.RelayRoles` | Passwords vaults offer **EDITOR only — never VIEWER** (read-only passwords still disclose every secret). |
-| `core.network.RelayLinks` | `everysync://join/<vault>?owner=…&type=…` + `https://ma.vayunmathur.com/es/share#id=…&owner=…&type=…`. |
+| `core.network.RelayLinks` | `everysync://join/<vault>?owner=…&type=…` + `https://maproj.org/es/share#id=…&owner=…&type=…`. |
 | PQC cinterop (`IOS_PQC_NOTES.md`) | Exactly 10 fns: `pqc_kem_keygen/encaps/decaps`, `pqc_dsa_keygen/sign/verify`, `pqc_bundle_build/split`, `pqc_free/secure_zero` via `e2eePqc.def`. Never `identity_keygen`, `link_*`, `security_code`. |
 
 ## Delete semantics — HARD delete
