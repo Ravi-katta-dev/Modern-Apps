@@ -165,8 +165,9 @@ private class VcfParser(
     }
 
     private fun applyName(builder: ContactBuilder, decodedValue: String) {
-        val value = unescapeV(decodedValue)
-        val comps = value.split(';')
+        // Split on unescaped semicolons first: a literal ";" inside a name
+        // arrives escaped ("\;") and must not split the components.
+        val comps = splitUnescaped(decodedValue, ';').map(::unescapeV)
         val family = comps.getOrNull(0) ?: ""
         val given = comps.getOrNull(1) ?: ""
         val additional = comps.getOrNull(2) ?: ""
@@ -216,8 +217,9 @@ private class VcfParser(
         params: Map<String, List<String>>,
         decodedValue: String,
     ) {
-        val value = unescapeV(decodedValue)
-        val comps = value.split(';')
+        // Same escaped-split rule as applyName: commas and semicolons inside
+        // a street or city arrive escaped and must not split the components.
+        val comps = splitUnescaped(decodedValue, ';').map(::unescapeV)
         val street = comps.getOrNull(2) ?: ""
         val city = comps.getOrNull(3) ?: ""
         val region = comps.getOrNull(4) ?: ""
@@ -333,7 +335,7 @@ private class VcfParser(
                 dv.substring(DATE_PREFIX_LENGTH, DATE_MONTH_END) + "-" +
                 dv.substring(DATE_MONTH_END, DATE_DAY_END)
         } else if (dv.startsWith("--")) {
-            dv = NO_YEAR_SENTINEL + dv.substring(2)
+            dv = NO_YEAR_SENTINEL + "-" + dv.substring(2)
         }
         return try {
             LocalDate.parse(dv)

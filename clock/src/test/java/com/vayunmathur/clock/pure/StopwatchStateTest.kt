@@ -127,6 +127,6 @@ class StopwatchStateTest {
     @Test
     fun consecutiveLapsProduceCorrectSplits() {
         val laps = listOf(10.seconds, 30.seconds, 31.minutes)
-        assertEquals(listOf(10.seconds, 20.seconds, 30.minutes), splits(laps))
+        assertEquals(listOf(10.seconds, 20.seconds, 30.minutes + 30.seconds), splits(laps))
     }
 }

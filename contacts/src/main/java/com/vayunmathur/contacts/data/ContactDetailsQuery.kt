@@ -24,7 +24,7 @@ fun getDetails(context: Context, id: Long, isProfile: Boolean = false): ContactD
 /** Parses a "--MM-DD" provider date (no year) via the 1604 sentinel year. Null when unparseable. */
 private fun parseNoYearDate(date: String): LocalDate? {
     if (!date.startsWith("--")) return null
-    return runCatching { LocalDate.parse(NO_YEAR_SENTINEL_PREFIX + date.substring(2)) }.getOrNull()
+    return runCatching { LocalDate.parse(NO_YEAR_SENTINEL_PREFIX + "-" + date.substring(2)) }.getOrNull()
 }
 
 private const val NO_YEAR_SENTINEL_PREFIX = "1604"

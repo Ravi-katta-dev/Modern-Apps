@@ -13,6 +13,10 @@ android {
     defaultConfig {
         applicationId = "com.vayunmathur.contacts"
     }
+    // vCard parser tests call the real Log facade on the JVM: without this every
+    // android.util stub throws "not mocked". Same flag :maps sets for its
+    // side-file reader tests.
+    testOptions.unitTests.isReturnDefaultValues = true
 }
 
 dependencies {

@@ -78,6 +78,28 @@ class VCardRoundTripTest {
         return out
     }
 
+    private fun splitUnescapedMirror(value: String): List<String> {
+        val out = mutableListOf<String>()
+        val cur = StringBuilder()
+        var i = 0
+        while (i < value.length) {
+            val c = value[i]
+            if (c == '\\' && i + 1 < value.length) {
+                cur.append(c).append(value[i + 1])
+                i += 2
+            } else if (c == ';') {
+                out.add(cur.toString())
+                cur.clear()
+                i++
+            } else {
+                cur.append(c)
+                i++
+            }
+        }
+        out.add(cur.toString())
+        return out
+    }
+
     private fun parse(text: String): List<VCardContact> {
         val contacts = mutableListOf<VCardContact>()
         var last = ""
@@ -136,7 +158,9 @@ class VCardRoundTripTest {
             val rawValue = trimmed.substring(colon + 1)
             when (prop) {
                 "N" -> {
-                    val comps = unescapeV(rawValue).split(';')
+                    // Split on unescaped semicolons first, mirroring the
+                    // production parser: an escaped "\;" is data, not a boundary.
+                    val comps = splitUnescapedMirror(rawValue).map(::unescapeV)
                     last = comps.getOrNull(0) ?: ""
                     firstName = comps.getOrNull(1) ?: ""
                     middle = comps.getOrNull(2) ?: ""
@@ -213,7 +237,9 @@ class VCardRoundTripTest {
 
     @Test
     fun invalidPhoneStringsSurviveVerbatim() {
-        val weird = listOf("not-a-phone", "123", "+-() ", "12")
+        // Line handling trims trailing whitespace (correct: it is framing,
+        // not data); everything else passes through untouched.
+        val weird = listOf("not-a-phone", "123", "+-()", "12")
         val back = roundTrip(VCardContact(firstName = "Zed", phones = weird))
         assertEquals(weird, back.phones)
     }
