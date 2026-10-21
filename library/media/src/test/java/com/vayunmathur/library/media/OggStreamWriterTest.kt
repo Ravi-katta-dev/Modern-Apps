@@ -18,8 +18,7 @@ import kotlin.test.assertTrue
  * reported duration, and a CRC that a reader will actually verify.
  *
  * A stream written here also has to survive being retagged and read back by a tag parser,
- * which is the path a real download takes. That reader belongs to the consuming app rather
- * than to this module, so the round trip is asserted by `:musicbrainz`'s `OggOpusTaggerTest`.
+ * which is the path a real download takes.
  */
 class OggStreamWriterTest {
 

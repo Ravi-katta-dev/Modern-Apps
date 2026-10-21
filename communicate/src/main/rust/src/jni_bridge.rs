@@ -1,4 +1,4 @@
-//! JNI surface for `com.vayunmathur.messages.whatsapp.e2e.RustWhatsAppCrypto`.
+//! JNI surface for `com.vayunmathur.communicate.data.whatsapp.e2e.RustWhatsAppCrypto`.
 //! Kotlin owns persistence (Room) and passes session/sender-key records as opaque bytes.
 
 use crate::crypto::{self, CryptoError};

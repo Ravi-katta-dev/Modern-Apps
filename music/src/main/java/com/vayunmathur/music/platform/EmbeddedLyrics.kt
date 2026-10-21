@@ -11,14 +11,11 @@ import java.nio.channels.FileChannel
 /**
  * Reads embedded lyrics out of the currently playing file.
  *
- * The musicbrainz downloader writes synced LRC text into a `LYRICS` tag - a Vorbis comment
+ * The downloader writes synced LRC text into a `LYRICS` tag - a Vorbis comment
  * in `.opus`/`.flac`, or an iTunes `©lyr` atom in the `.m4a` fallback - and this pulls it
  * back out so the now-playing screen can scroll along. Only the metadata region at the head
  * of the file is scanned; the audio body is never read, because this runs every time the
  * track changes.
- *
- * This mirrors the parsers in the musicbrainz app's `TagReader`, duplicated rather than
- * shared because the two apps are separate modules with no common dependency.
  */
 object EmbeddedLyrics {
 

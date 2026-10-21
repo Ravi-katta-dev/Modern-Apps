@@ -398,7 +398,7 @@ NetworkClient.init(this, TrustBundle.FIRST_PARTY)
 
 TLS validates against a bundle of pinned roots shipped in `library/network/src/main/assets/ca/`,
 not the system store. Pick the narrowest `TrustBundle` that covers your hosts —
-`FIRST_PARTY`, `STANDARD`, `EXTENDED`, `MUSICBRAINZ`, or `SYSTEM` for user-supplied hosts (VPN,
+`FIRST_PARTY`, `STANDARD`, `EXTENDED`, or `SYSTEM` for user-supplied hosts (VPN,
 custom mail servers, the browser).
 
 Note that `:library:map`, `:library:image` and `:library:downloadservice` declare `INTERNET`

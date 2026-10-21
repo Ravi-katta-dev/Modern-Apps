@@ -102,6 +102,18 @@ internal fun TvDetailScreen(
     val app = state.app ?: return
     val stage = state.stage
     val busy = stage != null && stage !is InstallStage.Failed
+    // @Composable string resolutions hoisted: the LazyColumn item lambdas below are not
+    // @Composable scopes for non-local calls like toMessage() — only their trailing
+    // content lambdas are. Everything resolved here, plain values used below.
+    val verificationMessage = state.verification.toMessage()
+    val reproducibleLabel = if (app.reproducible) stringResource(R.string.chip_reproducible) else null
+    val adsLabel = if (app.containsAds) stringResource(R.string.chip_contains_ads) else null
+    val flags = buildList {
+        reproducibleLabel?.let { add(it) }
+        adsLabel?.let { add(it) }
+        addAll(app.antiFeatures)
+    }
+    val shots = app.tvScreenshots.ifEmpty { app.screenshots }
     // A LazyColumn, not a scrollable Column: D-pad focus moves item to item, and the
     // list scrolls the focused block into view. A Column would scroll the pixels while
     // focus stays wherever it was.
@@ -235,10 +247,10 @@ internal fun TvDetailScreen(
                 }
             }
         }
-        state.verification.toMessage()?.let { message ->
+        if (verificationMessage != null) {
             item("verification") {
                 Text(
-                    text = message,
+                    text = verificationMessage,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -247,7 +259,7 @@ internal fun TvDetailScreen(
         // TV screenshots where the source publishes a separate set — phone-aspect shots
         // jump between ratios when mixed. Falls back to the phone set, mirroring the
         // phone's strip order (screenshots, not hero-first: the hero is phone-framed).
-        val shots = app.tvScreenshots.ifEmpty { app.screenshots }
+        // (Resolved at the top of this screen — see shots.)
         if (shots.isNotEmpty()) {
             item("screenshots") {
                 TvScreenshotStrip(urls = shots)
@@ -288,11 +300,7 @@ internal fun TvDetailScreen(
         }
         // Anti-features and reproducibility, simplified: the phone's chip row verbatim
         // would be a second focus axis; a plain list at bodyLarge reads at ten feet.
-        val flags = buildList {
-            if (app.reproducible) add(stringResource(R.string.chip_reproducible))
-            if (app.containsAds) add(stringResource(R.string.chip_contains_ads))
-            addAll(app.antiFeatures)
-        }
+        // (Labels resolved at the top of this screen — see flags.)
         if (flags.isNotEmpty()) {
             item("flags") {
                 Column(
@@ -419,7 +427,7 @@ private fun TvDetailFactRow(app: UnifiedApp) {
                     Modifier
                         .width(1.dp)
                         .height(32.dp)
-                        .background(MaterialTheme.colorScheme.outlineVariant),
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
                 )
             }
             TvStatCell(label = label, value = value, modifier = Modifier.weight(1f))

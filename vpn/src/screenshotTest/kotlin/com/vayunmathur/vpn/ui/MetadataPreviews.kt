@@ -71,7 +71,7 @@ class MetadataPreviews {
         AppUsageSummary("com.vayunmathur.youpipe", "YouPipe", 2_411_724_800, 4_812),
         AppUsageSummary("com.vayunmathur.web", "Web", 743_051_264, 12_904),
         AppUsageSummary("com.vayunmathur.maps", "Maps", 318_767_104, 2_216),
-        AppUsageSummary("com.vayunmathur.messages", "Messages", 94_371_840, 8_431),
+        AppUsageSummary("com.vayunmathur.communicate", "Communicate", 94_371_840, 8_431),
         AppUsageSummary("com.vayunmathur.email", "Email", 41_943_040, 1_507),
         AppUsageSummary("com.vayunmathur.appstore", "App Store", 12_582_912, 342),
     )

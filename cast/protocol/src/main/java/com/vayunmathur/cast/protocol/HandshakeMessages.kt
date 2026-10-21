@@ -231,9 +231,9 @@ data class DecoderLimits(
 /**
  * The audio codecs this protocol carries, which is one.
  *
- * Every audio path in the repo already ends at 48 kHz Opus - `:musicbrainz` normalises its downloads
- * to it, the RTP timebase *is* its sample rate, and the phone's encoder produces nothing else - so a
- * list of one is not a placeholder for a negotiation that never happened. It is an enum rather than
+ * Every audio path in the repo already ends at 48 kHz Opus - downloads are
+ * normalised to it, the RTP timebase *is* its sample rate, and the phone's encoder produces nothing else - so a
+ * list of one is not a placeholder for a negotiation that never happened.
  * a boolean because it is the wire form of "which", and a boolean would have to be renamed the day a
  * second codec appears.
  *

@@ -29,7 +29,7 @@ Monorepo: ~100 Gradle modules + Rust workspace. Do scoped work only.
 | :--- | :--- | :--- |
 | base | `library/` | nav keys, `AssistantIntent`, IPC DTOs (`library.intents.<app>`), `RoomRepository` base |
 | ui | `library/ui/` | `Icons.kt` (ONLY `Icon()`/`painterResource()` allowed), `AppScaffold` family, `DynamicTheme`, messenger/`AppMessages`, motion helpers |
-| network | `library/network/` | `NetworkClient`, pinned CAs in `assets/ca/`, `TrustBundle` (FIRST_PARTY/STANDARD/EXTENDED/MUSICBRAINZ/SYSTEM) |
+| network | `library/network/` | `NetworkClient`, pinned CAs in `assets/ca/`, `TrustBundle` (FIRST_PARTY/STANDARD/EXTENDED/SYSTEM/ESIM) |
 | room | `library/room/` | Room 3 + SQLCipher (`implementRoom(libs)`) |
 | map / ml / ocr | `library/map/`, `library/ml/`, `library/ocr/` | vector maps (INTERNET itself) / inference / OCR |
 | image/media | `library/image/`, `library/media/` | image loading / AV playback |
@@ -57,7 +57,7 @@ Slash == colon for Gradle (`games/voxels` == `games:voxels`).
 - Never `Icon()`/`painterResource()`/`androidx.compose.material.icons.*` in app. Add `IconXxx()` to `library/ui/.../Icons.kt`.
 - Never raw `Scaffold`. Use `AppScaffold` family. Never raw `androidx.compose.animation` at call site — use `library.ui` helpers. Never `imePadding()/navigationBarsPadding()/systemBarsPadding()` in `library.ui`.
 - Room 3 only. Literal `androidx.room.` flagged even in comments. Never `buildDatabase()` at call site — subclass `library.room.RoomRepository`.
-- Network only via `library.network.NetworkClient` + `TrustBundle` narrowest (`FIRST_PARTY/STANDARD/EXTENDED/MUSICBRAINZ/SYSTEM`).
+- Network only via `library.network.NetworkClient` + `TrustBundle` narrowest (`FIRST_PARTY/STANDARD/EXTENDED/SYSTEM/ESIM`).
 - Package roots closed set: `ui data domain platform network intents service provider widget notifications auth sync telephony`. No `util/`. One public `@Composable` per file, named as file. `domain/` pure (no Android/Compose).
 - Escape hatches verbatim: `// PACKAGE STRUCTURE EXCEPTION (JNI)`, `// RAW SCAFFOLD EXCEPTION: <reason>`, `// TOAST EXCEPTION: <reason>`, `// RAW ANIMATION EXCEPTION: <reason>`.
 - detekt rules live in `detekt.yml` (ui/domain/odf/service scoping rationale inline). Fix code, not config, to green a module.

@@ -110,8 +110,7 @@ downgrade path is reachable with stock configuration.
 a string literal at `fooddelivery/src/main/java/com/vayunmathur/fooddelivery/MainActivity.kt:82`. A
 Lyft OAuth client secret is a string literal at
 `taxi/src/main/java/com/vayunmathur/taxi/network/lyft/LyftAuth.kt:55`, and `:taxi` has
-`BOOKING_LIVE = true`, so real charges are possible. A Tidal `client_id;client_secret` pair sits
-base64-encoded at `musicbrainz/.../tidal/TidalAuth.kt:67-68`. Alongside these are a WhatsApp
+`BOOKING_LIVE = true`, so real charges are possible. Alongside these are a WhatsApp
 `CLIENT_TOKEN` plus registration salt and public key, Google BotGuard api-key and request-key
 constants in `:youpipe`, and two public OAuth client ids. A secret in an APK is a published secret:
 these must be treated as disclosed and rotated, and the flows that need a confidential client moved
@@ -655,18 +654,6 @@ dependency.
 `openstreetmap.org` and `github.com/protomaps/basemaps` are attribution only. `maps.app.goo.gl` /
 `goo.gl` are deep links, and are a real dependency only if the app resolves shorteners itself —
 **UNCERTAIN**. The manifest accepts `scheme="http"`.
-
-**`:musicbrainz`**
-
-| Host | Purpose | Notes |
-|---|---|---|
-| `musicbrainz.org/ws/2` | Metadata | Non-profit. Correctly rate-gated at 1100 ms with an identifying UA. Hard-fails the screen |
-| `coverartarchive.org` | Cover art | Non-profit. **Not rate-gated and no identifying UA** |
-| `archive.org`, `ia*.us.archive.org` | Cover art redirect targets | |
-| `api.tidal.com/v1` | Catalogue and playback | Bearer OAuth |
-| `auth.tidal.com/v1/oauth2` | Tidal auth | **Hardcoded shared `client_id;client_secret`**, base64-encoded at `TidalAuth.kt:67-68` |
-| `sp-*-{cf,fa}.audio.tidal.com` | Audio CDN | The reason `TrustBundle.MUSICBRAINZ` exists |
-| `lrclib.net` | Lyrics | **Volunteer-run**, ungated, two calls per track |
 
 **`:youpipe`**
 

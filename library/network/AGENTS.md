@@ -12,7 +12,7 @@
 
 ## Overview
 **Purpose:** The ONLY network path in the repo — pinned-TLS HTTP engines + WebSocket + connectivity monitoring. Apps call `NetworkClient.init(context, TrustBundle.*)` first, then go through the engines; never raw OkHttp, never `TrustAll` (that lives in apps' dev-only code, never here).
-**How to use:** `NetworkClient.init()` in `MainActivity.onCreateBeforeContent` with the narrowest bundle (`FIRST_PARTY` own relay / `STANDARD` public APIs / `EXTENDED` + `MUSICBRAINZ` special hosts / `SYSTEM` user-entered hosts like web browser). Requests via `HttpUrlEngine`/`PooledHttpEngine` (Rust `NativeHttpBridge`); pins in `BundledTrust` + `assets/ca/`; offline UI via `util/ConnectivityMonitor` (+ `ConnectivityCompose` banner in `:library:ui`).
+**How to use:** `NetworkClient.init()` in `MainActivity.onCreateBeforeContent` with the narrowest bundle (`FIRST_PARTY` own relay / `STANDARD` public APIs / `EXTENDED` + `ESIM` special hosts / `SYSTEM` user-entered hosts like web browser). Requests via `HttpUrlEngine`/`PooledHttpEngine` (Rust `NativeHttpBridge`); pins in `BundledTrust` + `assets/ca/`; offline UI via `util/ConnectivityMonitor` (+ `ConnectivityCompose` banner in `:library:ui`).
 **Entry points:** `NetworkClient.kt` → `TrustBundle.kt` → `HttpUrlEngine.kt` → `Urls.kt`.
 **Gotchas:** `PooledHttpEngine`/`HttpUrlEngine`/`NativeHttpBridge` all exist — check which one your call site already uses before adding a new path. INTERNET permission is declared by consuming apps (or by `library/map`/`downloadservice` themselves), not here.
 
