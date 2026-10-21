@@ -44,6 +44,13 @@ pub struct SurfaceState {
     pub pitch: f32,
     /// Whether the camera auto-orbits. The editor sets false on creation.
     pub auto_rotate: bool,
+    /// Face atlas needs (re)upload: set on creation + every trait change,
+    /// consumed by the tick thread (which owns the GPU context).
+    pub atlas_dirty: bool,
+    /// Procedural mesh needs rebuild + re-upload (trait-dependent decal UVs):
+    /// set on trait change when no bundled glb is active, consumed by the
+    /// tick thread. glTF surfaces never set this (asset UVs are static).
+    pub mesh_dirty: bool,
 }
 
 /// Max orbit pitch: enough to inspect top/bottom, never straight down/up.
@@ -69,6 +76,8 @@ impl SurfaceState {
             yaw: 0.0,
             pitch: 0.0,
             auto_rotate: true,
+            atlas_dirty: true,
+            mesh_dirty: false,
         }
     }
 }
@@ -95,8 +104,10 @@ pub struct Engine {
     /// Orbit prefs by surface id: written on input, restored on (re)create,
     /// never cleared by surface removal.
     pub orbit: HashMap<i32, OrbitPrefs>,
-    /// Shared CPU mesh bytes (procedural fallback or parsed glb), uploaded
-    /// per-surface to GPU. Single allocation across all surfaces.
+    /// Shared CPU mesh (parsed glb when bundled, else the procedural fallback
+    /// with default-trait decals), uploaded per-surface to GPU at creation.
+    /// Procedural surfaces rebuild their own mesh from traits on change (the
+    /// decal UVs are trait-dependent); glTF surfaces keep sharing this.
     pub mesh: Arc<Vec<YuuVertex>>,
     /// Bundled glb bytes, when the APK ships `base_upperbody.glb`.
     pub bundled_mesh: Option<Vec<u8>>,
@@ -108,7 +119,7 @@ impl Engine {
         Self {
             surfaces: HashMap::new(),
             orbit: HashMap::new(),
-            mesh: Arc::new(build_avatar_mesh()),
+            mesh: Arc::new(build_avatar_mesh(&crate::traits::YuuTraits::default())),
             bundled_mesh: None,
         }
     }
@@ -145,7 +156,16 @@ pub fn ensure_engine() {
 /// Replace a surface's traits from `YuuFaceConfig` JSON.
 pub fn set_traits_json(surface_id: i32, json: &str) {
     if let Ok(mut eng) = engine().lock() {
-        eng.surface_mut(surface_id, 512, 512).traits = YuuTraits::from_config_json(json);
+        let has_bundled = eng.bundled_mesh.is_some();
+        let state = eng.surface_mut(surface_id, 512, 512);
+        state.traits = YuuTraits::from_config_json(json);
+        // Face atlas depends on traits — the tick thread re-uploads it.
+        state.atlas_dirty = true;
+        // Procedural decal UVs are trait-dependent — the tick thread rebuilds
+        // + re-uploads the mesh. glTF surfaces keep the shared asset mesh.
+        if !has_bundled {
+            state.mesh_dirty = true;
+        }
     }
 }
 
@@ -292,7 +312,10 @@ pub fn view_proj_for(
     (view_proj.to_cols_array_2d(), eye.to_array())
 }
 
-/// Create the renderer for `window` on a surface and upload the shared mesh.
+/// Create the renderer for `window` on a surface and upload the mesh.
+///
+/// Procedural surfaces get a mesh built from their own traits (decal UVs are
+/// trait-dependent); bundled-glb surfaces share the parsed asset mesh.
 ///
 /// # Safety
 /// `window` must be a live adopted `ANativeWindow`; ownership stays with the
@@ -312,12 +335,25 @@ pub unsafe fn create_renderer(
             eng.mesh = Arc::new(parsed);
         }
     }
-    let mesh: Arc<Vec<YuuVertex>> = engine()
-        .lock()
-        .map(|e| Arc::clone(&e.mesh))
-        .unwrap_or_else(|_| Arc::new(build_avatar_mesh()));
     let w = width.max(1) as u32;
     let h = height.max(1) as u32;
+    // Build this surface's mesh: shared asset when bundled, trait-specific
+    // procedural mesh otherwise (done outside the tick path — creation is rare).
+    let mesh: Vec<YuuVertex> = engine()
+        .lock()
+        .map(|e| {
+            if e.bundled_mesh.is_some() {
+                e.mesh.to_vec()
+            } else {
+                let traits = e
+                    .surfaces
+                    .get(&surface_id)
+                    .map(|s| s.traits.clone())
+                    .unwrap_or_default();
+                build_avatar_mesh(&traits)
+            }
+        })
+        .unwrap_or_else(|_| build_avatar_mesh(&crate::traits::YuuTraits::default()));
     if let Ok(mut eng) = engine().lock() {
         let prefs = eng.orbit.get(&surface_id).copied().unwrap_or_default();
         let state = eng.surface_mut(surface_id, w, h);
@@ -329,6 +365,7 @@ pub unsafe fn create_renderer(
         state.yaw = prefs.yaw;
         state.pitch = prefs.pitch;
         state.auto_rotate = prefs.auto_rotate;
+        state.mesh_dirty = false;
     }
     let renderer = match unsafe { Renderer::select(window, width, height, w, h) } {
         Ok(r) => r,
@@ -380,7 +417,7 @@ pub fn resize_renderer(surface_id: i32, width: i32, height: i32) {
 
 /// One tick for one surface: compute bones, upload the UBO, draw.
 pub fn tick_surface(surface_id: i32) {
-    let (view_proj, cam_pos, bones, skin_rgb, count, paused) = {
+    let (view_proj, cam_pos, bones, skin_rgb, count, paused, atlas, remesh) = {
         let eng = match engine().lock() {
             Ok(e) => e,
             Err(_) => return,
@@ -402,7 +439,22 @@ pub fn tick_surface(surface_id: i32) {
         );
         let bones = compute_bone_matrices(&state.traits, &state.pose, t);
         let skin = state.traits.skin_rgb();
-        (vp, cp, bones, skin, state.mesh_count, state.paused)
+        // Regenerate the face atlas when traits changed (config path sets the
+        // flag; generation is cheap CPU work done once per change, not per
+        // frame — upload happens below on the render thread).
+        let atlas = if state.atlas_dirty {
+            Some(crate::atlas::generate_atlas(&state.traits))
+        } else {
+            None
+        };
+        // Rebuild the procedural mesh when traits changed (decal UVs are
+        // trait-dependent). glTF surfaces never set this flag.
+        let remesh = if state.mesh_dirty {
+            Some(build_avatar_mesh(&state.traits))
+        } else {
+            None
+        };
+        (vp, cp, bones, skin, state.mesh_count, state.paused, atlas, remesh)
     };
     if paused {
         return;
@@ -412,6 +464,16 @@ pub fn tick_surface(surface_id: i32) {
     if let Ok(mut eng) = engine().lock() {
         if let Some(state) = eng.surfaces.get_mut(&surface_id) {
             if let Some(renderer) = state.renderer.as_mut() {
+                if let Some(mesh) = remesh {
+                    unsafe { renderer.upload_avatar(&mesh) };
+                    state.mesh_count = mesh.len();
+                    state.mesh_dirty = false;
+                }
+                if let Some(pixels) = atlas {
+                    if unsafe { renderer.upload_atlas(&pixels) }.is_ok() {
+                        state.atlas_dirty = false;
+                    }
+                }
                 let _ = unsafe { renderer.draw(view_proj, cam_pos, bone_arrays, skin_rgb, count) };
             }
         }

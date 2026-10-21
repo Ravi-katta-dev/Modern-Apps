@@ -46,6 +46,17 @@ impl Renderer {
         }
     }
 
+    /// Upload a fresh face atlas (regenerated when traits change).
+    ///
+    /// # Safety
+    /// Must be called on the render thread with the backend's context current.
+    pub unsafe fn upload_atlas(&mut self, pixels: &[u8]) -> Result<(), String> {
+        match self {
+            Self::Vulkan(r) => unsafe { r.upload_atlas(pixels) },
+            Self::Gles(r) => unsafe { r.upload_atlas(pixels) },
+        }
+    }
+
     /// Resize the swapchain/surface.
     ///
     /// # Safety

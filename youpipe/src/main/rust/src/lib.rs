@@ -40,7 +40,7 @@ pub mod suggestions;
 mod android {
     use jni::objects::{JClass, JString};
     use jni::sys::jstring;
-    use jni::JNIEnv;
+    use jni::{Env, EnvUnowned};
 
     use crate::native_http::BridgeHttpClient;
 
@@ -58,12 +58,12 @@ mod android {
         serde_json::json!({ "ok": false, "error": message }).to_string()
     }
 
-    fn text(env: &mut JNIEnv<'_>, value: &JString<'_>) -> String {
+    fn text(env: &mut Env<'_>, value: &JString<'_>) -> String {
         env.get_string(value).map(Into::into).unwrap_or_default()
     }
 
     /// Optional strings arrive as null; treat empty as absent too.
-    fn optional_text(env: &mut JNIEnv<'_>, value: &JString<'_>) -> Option<String> {
+    fn optional_text(env: &mut Env<'_>, value: &JString<'_>) -> Option<String> {
         if value.is_null() {
             return None;
         }
@@ -71,197 +71,204 @@ mod android {
         (!s.is_empty()).then_some(s)
     }
 
-    fn to_jstring(env: &mut JNIEnv<'_>, value: String) -> jstring {
+    fn to_jstring(env: &mut Env<'_>, value: String) -> jstring {
         env.new_string(value).map(|s| s.into_raw()).unwrap_or(std::ptr::null_mut())
+    }
+
+    /// Runs `body` with an attached [`Env`], returning null (which Kotlin reads as failure)
+    /// if the attach fails. Every entry point has the same shape: read the arguments, build
+    /// a [`BridgeHttpClient`] over the Kotlin downloader, call one extractor, return a JSON
+    /// envelope. Exceptions never cross the boundary — failures come back as
+    /// `{"ok":false,"error":"..."}`.
+    fn with_attached_env(
+        env: &mut EnvUnowned<'_>,
+        body: impl FnOnce(&mut Env<'_>) -> String,
+    ) -> jstring {
+        env.with_env(|env| {
+            let payload = body(env);
+            Ok::<jstring, jni::errors::Error>(to_jstring(env, payload))
+        })
+        .resolve::<jni::errors::LogErrorAndDefault>()
     }
 
     #[no_mangle]
     pub extern "system" fn Java_com_vayunmathur_youpipe_nativeext_YouPipeNative_search<'l>(
-        mut env: JNIEnv<'l>,
+        env: &mut EnvUnowned<'l>,
         _class: JClass<'l>,
         query: JString<'l>,
         filter: JString<'l>,
         hl: JString<'l>,
         gl: JString<'l>,
     ) -> jstring {
-        let query = text(&mut env, &query);
-        let filter = optional_text(&mut env, &filter);
-        let hl = text(&mut env, &hl);
-        let gl = text(&mut env, &gl);
+        with_attached_env(env, |env| {
+            let query = text(env, &query);
+            let filter = optional_text(env, &filter);
+            let hl = text(env, &hl);
+            let gl = text(env, &gl);
 
-        let payload = {
             // Resolve the bridge class on this thread before the first request.
-            crate::native_http::init(&mut env);
+            crate::native_http::init(env);
             let client = BridgeHttpClient::new();
             envelope(crate::search::search(&client, &query, filter.as_deref(), &hl, &gl))
-        };
-        to_jstring(&mut env, payload)
+        })
     }
 
     #[no_mangle]
     pub extern "system" fn Java_com_vayunmathur_youpipe_nativeext_YouPipeNative_searchPage<'l>(
-        mut env: JNIEnv<'l>,
+        env: &mut EnvUnowned<'l>,
         _class: JClass<'l>,
         token: JString<'l>,
         hl: JString<'l>,
         gl: JString<'l>,
     ) -> jstring {
-        let token = text(&mut env, &token);
-        let hl = text(&mut env, &hl);
-        let gl = text(&mut env, &gl);
+        with_attached_env(env, |env| {
+            let token = text(env, &token);
+            let hl = text(env, &hl);
+            let gl = text(env, &gl);
 
-        let payload = {
             // Resolve the bridge class on this thread before the first request.
-            crate::native_http::init(&mut env);
+            crate::native_http::init(env);
             let client = BridgeHttpClient::new();
             envelope(crate::search::search_page(&client, &token, &hl, &gl))
-        };
-        to_jstring(&mut env, payload)
+        })
     }
 
     #[no_mangle]
     pub extern "system" fn Java_com_vayunmathur_youpipe_nativeext_YouPipeNative_suggestions<'l>(
-        mut env: JNIEnv<'l>,
+        env: &mut EnvUnowned<'l>,
         _class: JClass<'l>,
         query: JString<'l>,
         hl: JString<'l>,
         gl: JString<'l>,
     ) -> jstring {
-        let query = text(&mut env, &query);
-        let hl = text(&mut env, &hl);
-        let gl = text(&mut env, &gl);
+        with_attached_env(env, |env| {
+            let query = text(env, &query);
+            let hl = text(env, &hl);
+            let gl = text(env, &gl);
 
-        let payload = {
             // Resolve the bridge class on this thread before the first request.
-            crate::native_http::init(&mut env);
+            crate::native_http::init(env);
             let client = BridgeHttpClient::new();
             envelope(crate::suggestions::suggestions_for(&client, &query, &hl, &gl))
-        };
-        to_jstring(&mut env, payload)
+        })
     }
 
     #[no_mangle]
     pub extern "system" fn Java_com_vayunmathur_youpipe_nativeext_YouPipeNative_channelInfo<'l>(
-        mut env: JNIEnv<'l>,
+        env: &mut EnvUnowned<'l>,
         _class: JClass<'l>,
         id: JString<'l>,
         hl: JString<'l>,
         gl: JString<'l>,
     ) -> jstring {
-        let id = text(&mut env, &id);
-        let hl = text(&mut env, &hl);
-        let gl = text(&mut env, &gl);
+        with_attached_env(env, |env| {
+            let id = text(env, &id);
+            let hl = text(env, &hl);
+            let gl = text(env, &gl);
 
-        let payload = {
             // Resolve the bridge class on this thread before the first request.
-            crate::native_http::init(&mut env);
+            crate::native_http::init(env);
             let client = BridgeHttpClient::new();
             envelope(crate::browse::channel_info(&client, &id, &hl, &gl))
-        };
-        to_jstring(&mut env, payload)
+        })
     }
 
     #[no_mangle]
     pub extern "system" fn Java_com_vayunmathur_youpipe_nativeext_YouPipeNative_playlistInfo<'l>(
-        mut env: JNIEnv<'l>,
+        env: &mut EnvUnowned<'l>,
         _class: JClass<'l>,
         id: JString<'l>,
         hl: JString<'l>,
         gl: JString<'l>,
     ) -> jstring {
-        let id = text(&mut env, &id);
-        let hl = text(&mut env, &hl);
-        let gl = text(&mut env, &gl);
+        with_attached_env(env, |env| {
+            let id = text(env, &id);
+            let hl = text(env, &hl);
+            let gl = text(env, &gl);
 
-        let payload = {
             // Resolve the bridge class on this thread before the first request.
-            crate::native_http::init(&mut env);
+            crate::native_http::init(env);
             let client = BridgeHttpClient::new();
             envelope(crate::browse::playlist_info(&client, &id, &hl, &gl))
-        };
-        to_jstring(&mut env, payload)
+        })
     }
 
     #[no_mangle]
     pub extern "system" fn Java_com_vayunmathur_youpipe_nativeext_YouPipeNative_trending<'l>(
-        mut env: JNIEnv<'l>,
+        env: &mut EnvUnowned<'l>,
         _class: JClass<'l>,
         hl: JString<'l>,
         gl: JString<'l>,
     ) -> jstring {
-        let hl = text(&mut env, &hl);
-        let gl = text(&mut env, &gl);
+        with_attached_env(env, |env| {
+            let hl = text(env, &hl);
+            let gl = text(env, &gl);
 
-        let payload = {
             // Resolve the bridge class on this thread before the first request.
-            crate::native_http::init(&mut env);
+            crate::native_http::init(env);
             let client = BridgeHttpClient::new();
             envelope(crate::browse::trending(&client, &hl, &gl))
-        };
-        to_jstring(&mut env, payload)
+        })
     }
 
     #[no_mangle]
     pub extern "system" fn Java_com_vayunmathur_youpipe_nativeext_YouPipeNative_browseContinuation<'l>(
-        mut env: JNIEnv<'l>,
+        env: &mut EnvUnowned<'l>,
         _class: JClass<'l>,
         token: JString<'l>,
         hl: JString<'l>,
         gl: JString<'l>,
     ) -> jstring {
-        let token = text(&mut env, &token);
-        let hl = text(&mut env, &hl);
-        let gl = text(&mut env, &gl);
+        with_attached_env(env, |env| {
+            let token = text(env, &token);
+            let hl = text(env, &hl);
+            let gl = text(env, &gl);
 
-        let payload = {
             // Resolve the bridge class on this thread before the first request.
-            crate::native_http::init(&mut env);
+            crate::native_http::init(env);
             let client = BridgeHttpClient::new();
             envelope(crate::browse::browse_continuation(&client, &token, &hl, &gl))
-        };
-        to_jstring(&mut env, payload)
+        })
     }
 
     #[no_mangle]
     pub extern "system" fn Java_com_vayunmathur_youpipe_nativeext_YouPipeNative_comments<'l>(
-        mut env: JNIEnv<'l>,
+        env: &mut EnvUnowned<'l>,
         _class: JClass<'l>,
         video_id: JString<'l>,
         hl: JString<'l>,
         gl: JString<'l>,
     ) -> jstring {
-        let video_id = text(&mut env, &video_id);
-        let hl = text(&mut env, &hl);
-        let gl = text(&mut env, &gl);
+        with_attached_env(env, |env| {
+            let video_id = text(env, &video_id);
+            let hl = text(env, &hl);
+            let gl = text(env, &gl);
 
-        let payload = {
             // Resolve the bridge class on this thread before the first request.
-            crate::native_http::init(&mut env);
+            crate::native_http::init(env);
             let client = BridgeHttpClient::new();
             envelope(crate::browse::comments(&client, &video_id, &hl, &gl))
-        };
-        to_jstring(&mut env, payload)
+        })
     }
 
     #[no_mangle]
     pub extern "system" fn Java_com_vayunmathur_youpipe_nativeext_YouPipeNative_commentsPage<'l>(
-        mut env: JNIEnv<'l>,
+        env: &mut EnvUnowned<'l>,
         _class: JClass<'l>,
         token: JString<'l>,
         hl: JString<'l>,
         gl: JString<'l>,
     ) -> jstring {
-        let token = text(&mut env, &token);
-        let hl = text(&mut env, &hl);
-        let gl = text(&mut env, &gl);
+        with_attached_env(env, |env| {
+            let token = text(env, &token);
+            let hl = text(env, &hl);
+            let gl = text(env, &gl);
 
-        let payload = {
             // Resolve the bridge class on this thread before the first request.
-            crate::native_http::init(&mut env);
+            crate::native_http::init(env);
             let client = BridgeHttpClient::new();
             envelope(crate::browse::comments_page(&client, &token, &hl, &gl))
-        };
-        to_jstring(&mut env, payload)
+        })
     }
 
     /// Stream extraction runs two requests: `player` for the media, then `next` for the metadata
@@ -269,19 +276,19 @@ mod android {
     /// non-fatal — playback still works without those fields, so it is recorded and ignored.
     #[no_mangle]
     pub extern "system" fn Java_com_vayunmathur_youpipe_nativeext_YouPipeNative_streamInfo<'l>(
-        mut env: JNIEnv<'l>,
+        env: &mut EnvUnowned<'l>,
         _class: JClass<'l>,
         video_id: JString<'l>,
         hl: JString<'l>,
         gl: JString<'l>,
     ) -> jstring {
-        let video_id = text(&mut env, &video_id);
-        let hl = text(&mut env, &hl);
-        let gl = text(&mut env, &gl);
+        with_attached_env(env, |env| {
+            let video_id = text(env, &video_id);
+            let hl = text(env, &hl);
+            let gl = text(env, &gl);
 
-        let payload = {
             // Resolve the bridge class on this thread before the first request.
-            crate::native_http::init(&mut env);
+            crate::native_http::init(env);
             let client = BridgeHttpClient::new();
             let result = crate::stream::stream_info(&client, &video_id, &hl, &gl).map(|mut info| {
                 if let Err(e) =
@@ -292,7 +299,6 @@ mod android {
                 info
             });
             envelope(result)
-        };
-        to_jstring(&mut env, payload)
+        })
     }
 }

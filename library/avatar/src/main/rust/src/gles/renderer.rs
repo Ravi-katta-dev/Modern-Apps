@@ -10,6 +10,7 @@
 //! GL objects then tears down EGL. The avatar mesh uploads once per surface,
 //! exactly like Vulkan.
 
+use crate::atlas::ATLAS_SIZE;
 use crate::avatar::MAX_BONES;
 use crate::gles::buffers::{self, MeshBuffer};
 use crate::gles::egl::Egl;
@@ -43,6 +44,10 @@ pub struct GlesRenderer {
     u_cam_pos: glow::UniformLocation,
     /// `uBones` uniform location.
     u_bones: glow::UniformLocation,
+    /// `uAlbedo` sampler location (texture unit 0 at draw).
+    u_albedo: glow::UniformLocation,
+    /// Albedo atlas texture (256x256 RGBA8; re-uploaded on trait change).
+    albedo_tex: glow::Texture,
     /// Static avatar VAO/VBO (uploaded per surface).
     avatar: MeshBuffer,
     /// Current surface width.
@@ -91,7 +96,7 @@ impl GlesRenderer {
         };
         let program = unsafe { shaders::compile_program(&gl)? };
         crate::gles::egl::step_log("program compiled+linked");
-        let (u_view_proj, u_sun_dir, u_cam_pos, u_bones) = unsafe {
+        let (u_view_proj, u_sun_dir, u_cam_pos, u_bones, u_albedo) = unsafe {
             let view = gl
                 .get_uniform_location(program, U_VIEW_PROJ)
                 .ok_or_else(|| format!("missing uniform {U_VIEW_PROJ}"))?;
@@ -104,13 +109,62 @@ impl GlesRenderer {
             let bones = gl
                 .get_uniform_location(program, U_BONES)
                 .ok_or_else(|| format!("missing uniform {U_BONES}"))?;
-            // Albedo must exist even though v1 binds no texture yet (Mali
-            // linkers dislike dead cross-stage uniforms, so the frag keeps a
-            // 1x1 default bound at draw time).
-            let _ = gl.get_uniform_location(program, U_ALBEDO);
-            (view, sun, cam, bones)
+            // Mali linkers keep the sampler alive since the frag samples it.
+            let albedo = gl
+                .get_uniform_location(program, U_ALBEDO)
+                .ok_or_else(|| format!("missing uniform {U_ALBEDO}"))?;
+            (view, sun, cam, bones, albedo)
         };
         crate::gles::egl::step_log("uniforms located");
+        let albedo_tex = unsafe {
+            let tex = gl
+                .create_texture()
+                .map_err(|e| format!("glGenTextures albedo: {e}"))?;
+            gl.bind_texture(glow::TEXTURE_2D, Some(tex));
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MIN_FILTER,
+                glow::LINEAR as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_MAG_FILTER,
+                glow::LINEAR as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_S,
+                glow::CLAMP_TO_EDGE as i32,
+            );
+            gl.tex_parameter_i32(
+                glow::TEXTURE_2D,
+                glow::TEXTURE_WRAP_T,
+                glow::CLAMP_TO_EDGE as i32,
+            );
+            // No uninitialized reads: allocate a skin-tone flat before the
+            // engine's first upload_atlas. UNPACK_ALIGNMENT 1 is a no-op
+            // safeguard (256*4 rows are already 4-aligned).
+            gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+            let size = ATLAS_SIZE as i32;
+            let mut filled = vec![0u8; ATLAS_SIZE * ATLAS_SIZE * 4];
+            for o in filled.chunks_exact_mut(4) {
+                o.copy_from_slice(&[232, 181, 137, 255]);
+            }
+            gl.tex_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                glow::RGBA8 as i32,
+                size,
+                size,
+                0,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                Some(&filled),
+            );
+            gl.bind_texture(glow::TEXTURE_2D, None);
+            tex
+        };
+        crate::gles::egl::step_log("albedo texture created");
         let avatar = unsafe { MeshBuffer::new(&gl)? };
         crate::gles::egl::step_log("avatar MeshBuffer created");
         let renderer = Self {
@@ -121,6 +175,8 @@ impl GlesRenderer {
             u_sun_dir,
             u_cam_pos,
             u_bones,
+            u_albedo,
+            albedo_tex,
             avatar,
             width: width.max(1),
             height: height.max(1),
@@ -135,6 +191,40 @@ impl GlesRenderer {
     /// Must be called on the render thread with the EGL context current.
     pub unsafe fn upload_avatar(&mut self, mesh: &[YuuVertex]) {
         unsafe { buffers::upload_avatar_mesh(&self.gl, &mut self.avatar, mesh) };
+    }
+
+    /// Upload a fresh 256x256 RGBA atlas (from `atlas::generate_atlas`) when
+    /// traits change; the engine calls this right after creation and on every
+    /// trait update.
+    ///
+    /// # Safety
+    /// Must be called on the render thread with the EGL context current.
+    pub unsafe fn upload_atlas(&mut self, pixels: &[u8]) -> Result<(), String> {
+        let want = ATLAS_SIZE * ATLAS_SIZE * 4;
+        if pixels.len() != want {
+            return Err(format!(
+                "atlas size mismatch: got {} bytes, want {want}",
+                pixels.len()
+            ));
+        }
+        unsafe {
+            self.gl.pixel_store_i32(glow::UNPACK_ALIGNMENT, 1);
+            self.gl
+                .bind_texture(glow::TEXTURE_2D, Some(self.albedo_tex));
+            self.gl.tex_sub_image_2d(
+                glow::TEXTURE_2D,
+                0,
+                0,
+                0,
+                ATLAS_SIZE as i32,
+                ATLAS_SIZE as i32,
+                glow::RGBA,
+                glow::UNSIGNED_BYTE,
+                glow::PixelUnpackData::Slice(pixels),
+            );
+            self.gl.bind_texture(glow::TEXTURE_2D, None);
+        }
+        Ok(())
     }
 
     /// Draw one frame: clear, set uniforms (view-proj, sun, cam, bones),
@@ -169,9 +259,14 @@ impl GlesRenderer {
             self.gl
                 .uniform_3_f32(Some(&self.u_cam_pos), cam_pos[0], cam_pos[1], cam_pos[2]);
             self.gl.uniform_matrix_4_f32_slice(Some(&self.u_bones), false, &bone_flat);
+            self.gl.active_texture(glow::TEXTURE0);
+            self.gl
+                .bind_texture(glow::TEXTURE_2D, Some(self.albedo_tex));
+            self.gl.uniform_1_i32(Some(&self.u_albedo), 0);
         }
         unsafe {
             self.avatar.draw(&self.gl);
+            self.gl.bind_texture(glow::TEXTURE_2D, None);
             self.gl.use_program(None);
         }
         self.egl.swap_buffers()
@@ -189,14 +284,16 @@ impl GlesRenderer {
         unsafe { self.apply_state() };
     }
 
-    /// Free program + VAO/VBOs, then tear down EGL. The engine releases the
-    /// window itself.
+    /// Free program + albedo texture + VAO/VBOs, then tear down EGL. The
+    /// engine releases the window itself.
     ///
     /// # Safety
     /// Must be called on the render thread that owns the EGL context.
     pub unsafe fn destroy(&mut self) {
         unsafe {
             self.gl.use_program(None);
+            self.gl.bind_texture(glow::TEXTURE_2D, None);
+            self.gl.delete_texture(self.albedo_tex);
             self.avatar.destroy(&self.gl);
             self.gl.delete_program(self.program);
         }

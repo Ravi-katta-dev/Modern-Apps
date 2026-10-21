@@ -6,7 +6,9 @@
 //! `base_upperbody.glb` when one is bundled, remapping its joints onto the
 //! same UBO order so poses behave identically either way.
 
+use crate::atlas::{face_cell_uv, overlay_cell_uv};
 use crate::avatar::{joint_by_name, ALL_JOINTS, JOINT_COUNT};
+use crate::traits::YuuTraits;
 
 /// One skinned vertex. Matches `yuu_avatar.vert` locations 0..4.
 ///
@@ -182,11 +184,87 @@ fn j(name: &str) -> f32 {
     joint_by_name(name).map(|jj| jj as u32 as f32).unwrap_or(0.0)
 }
 
+/// Face decal plane: just proud of the head front (the head box front face
+/// sits at z = 0.14 and stays flat under rounding) so the decal never
+/// z-fights the skull.
+const FACE_Z: f32 = 0.145;
+
+/// Push one axis-aligned decal quad on the face plane as two triangles.
+///
+/// Fully bound to the head joint with a forward normal; `uv` is a v-up atlas
+/// rect `[u0, v0, u1, v1]` (see [`face_cell_uv`](crate::atlas::face_cell_uv)).
+fn push_decal_quad(out: &mut Vec<YuuVertex>, cx: f32, cy: f32, hw: f32, hh: f32, uv: [f32; 4]) {
+    let head = j("head");
+    let corners = [
+        ([cx - hw, cy - hh], [uv[0], uv[1]]),
+        ([cx + hw, cy - hh], [uv[2], uv[1]]),
+        ([cx + hw, cy + hh], [uv[2], uv[3]]),
+        ([cx - hw, cy + hh], [uv[0], uv[3]]),
+    ];
+    for k in [0, 1, 2, 0, 2, 3] {
+        let (xy, t) = corners[k];
+        out.push(YuuVertex {
+            pos: [xy[0], xy[1], FACE_Z],
+            normal: [0.0, 0.0, 1.0],
+            uv: t,
+            joints: [head, 0.0, 0.0, 0.0],
+            weights: [1.0, 0.0, 0.0, 0.0],
+        });
+    }
+}
+
+/// Append the face decal quads for `traits`.
+///
+/// Four horizontal bands (eyes / brows / nose / mouth) tile the head front;
+/// each band's rectangle is derived from the matching trait sliders so a
+/// later slider drag can shift it live, and each band's UVs point at the
+/// matching atlas cell. Mole/wrinkle/blush append small overlay quads (same
+/// cells [`generate_atlas`](crate::atlas::generate_atlas) paints) when set.
+fn push_face_decals(out: &mut Vec<YuuVertex>, traits: &YuuTraits) {
+    // Eye band: the eye cell draws a twin-eye pair, so the band spans outer
+    // edge to outer edge — per-eye offset plus per-eye half-width.
+    let eye_off = 0.03 + traits.eye_spacing.clamp(0.0, 1.0) * 0.03;
+    let eye_hw = eye_off + 0.035 + traits.eye_size.clamp(0.0, 1.0) * 0.03;
+    let eye_cy = 1.32 + (traits.eye_height.clamp(0.0, 1.0) - 0.5) * 0.06;
+    let eye_hh = 0.015 + traits.eye_size.clamp(0.0, 1.0) * 0.02;
+    push_decal_quad(out, 0.0, eye_cy, eye_hw, eye_hh, face_cell_uv(0, traits.eye_style));
+    // Brow band above the eyes; height slider slides it vertically.
+    let brow_cy = 1.375 + (traits.brow_height.clamp(0.0, 1.0) - 0.5) * 0.05;
+    push_decal_quad(out, 0.0, brow_cy, 0.085, 0.012, face_cell_uv(1, traits.brow_style));
+    // Nose band between eyes and mouth; height slider slides it vertically.
+    let nose_cy = 1.26 + (traits.nose_height.clamp(0.0, 1.0) - 0.5) * 0.05;
+    push_decal_quad(out, 0.0, nose_cy, 0.02, 0.02, face_cell_uv(2, traits.nose_style));
+    // Mouth band; width follows mouth_size, height follows mouth_height.
+    let mouth_cy = 1.19 + (traits.mouth_height.clamp(0.0, 1.0) - 0.5) * 0.05;
+    let mouth_hw = 0.03 + traits.mouth_size.clamp(0.0, 1.0) * 0.04;
+    push_decal_quad(out, 0.0, mouth_cy, mouth_hw, 0.015, face_cell_uv(3, traits.mouth_style));
+    // Mole: one cheek quad, side + offset picked by style index.
+    if traits.mole_style != 0 {
+        let idx = traits.mole_style.max(0) as usize;
+        let side = if idx % 2 == 0 { -1.0 } else { 1.0 };
+        let mx = side * (0.055 + 0.01 * (idx % 4) as f32);
+        let my = 1.25 - 0.008 * (idx % 3) as f32;
+        push_decal_quad(out, mx, my, 0.012, 0.012, overlay_cell_uv(traits.mole_style));
+    }
+    // Wrinkle: thin wide quad across the forehead.
+    if traits.wrinkle_style != 0 {
+        push_decal_quad(out, 0.0, 1.40, 0.06, 0.008, overlay_cell_uv(traits.wrinkle_style));
+    }
+    // Blush: one small quad per cheek.
+    if traits.blush_style != 0 {
+        let uv = overlay_cell_uv(traits.blush_style);
+        push_decal_quad(out, -0.07, 1.22, 0.015, 0.012, uv);
+        push_decal_quad(out, 0.07, 1.22, 0.015, 0.012, uv);
+    }
+}
+
 /// Build the procedural fallback upper-body mesh bound to the v1 skeleton.
 ///
 /// Proportions are Mii-like (big head, simple torso/arms); the renderer tints
-/// skin vs shirt regions via the UV split in [`box_skinned`].
-pub fn build_avatar_mesh() -> Vec<YuuVertex> {
+/// skin vs shirt regions via the UV split in [`box_skinned`]. `traits` only
+/// feeds the face decal quads (band placement + atlas style cells); the body
+/// boxes are trait-independent.
+pub fn build_avatar_mesh(traits: &YuuTraits) -> Vec<YuuVertex> {
     let mut out = Vec::with_capacity(1024);
     // Head: stacked boxes approximating a rounded skull + jaw.
     let head = Part { center: [0.0, 1.28, 0.0], size: [0.30, 0.30, 0.28], joint: j("head"), blend_joint: j("neck"), blend: 0.15, skin: true };
@@ -217,6 +295,7 @@ pub fn build_avatar_mesh() -> Vec<YuuVertex> {
         let hand = Part { center: [side * 0.31, 0.34, 0.0], size: [0.10, 0.10, 0.10], joint: j(hand), blend_joint: j(fore), blend: 0.3, skin: true };
         box_skinned(&mut out, &hand);
     }
+    push_face_decals(&mut out, traits);
     out
 }
 
@@ -228,7 +307,7 @@ pub fn build_avatar_mesh() -> Vec<YuuVertex> {
 pub fn load_gltf_mesh(bytes: &[u8]) -> Vec<YuuVertex> {
     match parse_gltf(bytes) {
         Some(mesh) if !mesh.is_empty() => mesh,
-        _ => build_avatar_mesh(),
+        _ => build_avatar_mesh(&crate::traits::YuuTraits::default()),
     }
 }
 
@@ -327,12 +406,14 @@ pub fn joint_names() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traits::YuuTraits;
 
     #[test]
     fn fallback_mesh_is_nonempty_and_weighted() {
-        let mesh = build_avatar_mesh();
+        let mesh = build_avatar_mesh(&YuuTraits::default());
         assert!(!mesh.is_empty());
-        // Rounded-box S=4 budget: 13 parts × 6 faces × 16 cells × 6 verts.
+        // Rounded-box S=4 budget: 13 parts × 6 faces × 16 cells × 6 verts,
+        // plus face decal quads (4 bands × 6 verts, overlays off by default).
         assert!(
             mesh.len() <= 8_192,
             "mesh {} verts exceeds dynamic budget",
@@ -356,11 +437,10 @@ mod tests {
         // waving hand UP. Catches FK/weight/remap breakage that unit tests on
         // bones alone would miss.
         use crate::avatar::compute_bone_matrices;
-        use crate::traits::YuuTraits;
         use crate::pose::preset_by_id;
         use glam::Vec3;
-        let mesh = build_avatar_mesh();
         let traits = YuuTraits::default();
+        let mesh = build_avatar_mesh(&traits);
         let wave = preset_by_id("wave").expect("wave preset");
         let bones = compute_bone_matrices(&traits, &wave, 0.0);
         // Skin the hand-box verts (fully hand-weighted region near x=0.31).
@@ -391,5 +471,91 @@ mod tests {
             hand_max_y > 1.0,
             "waving hand should rise above y=1.0, got max {hand_max_y}"
         );
+    }
+
+    #[test]
+    fn face_quad_verts_use_face_block_uvs() {
+        // Face decal verts: forward normal, head-bound, UVs inside the painted
+        // face block (memory rows 128..256 → v 0.5..1.0, no V flip — samplers
+        // read memory row 0 at v=0 on both backends).
+        use crate::atlas::face_cell_uv;
+        let traits = YuuTraits::default();
+        let mesh = build_avatar_mesh(&traits);
+        assert!(mesh.len() <= 8_192, "mesh {} verts exceeds budget", mesh.len());
+        let head = j("head");
+        let rows = [
+            face_cell_uv(0, traits.eye_style),
+            face_cell_uv(1, traits.brow_style),
+            face_cell_uv(2, traits.nose_style),
+            face_cell_uv(3, traits.mouth_style),
+        ];
+        let mut face_count = 0;
+        for v in &mesh {
+            // Rounded-box front-face centers also carry a [0,0,1] normal, so
+            // the decal plane z is the real discriminator (body fronts sit at
+            // z <= 0.14, decals at FACE_Z = 0.145).
+            if v.normal != [0.0, 0.0, 1.0] || (v.pos[2] - FACE_Z).abs() >= 1e-6 {
+                continue;
+            }
+            assert_eq!(v.joints, [head, 0.0, 0.0, 0.0]);
+            assert_eq!(v.weights, [1.0, 0.0, 0.0, 0.0]);
+            // Overlays are off under default traits: every head-on quad vert
+            // is one of the four band quads (6 verts each).
+            assert!((v.pos[2] - FACE_Z).abs() < 1e-6);
+            assert!(v.uv[0] >= 0.0 && v.uv[0] <= 1.0);
+            assert!(v.uv[1] >= 0.5 && v.uv[1] <= 1.0);
+            assert!(
+                rows.iter().any(|r| {
+                    v.uv[0] >= r[0] - 1e-6
+                        && v.uv[0] <= r[2] + 1e-6
+                        && v.uv[1] >= r[1] - 1e-6
+                        && v.uv[1] <= r[3] + 1e-6
+                }),
+                "face vert uv {:?} outside the four band cells",
+                v.uv
+            );
+            face_count += 1;
+        }
+        assert_eq!(face_count, 24, "expected 4 bands x 6 verts, got {face_count}");
+    }
+
+    #[test]
+    fn overlay_styles_append_extra_quads() {
+        // Nonzero mole/wrinkle/blush each append quads pointing at the exact
+        // spare brow-row cells generate_atlas paints.
+        use crate::atlas::{face_cell_uv, overlay_cell_uv};
+        fn is_decal(v: &&YuuVertex) -> bool {
+            v.normal == [0.0, 0.0, 1.0] && (v.pos[2] - FACE_Z).abs() < 1e-6
+        }
+        let mut traits = YuuTraits::default();
+        traits.mole_style = 1;
+        traits.wrinkle_style = 2;
+        traits.blush_style = 3;
+        let mesh = build_avatar_mesh(&traits);
+        // 24 band verts + mole 6 + wrinkle 6 + blush 12.
+        let face_count = mesh.iter().filter(is_decal).count();
+        assert_eq!(face_count, 48, "overlay quads missing, got {face_count}");
+        let cells = [
+            face_cell_uv(0, traits.eye_style),
+            face_cell_uv(1, traits.brow_style),
+            face_cell_uv(2, traits.nose_style),
+            face_cell_uv(3, traits.mouth_style),
+            overlay_cell_uv(traits.mole_style),
+            overlay_cell_uv(traits.wrinkle_style),
+            overlay_cell_uv(traits.blush_style),
+        ];
+        for v in mesh.iter().filter(is_decal) {
+            assert!(
+                cells.iter().any(|r| {
+                    v.uv[0] >= r[0] - 1e-6
+                        && v.uv[0] <= r[2] + 1e-6
+                        && v.uv[1] >= r[1] - 1e-6
+                        && v.uv[1] <= r[3] + 1e-6
+                }),
+                "overlay vert uv {:?} outside band/overlay cells",
+                v.uv
+            );
+        }
+        assert!(mesh.len() <= 8_192);
     }
 }

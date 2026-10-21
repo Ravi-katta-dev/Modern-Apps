@@ -7,7 +7,9 @@ import androidx.lifecycle.viewModelScope
 import com.vayunmathur.appstore.data.AppDatabase
 import com.vayunmathur.appstore.data.AppSource
 import com.vayunmathur.appstore.data.CatalogRepository
+import com.vayunmathur.appstore.data.DefaultRepos
 import com.vayunmathur.appstore.data.InstalledAppsRepository
+import com.vayunmathur.appstore.data.SyncStep
 import com.vayunmathur.appstore.data.UnifiedApp
 import com.vayunmathur.appstore.data.accrescent.AccrescentRepository
 import com.vayunmathur.appstore.data.installer.InstallCoordinator
@@ -15,6 +17,7 @@ import com.vayunmathur.appstore.data.installer.InstallStage
 import com.vayunmathur.appstore.data.play.PlayRepository
 import com.vayunmathur.appstore.data.priority
 import com.vayunmathur.appstore.data.security.ApkCertificates
+import com.vayunmathur.appstore.R
 import com.vayunmathur.library.util.AppMessages
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -87,12 +90,65 @@ class TvStoreViewModel(
         viewModelScope.launch {
             installedRepo.refresh()
             if (AppSource.PLAYSTORE in enabledSourcesFlow.value) play.restore()
+            syncIfNeverSynced()
             loadHome()
         }
         viewModelScope.launch {
             combine(catalog.packageIndex, installedRepo.updatable) { _, _ -> Unit }
                 .collect { loadHome() }
         }
+    }
+
+    /**
+     * Populate the offline catalogues the first time the TV store is opened.
+     *
+     * Same contract as the phone's `syncIfNeverSynced`: keyed off the catalogue being
+     * empty rather than a first-run flag, so it also recovers a store whose first sync
+     * failed or whose data was cleared — and stays quiet on every later launch, when
+     * re-fetching full catalogues would be a poor trade for at-most-hours-stale data.
+     * Progress reports through the existing status line the browse screen already shows.
+     */
+    private suspend fun syncIfNeverSynced() {
+        val enabled = enabledSourcesFlow.value
+        val offlineSources = setOf(
+            DefaultRepos.FDROID.source, DefaultRepos.MODERN_APPS.source,
+            DefaultRepos.PROPRIETARY.source,
+        )
+        if (enabled.intersect(offlineSources).isEmpty()) return
+        if (catalog.recentlyUpdatedBySource(AppSource.FDROID, 1).isNotEmpty() ||
+            catalog.recentlyUpdatedBySource(AppSource.MODERN_APPS, 1).isNotEmpty()
+        ) {
+            return
+        }
+        isLoadingFlow.value = true
+        val report = catalog.sync(enabled) { step ->
+            statusMessageFlow.value = context.getString(
+                when (step) {
+                    SyncStep.FDROID -> R.string.sync_step_fdroid
+                    SyncStep.MODERN_APPS -> R.string.sync_step_modern_apps
+                    SyncStep.PROPRIETARY -> R.string.sync_step_proprietary
+                },
+            )
+        }
+        statusMessageFlow.value = ""
+        isLoadingFlow.value = false
+        AppMessages.show(
+            when {
+                report.allSkipped -> context.getString(R.string.sync_all_sources_off)
+                !report.anyFailed -> context.getString(
+                    R.string.sync_done,
+                    (report.fdroidCount ?: 0) + (report.modernCount ?: 0) +
+                        (report.proprietaryCount ?: 0),
+                )
+                report.fdroidCount == null && report.modernCount == null &&
+                    report.proprietaryCount == null ->
+                    context.getString(R.string.sync_failed_all)
+                report.fdroidCount == null -> context.getString(R.string.sync_failed_fdroid)
+                report.proprietaryCount == null ->
+                    context.getString(R.string.sync_failed_proprietary)
+                else -> context.getString(R.string.sync_failed_modern_apps)
+            },
+        )
     }
 
     /** Fill the browse rows from the TV-filtered catalogue. */

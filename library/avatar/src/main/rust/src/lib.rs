@@ -6,6 +6,7 @@
 //! API: native methods receive `EnvUnowned` and adapt via `with_env`.
 
 pub mod avatar;
+pub mod atlas;
 pub mod engine;
 pub mod gles;
 pub mod mesh;
@@ -263,7 +264,7 @@ mod tests {
 
     #[test]
     fn engine_smoke() {
-        let mesh = build_avatar_mesh();
+        let mesh = build_avatar_mesh(&crate::traits::YuuTraits::default());
         assert!(!mesh.is_empty());
         let poses = crate::pose::preset_poses();
         assert!(poses.iter().any(|p| p.id == "wave"));

@@ -6,6 +6,7 @@
 //! The avatar mesh uploads once per surface; the bone UBO re-uploads every
 //! frame from the engine's pose. View-projection comes from the preview
 //! camera with the surface pre-rotation prepended.
+use crate::atlas::ATLAS_SIZE;
 use crate::avatar::MAX_BONES;
 use crate::vulkan::buffers::{AllocatedBuffer, YuuUbo, YuuVkVertex};
 use crate::vulkan::context::VulkanContext;
@@ -30,7 +31,8 @@ pub struct YuuRenderer {
     pub avatar_buf: AllocatedBuffer,
     /// Uniform buffer (view-projection + sun + camera + bones).
     pub ubo_buf: AllocatedBuffer,
-    /// Albedo texture image (1x1 skin default, updated from traits).
+    /// Albedo texture image (ATLAS_SIZE×ATLAS_SIZE skin-flat default,
+    /// re-uploaded in place from [`generate_atlas`](crate::atlas::generate_atlas)).
     pub albedo_image: vk::Image,
     /// Albedo memory.
     pub albedo_memory: vk::DeviceMemory,
@@ -59,7 +61,7 @@ impl YuuRenderer {
     ///
     /// Follows the `KartRenderer::new` sequence verbatim (context → swapchain
     /// → UBO → pipeline → vertex buffer → pool/cmd/fence/semaphores), plus
-    /// the 1x1 albedo default bound to the sampler slot.
+    /// the ATLAS_SIZE x ATLAS_SIZE skin-flat albedo bound to the sampler slot.
     ///
     /// # Safety
     /// `window` must be a live adopted `ANativeWindow`; ownership stays with
@@ -139,17 +141,32 @@ impl YuuRenderer {
         })
     }
 
-    /// Create the 1x1 albedo default (linear RGBA8) + view + sampler, already
-    /// in `SHADER_READ_ONLY_OPTIMAL` for the frag sampler slot.
+    /// Create the ATLAS_SIZE×ATLAS_SIZE albedo (linear RGBA8) + view +
+    /// sampler, already in `SHADER_READ_ONLY_OPTIMAL` for the frag sampler
+    /// slot. Every texel is pre-filled with `rgba` (the skin tone), so if
+    /// [`Self::upload_atlas`] is never called the avatar renders exactly as
+    /// the old 1x1 skin-flat default did — same texel value under
+    /// CLAMP_TO_EDGE on every UV.
     unsafe fn create_albedo(
         ctx: &VulkanContext,
         rgba: [u8; 4],
+    ) -> Result<(vk::Image, vk::DeviceMemory, vk::ImageView, vk::Sampler), String> {
+        Self::create_albedo_image(ctx, &rgba.repeat(ATLAS_SIZE * ATLAS_SIZE))
+    }
+
+    /// Allocate an ATLAS_SIZE×ATLAS_SIZE linear RGBA8 image, fill it with
+    /// `pixels`, transition to `SHADER_READ_ONLY_OPTIMAL`, and create the
+    /// view + sampler. `pixels` must be exactly ATLAS_SIZE×ATLAS_SIZE×4
+    /// bytes (checked in [`Self::write_linear_image`]).
+    unsafe fn create_albedo_image(
+        ctx: &VulkanContext,
+        pixels: &[u8],
     ) -> Result<(vk::Image, vk::DeviceMemory, vk::ImageView, vk::Sampler), String> {
         let device = &ctx.device;
         let img_info = vk::ImageCreateInfo::default()
             .image_type(vk::ImageType::TYPE_2D)
             .format(vk::Format::R8G8B8A8_UNORM)
-            .extent(vk::Extent3D { width: 1, height: 1, depth: 1 })
+            .extent(vk::Extent3D { width: ATLAS_SIZE as u32, height: ATLAS_SIZE as u32, depth: 1 })
             .mip_levels(1)
             .array_layers(1)
             .samples(vk::SampleCountFlags::TYPE_1)
@@ -176,12 +193,9 @@ impl YuuRenderer {
             )
             .map_err(|e| format!("albedo alloc {e:?}"))?;
         device.bind_image_memory(image, memory, 0).map_err(|e| format!("albedo bind {e:?}"))?;
-        // Write the single texel through the mapped linear image.
-        let ptr = device
-            .map_memory(memory, 0, 4, vk::MemoryMapFlags::empty())
-            .map_err(|e| format!("albedo map {e:?}"))? as *mut u8;
-        ptr.copy_from_nonoverlapping(rgba.as_ptr(), 4);
-        device.unmap_memory(memory);
+        // Write the texels through the mapped linear image, row by row:
+        // LINEAR tiling may pad rows (row_pitch > width*4).
+        Self::write_linear_image(device, image, memory, pixels)?;
         // Transition to SHADER_READ_ONLY_OPTIMAL via a one-shot barrier.
         let pool_info = vk::CommandPoolCreateInfo::default()
             .queue_family_index(ctx.queue_family_index)
@@ -259,6 +273,86 @@ impl YuuRenderer {
             )
             .map_err(|e| format!("albedo sampler {e:?}"))?;
         Ok((image, memory, view, sampler))
+    }
+
+    /// Copy `pixels` (exactly ATLAS_SIZE×ATLAS_SIZE×4 bytes) into a mapped
+    /// LINEAR-tiled image, one row at a time honoring the driver's row pitch.
+    /// LINEAR tiling does NOT guarantee tightly packed rows — `row_pitch`
+    /// may exceed `width * 4` — so a single flat memcpy would shear the
+    /// atlas on drivers that pad. The caller must hold the mapping contract
+    /// (memory is HOST_VISIBLE | HOST_COHERENT).
+    unsafe fn write_linear_image(
+        device: &ash::Device,
+        image: vk::Image,
+        memory: vk::DeviceMemory,
+        pixels: &[u8],
+    ) -> Result<(), String> {
+        const EXPECTED: usize = ATLAS_SIZE * ATLAS_SIZE * 4;
+        if pixels.len() != EXPECTED {
+            return Err(format!(
+                "albedo: expected {EXPECTED} bytes, got {}",
+                pixels.len()
+            ));
+        }
+        let layout = device.get_image_subresource_layout(
+            image,
+            vk::ImageSubresource {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                mip_level: 0,
+                array_layer: 0,
+            },
+        );
+        let row_pitch = layout.row_pitch as usize;
+        let row_bytes = ATLAS_SIZE * 4;
+        if row_pitch < row_bytes {
+            return Err(format!("albedo: row_pitch {row_pitch} < row {row_bytes}"));
+        }
+        let base = device
+            .map_memory(memory, 0, layout.size, vk::MemoryMapFlags::empty())
+            .map_err(|e| format!("albedo map {e:?}"))? as *mut u8;
+        let dst_base = unsafe { base.add(layout.offset as usize) };
+        for row in 0..ATLAS_SIZE {
+            let src = unsafe { pixels.as_ptr().add(row * row_bytes) };
+            let dst = unsafe { dst_base.add(row * row_pitch) };
+            unsafe { std::ptr::copy_nonoverlapping(src, dst, row_bytes) };
+        }
+        device.unmap_memory(memory);
+        Ok(())
+    }
+
+    /// (Re)upload a 256×256 RGBA atlas into the existing albedo image, in
+    /// place — no image/view recreation, no descriptor rebind (the sampler
+    /// slot still points at the same view).
+    ///
+    /// The engine calls this on the render thread when traits change with
+    /// the output of
+    /// [`generate_atlas`](crate::atlas::generate_atlas). Until the first
+    /// call, the image holds the skin-flat seed from [`Self::create_albedo`],
+    /// so rendering is identical to the old 1x1 default.
+    ///
+    /// Synchronization: this blocks on `device_wait_idle()` before touching
+    /// mapped memory, which is a host-write → fragment-shader-read barrier
+    /// by brute force — no in-flight draw may still be sampling the image.
+    /// A full idle is acceptable here because this path fires at most a few
+    /// times per second on trait/config changes, never per frame; the
+    /// per-frame path (`draw`) stays on its lightweight per-frame fence.
+    /// A finer barrier (per-frame fence wait + layout-preserving
+    /// HOST→FRAGMENT_SHADER image barrier) would avoid the stall but adds
+    /// command-buffer churn for zero visible gain on a config-change path.
+    ///
+    /// # Safety
+    /// Must be called on the render thread (the same thread that draws).
+    pub unsafe fn upload_atlas(&mut self, pixels: &[u8]) -> Result<(), String> {
+        const EXPECTED: usize = ATLAS_SIZE * ATLAS_SIZE * 4;
+        if pixels.len() != EXPECTED {
+            return Err(format!(
+                "albedo: expected {EXPECTED} bytes, got {}",
+                pixels.len()
+            ));
+        }
+        let device = &self.ctx.device;
+        device.device_wait_idle().map_err(|e| format!("albedo idle {e:?}"))?;
+        unsafe { Self::write_linear_image(device, self.albedo_image, self.albedo_memory, pixels) }
     }
 
     /// Upload the static avatar mesh (once per surface; capped at the budget).
