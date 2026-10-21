@@ -16,6 +16,7 @@
 //! transport; Phase 4 adds profile management; Phase 5 adds the ES9+/SM-DP+
 //! orchestration and the profile download/install flow.
 
+mod activation_code;
 mod asn1;
 mod base64;
 mod download;
