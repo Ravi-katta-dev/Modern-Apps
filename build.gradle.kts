@@ -130,9 +130,14 @@ tasks.register("checkMetadata") {
         // Module detection by grepping for the bare string
         // "common-conventions-app", which also matches library/map, where it appears only in a
         // comment. Matching the plugin application instead keeps this list to real apps.
+        // analysis/ and personal/ hold gitignored experiments with copied app build files;
+        // they are never published, so skip them (same exclusions as release-build.sh).
         val appPlugin = Regex("""id\("common-conventions-app"\)""")
         val moduleKeys = projectRoot.walkTopDown()
-            .onEnter { it.name != "build" && it.name != ".git" }
+            .onEnter {
+                it.name != "build" && it.name != ".git" &&
+                    it.name != "analysis" && it.name != "personal"
+            }
             .filter { it.isFile && it.name == "build.gradle.kts" }
             .filter { appPlugin.containsMatchIn(it.readText()) }
             .map { it.parentFile.relativeTo(projectRoot).invariantSeparatorsPath.replace('/', '-') }
