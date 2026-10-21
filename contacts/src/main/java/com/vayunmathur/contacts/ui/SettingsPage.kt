@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
@@ -21,10 +20,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import com.vayunmathur.library.ui.AlertDialog
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.Checkbox
-import com.vayunmathur.library.ui.ConfirmDialog
 import com.vayunmathur.library.ui.ExperimentalMaterial3Api
 import com.vayunmathur.library.ui.FloatingActionButton
 import com.vayunmathur.library.ui.HorizontalDivider
@@ -42,8 +39,6 @@ import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.OverflowMenu
 import com.vayunmathur.library.ui.Switch
 import com.vayunmathur.library.ui.Text
-import com.vayunmathur.library.ui.TextButton
-import com.vayunmathur.library.ui.TextField
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,15 +52,12 @@ import com.vayunmathur.contacts.data.isDefaultLocalAccount
 import com.vayunmathur.contacts.data.isLocalAccountType
 import com.vayunmathur.contacts.util.ContactAccount
 import com.vayunmathur.contacts.util.ContactViewModel
-import com.vayunmathur.contacts.util.deleteLocalAccount
-import com.vayunmathur.contacts.util.renameLocalAccount
 import com.vayunmathur.contacts.util.setAccountVisibility
 import com.vayunmathur.contacts.R
 import com.vayunmathur.contacts.Route
+import com.vayunmathur.contacts.ui.dialogs.DeleteAccountDialog
+import com.vayunmathur.contacts.ui.dialogs.RenameAccountDialog
 import com.vayunmathur.contacts.util.VcfUtils
-import com.vayunmathur.library.ui.IconAdd
-import com.vayunmathur.library.ui.IconNavigation
-import com.vayunmathur.library.util.AppMessages
 import com.vayunmathur.library.util.NavBackStack
 import kotlinx.coroutines.launch
 
@@ -299,51 +291,17 @@ fun SettingsPage(viewModel: ContactViewModel, backStack: NavBackStack<Route>) {
     }
 
         renameTarget?.let { target ->
-            var newName by remember(target) { mutableStateOf(target.name) }
-            AlertDialog(
-                onDismissRequest = { renameTarget = null },
-                title = { Text(stringResource(R.string.rename_account)) },
-                text = {
-                    TextField(
-                        value = newName,
-                        onValueChange = { newName = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        label = { Text(stringResource(R.string.account_name)) }
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val name = newName.trim()
-                        if (name.isNotEmpty()) {
-                            viewModel.renameLocalAccount(target, name) { ok, err ->
-                                if (!ok && err == "collision") {
-                                    AppMessages.show(context.getString(R.string.account_name_exists))
-                                }
-                            }
-                            renameTarget = null
-                        }
-                    }) { Text(stringResource(UiR.string.save)) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { renameTarget = null }) {
-                        Text(stringResource(UiR.string.cancel))
-                    }
-                }
+            RenameAccountDialog(
+                viewModel = viewModel,
+                target = target,
+                onDismiss = { renameTarget = null }
             )
         }
 
         deleteTarget?.let { target ->
-            ConfirmDialog(
-                title = stringResource(R.string.delete_account),
-                message = stringResource(R.string.delete_local_account_confirm),
-                confirmLabel = stringResource(UiR.string.delete),
-                dismissLabel = stringResource(UiR.string.cancel),
-                destructive = true,
-                onConfirm = {
-                    viewModel.deleteLocalAccount(target)
-                    deleteTarget = null
-                },
+            DeleteAccountDialog(
+                viewModel = viewModel,
+                target = target,
                 onDismiss = { deleteTarget = null }
             )
         }
