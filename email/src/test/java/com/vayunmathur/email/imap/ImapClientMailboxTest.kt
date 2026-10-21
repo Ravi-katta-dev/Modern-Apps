@@ -1,5 +1,6 @@
 package com.vayunmathur.email.imap
 
+import com.vayunmathur.email.network.imap.ImapClient
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

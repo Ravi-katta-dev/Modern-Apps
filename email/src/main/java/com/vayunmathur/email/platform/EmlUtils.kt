@@ -38,7 +38,10 @@ object EmlUtils {
         var base = input.ifBlank { fallback }.trim()
         if (base.endsWith(".eml", ignoreCase = true)) base = base.dropLast(EML_EXTENSION_LEN)
         base = base.take(MAX_BASENAME_LEN).trim()
-        base = base.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+        // Dots are not kept: a trailing ".FINAL" would otherwise read as a
+        // doubled extension ("Report.FINAL.eml"). The single ".eml" suffix is
+        // re-added below, so no information the filesystem needs is lost.
+        base = base.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         base = base.replace(Regex("_+"), "_")
         base = base.trim('_', '.', ' ')
         if (base.isBlank()) base = fallback
