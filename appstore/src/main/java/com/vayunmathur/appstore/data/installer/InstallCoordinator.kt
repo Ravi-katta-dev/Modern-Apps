@@ -219,11 +219,18 @@ class InstallCoordinator(
                 // This store's own Play mirror: the same release key signs the index, but
                 // the APKs carry the developers' keys, so the per-version signers from
                 // the signed index are the anchor — not this store's own certificate.
+                // Split siblings are keyed by their LOCAL file names (the verifier
+                // matches on File.name): base keeps `${package}.apk`, splits land
+                // as `${package}.splitN.apk` — see the download loop below.
                 AppSource.PROPRIETARY -> InstallRequirement(
                     expectedPackage = app.packageName,
                     requiredSigners = app.expectedSigners.toSet(),
-                    expectedSha256 = app.apkSha256
-                        ?.let { mapOf("${app.packageName}.apk" to it) } ?: emptyMap(),
+                    expectedSha256 = buildMap {
+                        app.apkSha256?.let { put("${app.packageName}.apk", it) }
+                        app.splitFiles.forEachIndexed { index, split ->
+                            split.sha256?.let { put("${app.packageName}.split$index.apk", it) }
+                        }
+                    },
                     signerOrigin = "this store's Play mirror",
                     requireTvCompatible = isTv,
                 )
@@ -242,8 +249,33 @@ class InstallCoordinator(
                 stage(app.packageName, InstallStage.Downloading(fraction))
             }
 
+            // Split-set versions install every file in one session: the base
+            // plus the sibling splits sharing its versionCode. Without the set,
+            // Android 14+ refuses with INSTALL_FAILED_MISSING_SPLIT.
+            // Aggregate progress mirrors installFromAccrescent's split loop.
+            val files = if (app.splitFiles.isEmpty()) {
+                listOf(file)
+            } else {
+                val totalSize =
+                    (app.sizeBytes + app.splitFiles.sumOf { it.size }).takeIf { it > 0 } ?: -1L
+                var downloadedBytes = file.length()
+                val siblings = app.splitFiles.mapIndexed { index, split ->
+                    val splitFile = File(context.cacheDir, "${app.packageName}.split$index.apk")
+                    val start = downloadedBytes
+                    download(split.url, splitFile, split.size) { fileFraction ->
+                        if (totalSize > 0) {
+                            val overall = (start + fileFraction * split.size) / totalSize
+                            stage(app.packageName, InstallStage.Downloading(overall.coerceIn(0f, 1f)))
+                        }
+                    }
+                    downloadedBytes += splitFile.length()
+                    splitFile
+                }
+                listOf(file) + siblings
+            }
+
             stage(app.packageName, InstallStage.Verifying)
-            sessionInstaller.installSplits(app.packageName, listOf(file), requirement, file.length())
+            sessionInstaller.installSplits(app.packageName, files, requirement, files.sumOf { it.length() })
         }
 
     private fun download(

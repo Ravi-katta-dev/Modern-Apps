@@ -215,6 +215,7 @@ object FDroidRepository {
         var nativeCode: List<String> = emptyList()
         var whatsNew: String? = null
         var requiredFeatures: List<String> = emptyList()
+        var requiredSplitTypes: List<String> = emptyList()
 
         fun build(): VersionCandidate? {
             val name = fileName ?: return null
@@ -230,6 +231,7 @@ object FDroidRepository {
                 nativeCode = nativeCode,
                 whatsNew = whatsNew,
                 requiredFeatures = requiredFeatures,
+                requiredSplitTypes = requiredSplitTypes,
             )
         }
     }
@@ -257,6 +259,29 @@ object FDroidRepository {
         // Nothing this device can run — drop the package rather than advertising an entry
         // that has no installable APK behind it.
         val latest = selectVersion(b.versions, deviceAbis) ?: return null
+
+        // Split-set versions install as a set: when the chosen entry requires
+        // splits, every indexed file sharing its versionCode belongs in the
+        // same installer session (base + config splits). Without this the
+        // system refuses with INSTALL_FAILED_MISSING_SPLIT on Android 14+.
+        // Sibling order is deterministic (base first: shortest file name tends
+        // to be the base; ties broken alphabetically) — the session writer
+        // doesn't care about order, but humans reading logs do.
+        val splitFiles = if (latest.requiredSplitTypes.isEmpty()) {
+            emptyList()
+        } else {
+            b.versions
+                .filter { it.versionCode == latest.versionCode && it.fileName != latest.fileName }
+                .sortedWith(compareBy({ it.fileName.length }, { it.fileName }))
+                .map {
+                    SplitFile(
+                        fileName = it.fileName,
+                        url = repoBase + "/" + it.fileName.trimStart('/'),
+                        sha256 = it.sha256,
+                        size = it.size,
+                    )
+                }
+        }
 
         // index-v2 file names are repo-absolute ("/com.example_12.apk").
         val apkUrl = repoBase + "/" + latest.fileName.trimStart('/')
@@ -291,6 +316,8 @@ object FDroidRepository {
             repoUrl = repoBase,
             requiredFeatures = latest.requiredFeatures,
             tvCompatible = tvCompatible,
+            containsSplit = latest.requiredSplitTypes.isNotEmpty() || splitFiles.isNotEmpty(),
+            splitFiles = splitFiles,
         )
     }
 
@@ -409,6 +436,11 @@ object FDroidRepository {
                 // The ABIs this APK carries native libraries for.
                 // Absent means it has none and runs anywhere.
                 "nativecode" -> v.nativeCode = readStringArray(reader)
+                // Split types this APK requires at install time
+                // (`requiredSplitTypes`, e.g. ["config", "density"]). Absent on
+                // monolithic APKs. A non-empty list means the version installs
+                // only as a set — see selectVersion's sibling gathering.
+                "requiredSplitTypes" -> v.requiredSplitTypes = readStringArray(reader)
                 // `<uses-feature>` entries, as `[{ "name": "android.hardware.camera" }, …]`.
                 // Kept verbatim for TV-compat filtering — a leanback entry marks a TV build,
                 // phone-hardware entries mark one a TV should not be offered.
@@ -472,6 +504,7 @@ object FDroidRepository {
         val nativeCode: List<String> = emptyList(),
         val whatsNew: String? = null,
         val requiredFeatures: List<String> = emptyList(),
+        val requiredSplitTypes: List<String> = emptyList(),
     )
 
     /**

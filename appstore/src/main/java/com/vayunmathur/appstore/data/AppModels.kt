@@ -84,6 +84,13 @@ data class UnifiedApp(
     val repoUrl: String? = null,
     val offerType: Int = 0,
     val containsSplit: Boolean = false,
+    /**
+     * Sibling APKs that must install in the same session as [apkUrl] (split-set
+     * versions: base + config splits sharing one versionCode). Empty for
+     * monolithic APKs. URLs are absolute; each carries its own hash/size for
+     * per-file verification — see `InstallCoordinator.installFromUrl`.
+     */
+    val splitFiles: List<SplitFile> = emptyList(),
     val isFree: Boolean = true,
     /** Listing screenshots, in the order the source published them. */
     val screenshots: List<String> = emptyList(),
@@ -142,6 +149,18 @@ data class UnifiedApp(
     /** The single best image to head the detail page with. */
     val heroImage: String? get() = featureGraphic ?: screenshots.firstOrNull()
 }
+
+/**
+ * One sibling APK of a split-set version ([UnifiedApp.splitFiles]): anything
+ * sharing the chosen entry's versionCode. Downloaded and installed in the same
+ * [PackageInstaller] session as [UnifiedApp.apkUrl].
+ */
+data class SplitFile(
+    val fileName: String,
+    val url: String,
+    val sha256: String? = null,
+    val size: Long = 0L,
+)
 
 /** The fields [SearchRanking] looks at, for a listing from any source. */
 fun UnifiedApp.searchCandidate(): SearchRanking.Candidate = SearchRanking.Candidate(
