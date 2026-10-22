@@ -253,21 +253,21 @@ class InstallCoordinator(
             // plus the sibling splits sharing its versionCode. Without the set,
             // Android 14+ refuses with INSTALL_FAILED_MISSING_SPLIT.
             // Aggregate progress mirrors installFromAccrescent's split loop.
+            // Each file is size-checked after download (a truncated 200MB base
+            // otherwise surfaces only as a hash mismatch) and retried once.
             val files = if (app.splitFiles.isEmpty()) {
+                downloadVerified(apkUrl, file, app.sizeBytes, app.packageName, null, null)
                 listOf(file)
             } else {
                 val totalSize =
                     (app.sizeBytes + app.splitFiles.sumOf { it.size }).takeIf { it > 0 } ?: -1L
-                var downloadedBytes = file.length()
+                var downloadedBytes = 0L
+                downloadVerified(apkUrl, file, app.sizeBytes, app.packageName, totalSize, 0L)
+                downloadedBytes += file.length()
                 val siblings = app.splitFiles.mapIndexed { index, split ->
                     val splitFile = File(context.cacheDir, "${app.packageName}.split$index.apk")
                     val start = downloadedBytes
-                    download(split.url, splitFile, split.size) { fileFraction ->
-                        if (totalSize > 0) {
-                            val overall = (start + fileFraction * split.size) / totalSize
-                            stage(app.packageName, InstallStage.Downloading(overall.coerceIn(0f, 1f)))
-                        }
-                    }
+                    downloadVerified(split.url, splitFile, split.size, app.packageName, totalSize, start)
                     downloadedBytes += splitFile.length()
                     splitFile
                 }
@@ -277,6 +277,46 @@ class InstallCoordinator(
             stage(app.packageName, InstallStage.Verifying)
             sessionInstaller.installSplits(app.packageName, files, requirement, files.sumOf { it.length() })
         }
+
+    /**
+     * Download + size-check one file, retrying once on truncation. The raw
+     * [download] reports HTTP errors but never enforces length, so a dropped
+     * connection on a 200MB base otherwise fails minutes later as a hash
+     * mismatch with no hint it was truncated.
+     */
+    private suspend fun downloadVerified(
+        url: String,
+        target: File,
+        expectedSize: Long,
+        packageName: String,
+        totalSize: Long?,
+        start: Long?,
+    ) {
+        suspend fun once() {
+            if (totalSize != null && start != null && totalSize > 0) {
+                download(url, target, expectedSize) { fileFraction ->
+                    val overall = (start + fileFraction * expectedSize) / totalSize
+                    stage(packageName, InstallStage.Downloading(overall.coerceIn(0f, 1f)))
+                }
+            } else {
+                download(url, target, expectedSize) { fraction ->
+                    stage(packageName, InstallStage.Downloading(fraction))
+                }
+            }
+        }
+        once()
+        if (expectedSize > 0 && target.length() != expectedSize) {
+            // Truncated (or over-long) — one retry before giving up. Delete
+            // first: HttpURLConnection won't overwrite cleanly on all devices.
+            target.delete()
+            once()
+            if (target.length() != expectedSize) {
+                throw java.io.IOException(
+                    "${target.name} downloaded ${target.length()} bytes, expected $expectedSize"
+                )
+            }
+        }
+    }
 
     private fun download(
         url: String,
