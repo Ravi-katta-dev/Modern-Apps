@@ -21,9 +21,6 @@ import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.maps.data.MapPreferences
 import com.vayunmathur.maps.util.SelectedFeatureViewModel
 
-/** Cold-start fallback: San Francisco at z14, where the baked POIs are dense enough to see. */
-private val FALLBACK_CAMERA = CameraPosition(target = GeoPoint(-122.4194, 37.7749), zoom = 14.0)
-
 /** Zoom the cold-start camera adopts once the user's position is known. */
 private const val FIRST_FIX_ZOOM = 14.0
 
@@ -31,10 +28,11 @@ private const val FIRST_FIX_ZOOM = 14.0
  * Cold-start camera for the map screen.
  *
  * Seeded from the OS-cached device fix (synchronous `LocationManager`
- * `getLastKnownLocation`), falling back to the persisted last fix and then the
- * SF fallback. DataStore's snapshot read can be empty on a truly cold
- * process (not yet hydrated), so the first live fix still centers below —
- * either way the zoom stays at the browse default.
+ * `getLastKnownLocation`), falling back to the persisted last fix. With neither,
+ * the camera starts on the default world view until the first live fix centers
+ * it below — never on an arbitrary city. DataStore's snapshot read can be empty
+ * on a truly cold process (not yet hydrated), so the first live fix still
+ * centers below — either way the zoom stays at the browse default.
  *
  * The centering runs once: it is skipped when a deep link or an existing
  * selection owns the camera, and latched in that case too, so consuming the
@@ -51,7 +49,7 @@ fun rememberInitialCamera(viewModel: SelectedFeatureViewModel): CameraState {
             ?: persistedLastFix(dataStore)
     }
     val camera = rememberCameraState(
-        seed?.let { CameraPosition(target = it, zoom = FIRST_FIX_ZOOM) } ?: FALLBACK_CAMERA,
+        seed?.let { CameraPosition(target = it, zoom = FIRST_FIX_ZOOM) } ?: CameraPosition(),
     )
 
     val userPosition by viewModel.userPosition.collectAsState()

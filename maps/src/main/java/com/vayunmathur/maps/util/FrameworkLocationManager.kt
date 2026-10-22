@@ -128,7 +128,7 @@ class FrameworkLocationManager(context: Context) : SensorEventListener {
 
         // Emit the OS last-known fix immediately so the UI opens on the user's
         // current (or last known) location instead of waiting for the first
-        // live fix. Any last-known beats the SF fallback, so no staleness
+        // live fix. Any last-known beats no position at all, so no staleness
         // filter here — recency filtering is for the live stream only.
         lastKnownLocation()?.let { location ->
             lastFix = Fix(

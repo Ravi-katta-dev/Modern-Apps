@@ -24,7 +24,7 @@ object MapPreferences {
     /**
      * Last known user position (lon/lat doubles). Written on every accepted GPS
      * fix and read back to seed the cold-start camera, so the map opens where
-     * the user was rather than the SF fallback. Absent = no fix ever recorded.
+     * the user was. Absent = no fix ever recorded.
      */
     const val KEY_LAST_LON = "last_lon"
     const val KEY_LAST_LAT = "last_lat"
