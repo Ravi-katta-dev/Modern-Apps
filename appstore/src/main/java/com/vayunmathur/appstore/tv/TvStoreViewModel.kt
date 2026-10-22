@@ -195,6 +195,10 @@ class TvStoreViewModel(
     init {
         viewModelScope.launch {
             enabledSourcesFlow.value = settings.readEnabledSources()
+            // Drop disabled sources' cached rows before anything reads the catalogue:
+            // sync only purges when it runs, so a disabled offline source's rows would
+            // otherwise survive every restart underneath the toggle (#845).
+            catalog.purgeDisabled(enabledSourcesFlow.value)
             installedRepo.refresh()
             if (AppSource.PLAYSTORE in enabledSourcesFlow.value) play.restore()
             syncIfNeverSynced()
@@ -441,6 +445,9 @@ class TvStoreViewModel(
                     playUpdatesFlow.value = installed.mapNotNull { inst ->
                         remote[inst.packageName]?.takeIf { it.versionCode > inst.versionCode }
                     }
+                } else {
+                    // A check with Play off must not leave a stale snapshot behind (#845).
+                    playUpdatesFlow.value = emptyList()
                 }
 
                 if (AppSource.ACCRESCENT in enabled) {
@@ -449,6 +456,8 @@ class TvStoreViewModel(
                     accrescentUpdatesFlow.value = installed
                         .filter { it.packageName in accrescentIds }
                         .mapNotNull { inst -> accrescentUpdate(inst.packageName, inst.versionCode) }
+                } else {
+                    accrescentUpdatesFlow.value = emptyList()
                 }
 
                 lastUpdateCheckFlow.value = System.currentTimeMillis()

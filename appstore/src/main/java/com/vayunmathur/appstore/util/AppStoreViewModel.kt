@@ -166,13 +166,23 @@ class AppStoreViewModel(
         }.stateIn(viewModelScope, SharingStarted.Eagerly, "")
 
     val updates: StateFlow<List<UnifiedApp>> = combine(
-        catalogUpdatesFlow,
-        playUpdatesFlow,
-        accrescentUpdatesFlow,
+        combine(
+            catalogUpdatesFlow,
+            playUpdatesFlow,
+            accrescentUpdatesFlow,
+        ) { catalogUpdates, playUpdates, accrescentUpdates ->
+            catalogUpdates + playUpdates + accrescentUpdates
+        },
         installedRepo.apps,
-    ) { catalogUpdates, playUpdates, accrescentUpdates, installed ->
+        enabledSources,
+    ) { pending, installed, enabled ->
         val installedVersions = installed.associate { it.packageName to it.versionCode }
-        (catalogUpdates + playUpdates + accrescentUpdates)
+        pending
+            // A disabled source contributes nothing, even if its in-memory snapshot has not
+            // been cleared yet (issue #845): the toggle clears Play/Accrescent snapshots
+            // via forgetSource, but a cold start can repopulate them before the persisted
+            // choice arrives, so the merged list filters rather than trusting them.
+            .filter { it.source in enabled }
             // The surviving row's source decides which download-and-verify path the update
             // takes, so it has to be the same precedence search and the library use.
             .sortedBy { it.source.priority }
@@ -303,21 +313,38 @@ class AppStoreViewModel(
 
     val library: StateFlow<LibraryUiState> = combine(
         chrome,
-        catalog.packageIndex,
-        playInstalledPackagesFlow,
-        accrescentPackagesFlow,
-        libraryFilterFlow,
-    ) { rows, index, playPackages, accrescentPackages, filter ->
+        combine(
+            catalog.packageIndex,
+            playInstalledPackagesFlow,
+            accrescentPackagesFlow,
+            libraryFilterFlow,
+            enabledSources,
+        ) { index, playPackages, accrescentPackages, filter, enabled ->
+            LibraryInputs(index, playPackages, accrescentPackages, filter, enabled)
+        },
+    ) { rows, inputs ->
+        val (index, playPackages, accrescentPackages, filter, enabled) = inputs
         // Source attribution, highest priority first:
         //  1. Whatever the offline catalogue (F-Droid / Modern Apps / Proprietary) recorded.
         //  2. Accrescent, for packages its signed allowlist vouches for.
         //  3. Play, but only for packages Play confirmed it hosts (see playInstalledPackagesFlow).
         // A package no source vouches for — sideloaded, or from a store we don't track — is
         // left out entirely rather than mislabelled as Play.
-        fun sourceOf(pkg: String): AppSource? =
+        //
+        // Every branch is gated on the source still being enabled (issue #845): the Room
+        // cache can still hold a disabled offline source's rows on a cold start before
+        // purgeDisabled runs, and the Play/Accrescent snapshots are in-memory.
+        fun sourceOf(pkg: String): AppSource? {
             index[pkg]?.source?.let { runCatching { AppSource.valueOf(it) }.getOrNull() }
-                ?: AppSource.ACCRESCENT.takeIf { pkg in accrescentPackages }
-                ?: AppSource.PLAYSTORE.takeIf { pkg in playPackages }
+                ?.takeIf { it in enabled }?.let { return it }
+            if (AppSource.ACCRESCENT in enabled && pkg in accrescentPackages) {
+                return AppSource.ACCRESCENT
+            }
+            if (AppSource.PLAYSTORE in enabled && pkg in playPackages) {
+                return AppSource.PLAYSTORE
+            }
+            return null
+        }
 
         val all = rows.installed.mapNotNull { info ->
             sourceOf(info.packageName)?.let { info.toUnifiedApp(it) }
@@ -340,6 +367,11 @@ class AppStoreViewModel(
             // user switched off must not be contacted once on every cold start while the
             // stored value is still on its way.
             val enabled = settings.readEnabledSources()
+            // Drop disabled sources' cached rows before anything reads the catalogue:
+            // sync only purges when it runs, and a non-empty cache skips the startup
+            // sync entirely, so without this a disabled offline source's rows survive
+            // every restart and keep feeding search, updates and the library (#845).
+            catalog.purgeDisabled(enabled)
             installedRepo.refresh()
             if (AppSource.PLAYSTORE in enabled) play.restore()
             loadHome(enabled)
@@ -576,6 +608,14 @@ class AppStoreViewModel(
         val installedPackages: Set<String> = emptySet(),
         val icons: Map<String, Drawable> = emptyMap(),
         val stages: Map<String, InstallStage> = emptyMap(),
+    )
+
+    private data class LibraryInputs(
+        val index: Map<String, com.vayunmathur.appstore.data.PackageIndexRow> = emptyMap(),
+        val playPackages: Set<String> = emptySet(),
+        val accrescentPackages: Set<String> = emptySet(),
+        val filter: SourceFilter = SourceFilter.ALL,
+        val enabled: Set<AppSource> = emptySet(),
     )
 
     private data class HomeChrome(

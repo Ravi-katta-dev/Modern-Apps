@@ -20,7 +20,10 @@ internal fun AppStoreViewModel.checkForUpdatesImpl() {
     if (isCheckingUpdatesFlow.value) return
     viewModelScope.launch {
         try {
-            val enabled = enabledSources.value
+            // The persisted choice, not the flow's optimistic default: this runs from
+            // HomePage on every cold start, before DataStore has delivered the stored
+            // value, and the default has every source switched on (#845).
+            val enabled = settings.readEnabledSources()
             isCheckingUpdatesFlow.value = true
             statusMessageFlow.value = context.getString(R.string.updates_checking)
 
@@ -43,6 +46,10 @@ internal fun AppStoreViewModel.checkForUpdatesImpl() {
                 // The same response tells us which of these packages Play actually hosts, which
                 // the library uses to tell a genuine Play app from a sideloaded one.
                 if (remote.isNotEmpty()) playInstalledPackagesFlow.value = remote.keys.toSet()
+            } else {
+                // A cold-start check with Play off must not leave a stale snapshot behind.
+                playUpdatesFlow.value = emptyList()
+                playInstalledPackagesFlow.value = emptySet()
             }
 
             // Accrescent: refresh the signed allowlist, then ask its API for a newer build of
@@ -54,6 +61,9 @@ internal fun AppStoreViewModel.checkForUpdatesImpl() {
                 accrescentUpdatesFlow.value = installed
                     .filter { it.packageName in accrescentIds }
                     .mapNotNull { inst -> accrescentUpdate(inst.packageName, inst.versionCode) }
+            } else {
+                accrescentUpdatesFlow.value = emptyList()
+                accrescentPackagesFlow.value = emptySet()
             }
 
             lastUpdateCheckFlow.value = System.currentTimeMillis()

@@ -29,11 +29,15 @@ internal fun AppStoreViewModel.setSearchImpl(query: String) {
         delay(SEARCH_DEBOUNCE_MS)
         isSearchingFlow.value = true
         searchPlayErrorFlow.value = ""
-        val enabled = enabledSources.value
+        // The persisted choice, not the flow's optimistic default: a search fired on a
+        // cold start must not query a source the user switched off (#845).
+        val enabled = settings.readEnabledSources()
 
         // Local first and published immediately: the F-Droid catalogue is on disk, so
         // there is no reason to make the user wait on Play before seeing anything.
-        val local = catalog.searchLocal(query)
+        // Filtered to enabled sources: the Room cache can still hold a disabled
+        // source's rows before the startup purge lands.
+        val local = catalog.searchLocal(query).filter { it.source in enabled }
         searchResultsFlow.value = rank(local, query)
 
         // Accrescent search is client-side over the listings already cached from the home

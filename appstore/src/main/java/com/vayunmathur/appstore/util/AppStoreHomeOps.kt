@@ -185,7 +185,9 @@ internal fun AppStoreViewModel.syncIfNeverSynced(enabled: Set<AppSource>) {
 fun AppStoreViewModel.syncSources() {
     if (isSyncingFlow.value) return
     viewModelScope.launch {
-        val enabled = enabledSources.value
+        // The persisted choice, not the flow's optimistic default: a manual sync fired
+        // on a cold start must not re-fetch a source the user switched off (#845).
+        val enabled = settings.readEnabledSources()
         isSyncingFlow.value = true
         val report = catalog.sync(enabled) { step ->
             statusMessageFlow.value = context.getString(

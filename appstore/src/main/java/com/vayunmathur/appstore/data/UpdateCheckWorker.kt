@@ -102,6 +102,9 @@ class UpdateCheckWorker(
         )
         val enabled = env.settings.readEnabledSources()
 
+        // Drop disabled sources' cached rows before the index is read: the last sync
+        // may predate the toggle, and nothing else purges on this path (#845).
+        env.catalog.purgeDisabled(enabled)
         env.catalog.sync(enabled)
         env.installedRepo.refresh()
         if (AppSource.PLAYSTORE in enabled) env.play.restore()
