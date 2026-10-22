@@ -54,7 +54,11 @@ class NotesDeleteTest {
         val row = device.wait(Until.findObject(By.text(NOTE_TITLE)), CONTENT_TIMEOUT_MS)
         assertNotNull("created note is not listed", row)
         row!!.longClick()
-        val delete = device.wait(Until.findObject(By.desc(DELETE_DESCRIPTION)), CONTENT_TIMEOUT_MS)
+        // The Delete icon itself is not clickable — its ancestor is.
+        val delete = device.wait(
+            Until.findObject(By.clickable(true).hasDescendant(By.desc(DELETE_DESCRIPTION))),
+            CONTENT_TIMEOUT_MS,
+        )
         assertNotNull("multi-select delete never appeared", delete)
         delete!!.click()
         assertNull(

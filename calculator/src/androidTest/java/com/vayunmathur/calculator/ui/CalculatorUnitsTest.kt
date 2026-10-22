@@ -47,15 +47,20 @@ class CalculatorUnitsTest {
             "unit converter never opened",
             device.wait(Until.findObject(By.text(RESULT_LABEL)), CONTENT_TIMEOUT_MS),
         )
-        val category = device.wait(Until.findObject(By.text(DEFAULT_CATEGORY)), SHORT_TIMEOUT_MS)
-        assertNotNull("category selector never appeared", category)
-        category!!.click()
-        val length = device.wait(Until.findObject(By.text(LENGTH_CATEGORY)), CONTENT_TIMEOUT_MS)
-        assertNotNull("Length category never appeared", length)
-        length!!.click()
+        // The converter remembers the last-used category across launches,
+        // so find whichever is showing and switch to the other one.
+        val current = CATEGORIES.firstNotNullOfOrNull { name ->
+            device.wait(Until.findObject(By.text(name)), SHORT_TIMEOUT_MS)?.let { name to it }
+        }
+        assertNotNull("category selector never appeared", current)
+        current!!.second.click()
+        val target = if (current.first == "Mass") "Length" else "Mass"
+        val option = device.wait(Until.findObject(By.text(target)), CONTENT_TIMEOUT_MS)
+        assertNotNull("$target category never appeared", option)
+        option!!.click()
         assertNotNull(
-            "Length category was not selected",
-            device.wait(Until.findObject(By.text(LENGTH_CATEGORY)), CONTENT_TIMEOUT_MS),
+            "$target category was not selected",
+            device.wait(Until.findObject(By.text(target)), CONTENT_TIMEOUT_MS),
         )
         assertNotNull(
             "converter result never appeared",
@@ -91,9 +96,9 @@ class CalculatorUnitsTest {
         private const val SHORT_TIMEOUT_MS = 5_000L
         private const val EQUALS_KEY = "="
         private const val UNITS_TAB = "Units"
-        // Observed on device: the converter opens on Mass (From/To/Value/Result).
-        private const val DEFAULT_CATEGORY = "Mass"
-        private const val LENGTH_CATEGORY = "Length"
+        // Candidate categories observed on device; the converter opens on
+        // whichever was last used, so the test switches away from it.
+        private val CATEGORIES = arrayOf("Length", "Mass")
         private const val RESULT_LABEL = "Result"
         private const val PERMISSION_GATE_TITLE = "Grant Required Permissions"
         private val SPECIAL_ACCESS_COMMANDS = arrayOf(
