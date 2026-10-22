@@ -101,7 +101,11 @@ fn protobuf_reader_round_trips_and_rejects_bad_input() {
         }
     }
     assert!(seen_varint && seen_bytes);
-    assert!(PbReader::new(&writer.buf[..writer.buf.len() - 2]).next_field().is_err());
+    // Truncating the trailing bytes field leaves the leading varint intact:
+    // the first read succeeds and the second reports the truncation.
+    let mut truncated = PbReader::new(&writer.buf[..writer.buf.len() - 2]);
+    assert!(truncated.next_field().is_ok());
+    assert!(truncated.next_field().is_err());
     assert!(PbReader::new(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x01])
         .next_field()
         .is_err());

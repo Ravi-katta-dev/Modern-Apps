@@ -55,8 +55,9 @@ class CalculatorEvaluateTest {
             device.wait(Until.findObject(By.text(BOTTOM_TAB_LABEL)), SHORT_TIMEOUT_MS),
         )
 
-        // Standard precedence: 2 + 3 x 4 evaluates to 14.
-        for (key in arrayOf("2", "+", "3", "x", "4", EQUALS_KEY)) {
+        // Standard precedence: 2 + 3 x 4 evaluates to 14. The keypad
+        // labels multiply as the proper sign (U+00D7), not ASCII x.
+        for (key in arrayOf("2", "+", "3", "×", "4", EQUALS_KEY)) {
             val button = device.wait(Until.findObject(By.text(key)), SHORT_TIMEOUT_MS)
             assertNotNull("keypad key $key never appeared", button)
             button!!.click()

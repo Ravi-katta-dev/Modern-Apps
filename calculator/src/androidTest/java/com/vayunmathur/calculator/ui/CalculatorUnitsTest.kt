@@ -50,12 +50,12 @@ class CalculatorUnitsTest {
         val category = device.wait(Until.findObject(By.text(DEFAULT_CATEGORY)), SHORT_TIMEOUT_MS)
         assertNotNull("category selector never appeared", category)
         category!!.click()
-        val mass = device.wait(Until.findObject(By.text(MASS_CATEGORY)), CONTENT_TIMEOUT_MS)
-        assertNotNull("Mass category never appeared", mass)
-        mass!!.click()
+        val length = device.wait(Until.findObject(By.text(LENGTH_CATEGORY)), CONTENT_TIMEOUT_MS)
+        assertNotNull("Length category never appeared", length)
+        length!!.click()
         assertNotNull(
-            "Mass category was not selected",
-            device.wait(Until.findObject(By.text(MASS_CATEGORY)), CONTENT_TIMEOUT_MS),
+            "Length category was not selected",
+            device.wait(Until.findObject(By.text(LENGTH_CATEGORY)), CONTENT_TIMEOUT_MS),
         )
         assertNotNull(
             "converter result never appeared",
@@ -91,8 +91,9 @@ class CalculatorUnitsTest {
         private const val SHORT_TIMEOUT_MS = 5_000L
         private const val EQUALS_KEY = "="
         private const val UNITS_TAB = "Units"
-        private const val DEFAULT_CATEGORY = "Length"
-        private const val MASS_CATEGORY = "Mass"
+        // Observed on device: the converter opens on Mass (From/To/Value/Result).
+        private const val DEFAULT_CATEGORY = "Mass"
+        private const val LENGTH_CATEGORY = "Length"
         private const val RESULT_LABEL = "Result"
         private const val PERMISSION_GATE_TITLE = "Grant Required Permissions"
         private val SPECIAL_ACCESS_COMMANDS = arrayOf(
