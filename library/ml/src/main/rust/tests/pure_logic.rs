@@ -169,18 +169,20 @@ fn sentencepiece_tables_reject_malformed_bytes_before_decoding() {
     assert_eq!(table.decode(&[]), "");
     assert_eq!(table.decode(&[999]), "");
     // Not a table at all, a header cut short, and a table with bytes trailing it.
-    let error = Table::parse(&[]).expect_err("empty");
+    // (Table carries no Debug so expect_err is unavailable; the error side is
+    // a plain String, so unwrap_err works.)
+    let error = Table::parse(&[]).unwrap_err();
     assert!(error.contains("SPM1"), "{error}");
-    let error = Table::parse(b"BAD!").expect_err("bad magic");
+    let error = Table::parse(b"BAD!").unwrap_err();
     assert!(error.contains("SPM1"), "{error}");
     let cut = bytes.get(..10).unwrap_or(&[]).to_vec();
     assert!(Table::parse(&cut).is_err());
     let mut trailing = bytes.clone();
     trailing.push(0);
-    let error = Table::parse(&trailing).expect_err("trailing byte");
+    let error = Table::parse(&trailing).unwrap_err();
     assert!(error.contains("bytes left"), "{error}");
     // The same bytes under the wrong convention are refused: id 0 is `<s>`, not `<pad>`.
-    let error = Table::parse_with(&bytes, GEMMA).expect_err("wrong flavour");
+    let error = Table::parse_with(&bytes, GEMMA).unwrap_err();
     assert!(error.contains("not <pad>"), "{error}");
     // The flavour travelled with the parse, so callers read back what they asked for.
     assert_eq!(table.specials(), FAIRSEQ);

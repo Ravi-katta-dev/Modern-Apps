@@ -124,7 +124,7 @@ fn inventory_hotbar_rules_hold() {
     assert_eq!(inv.selected_block(), Block::Stone as u16);
     assert_eq!(inv.consume_selected(), Some(Block::Stone as u16));
     assert_eq!(inv.consume_selected(), None, "slot drained after one consume");
-    for _ in 0..(SLOTS * STACK + 10) {
+    for _ in 0..(SLOTS as i32 * STACK + 10) {
         inv.try_add_block(Block::Dirt as u16);
     }
     let total = inv.count_of(Block::Dirt as u16);

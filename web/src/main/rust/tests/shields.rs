@@ -99,8 +99,11 @@ fn cosmetic_filter_yields_hide_selector() {
 #[test]
 fn generic_cosmetic_rule_matches_an_observed_class() {
     let engine = engine_with("##.promo");
-    let selectors =
-        engine.hidden_class_id_selectors(vec!["promo".to_string()], Vec::new(), &HashSet::new());
+    let selectors = engine.hidden_class_id_selectors(
+        vec!["promo".to_string()],
+        Vec::<String>::new(),
+        &HashSet::new(),
+    );
     assert!(selectors.iter().any(|s| s.contains("promo")));
 }
 
