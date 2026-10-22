@@ -41,9 +41,14 @@ object CoordinateTransforms {
         val sinDec = sin(altAz.altRad) * sin(latRad) +
             cos(altAz.altRad) * cos(latRad) * cos(altAz.azRad)
         val dec = asin(sinDec.coerceIn(-1.0, 1.0))
+        // Inverts raDecToAltAz exactly: from sinH = -sinAz*cosAlt/cosDec and
+        // cosH = (sinAlt-sinDec*sinLat)/(cosDec*cosLat), multiply both by the
+        // positive factor cosDec*cosLat so no division can blow up. The old
+        // second argument mixed the azimuth convention and returned hour
+        // angles off by up to hundreds of degrees.
         val ha = atan2(
-            -cos(altAz.altRad) * sin(altAz.azRad),
-            cos(altAz.altRad) * cos(altAz.azRad) * sin(latRad) - sin(altAz.altRad) * cos(latRad),
+            -sin(altAz.azRad) * cos(altAz.altRad) * cos(latRad),
+            sin(altAz.altRad) - sinDec * sin(latRad),
         )
         val ra = (lstRad - ha).normalize2Pi()
         return RaDec(ra, dec)

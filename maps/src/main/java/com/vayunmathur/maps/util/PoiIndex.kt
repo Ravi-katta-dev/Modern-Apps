@@ -610,13 +610,16 @@ object PoiIndex {
     ): List<PoiRecord> = searchByWordIndex(m, query, nearLat, nearLon, limit, CANDIDATE_CAP)
 
     // Scan search lives in PoiIndexWords.kt; this delegates so searchByName is unchanged.
+    // (This must call the package-level function there: calling itself
+    // recurses forever — StackOverflowError on every scan-path search.)
     private fun searchByScan(
         m: Mapped,
         query: String,
         nearLat: Double,
         nearLon: Double,
         limit: Int,
-    ): List<PoiRecord> = searchByScan(m, query, nearLat, nearLon, limit)
+    ): List<PoiRecord> =
+        com.vayunmathur.maps.util.searchByScan(m, query, nearLat, nearLon, limit)
 
     // Spatial queries (nearest/inViewport) live in PoiIndexSpatial.kt as
     // extensions, alongside the grid they walk.

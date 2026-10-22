@@ -269,16 +269,17 @@ internal suspend fun openVehicleTrip(
  * The selected label's outline, dimmed outside. Derived from the sheet's own
  * selection rather than the tap, so a region picked from search masks too — and the
  * mask is the label's baked `regionId`, so no point/level guess: linked masks exactly
- * that region, unlinked (`0` / absent) masks nothing.
+ * that region, unlinked (`0` / absent) masks nothing. A label with no position
+ * cannot be placed on the map, so it masks nothing even when linked.
  */
 internal fun regionMaskFor(
     selectedFeature: com.vayunmathur.maps.data.SpecificFeature?,
 ): Long? = when (selectedFeature) {
     is com.vayunmathur.maps.data.SpecificFeature.Admin0Label ->
-        selectedFeature.regionId.takeIf { it != 0L }
+        selectedFeature.regionId.takeIf { it != 0L && selectedFeature.position != null }
     is com.vayunmathur.maps.data.SpecificFeature.Admin1Label ->
-        selectedFeature.regionId.takeIf { it != 0L }
+        selectedFeature.regionId.takeIf { it != 0L && selectedFeature.position != null }
     is com.vayunmathur.maps.data.SpecificFeature.Admin2Label ->
-        selectedFeature.regionId.takeIf { it != 0L }
+        selectedFeature.regionId.takeIf { it != 0L && selectedFeature.position != null }
     else -> null
 }
