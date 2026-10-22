@@ -1,7 +1,17 @@
 package com.vayunmathur.communicate.whatsapp
 
 import com.vayunmathur.communicate.data.whatsapp.WhatsAppProtocol
+import com.vayunmathur.communicate.data.whatsapp.buildContactProto
+import com.vayunmathur.communicate.data.whatsapp.buildContextInfo
+import com.vayunmathur.communicate.data.whatsapp.buildConversationMessage
+import com.vayunmathur.communicate.data.whatsapp.buildDisappearingTimerProto
+import com.vayunmathur.communicate.data.whatsapp.buildEditProto
+import com.vayunmathur.communicate.data.whatsapp.buildRevokeProto
+import com.vayunmathur.communicate.data.whatsapp.buildTextProto
+import com.vayunmathur.communicate.data.whatsapp.getMessageType
+import com.vayunmathur.communicate.data.whatsapp.isRevokeFromMe
 import com.vayunmathur.communicate.data.whatsapp.proto.WhatsAppE2EProto
+import com.vayunmathur.communicate.data.whatsapp.unwrapViewOnce
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

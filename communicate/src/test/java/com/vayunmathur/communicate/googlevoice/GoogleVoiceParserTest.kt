@@ -3,6 +3,10 @@ package com.vayunmathur.communicate.googlevoice
 import com.vayunmathur.communicate.data.googlevoice.GoogleVoiceParser
 import com.vayunmathur.communicate.data.googlevoice.GvCallType
 import com.vayunmathur.communicate.data.googlevoice.GvFolder
+import com.vayunmathur.communicate.data.googlevoice.buildBatchUpdateBody
+import com.vayunmathur.communicate.data.googlevoice.buildListBody
+import com.vayunmathur.communicate.data.googlevoice.buildSearchBody
+import com.vayunmathur.communicate.data.googlevoice.buildSendSmsBody
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

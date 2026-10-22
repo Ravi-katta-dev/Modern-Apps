@@ -1,5 +1,6 @@
 package com.vayunmathur.notes.platform
 
+import com.vayunmathur.notes.data.Note
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

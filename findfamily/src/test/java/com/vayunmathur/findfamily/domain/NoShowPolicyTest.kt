@@ -201,10 +201,12 @@ class NoShowPolicyTest {
 
     @Test
     fun boundaryTouchingFixDoesNotCountAsArrival() {
-        // ~100 m north with perfect accuracy: circle touches, strict < says out.
+        // Exactly 100 m north with perfect accuracy: circle touches, strict
+        // < says out. One degree of latitude is pi*R/180 with the policy's
+        // own mean radius (6,371,000 m), not the 111,320 m equatorial figure.
         assertFalse(
             NoShowPolicy.hasArrivedAtWaypoint(
-                fixLat = waypointLat + 100.0 / 111_320.0,
+                fixLat = waypointLat + 100.0 / (Math.PI * 6_371_000.0 / 180.0),
                 fixLon = waypointLon,
                 fixAccuracyMeters = 0.0,
                 fixTimestamp = expectedAt + 1.minutes,

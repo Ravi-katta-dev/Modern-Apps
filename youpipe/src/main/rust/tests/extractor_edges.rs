@@ -54,7 +54,7 @@ fn counts_durations_and_views_at_the_boundaries() {
     assert_eq!(parse_abbreviated_count("15K"), 15_000);
     assert_eq!(parse_abbreviated_count("2B views"), 2_000_000_000);
     assert_eq!(parse_abbreviated_count("no number here"), -1);
-    assert_eq!(parse_duration("1:02:03"), 3723);
+    assert_eq!(parse_duration("1:02:03"), Some(3723));
     assert_eq!(parse_duration("LIVE"), None);
     assert_eq!(parse_duration(""), None);
     assert_eq!(parse_view_count("1,234 views"), 1234);

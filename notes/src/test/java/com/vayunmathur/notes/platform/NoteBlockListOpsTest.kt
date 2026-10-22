@@ -104,8 +104,12 @@ class NoteBlockListOpsTest {
         val blocks = mutableListOf<NoteBlock>(text("a"), text("b"), text("c"))
         move(blocks, "b", -1)
         assertEquals(listOf("b", "a", "c"), blocks.map { it.id })
+        // Down-one from index 0 lands at index 1: the remove shrinks the
+        // list before the insert, so +1 swaps with the neighbour below.
         move(blocks, "b", 1)
-        assertEquals(listOf("a", "c", "b"), blocks.map { it.id })
+        assertEquals(listOf("a", "b", "c"), blocks.map { it.id })
+        move(blocks, "a", 2)
+        assertEquals(listOf("b", "c", "a"), blocks.map { it.id })
     }
 
     @Test

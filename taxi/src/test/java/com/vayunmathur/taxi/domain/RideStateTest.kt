@@ -142,7 +142,8 @@ class RideStateTest {
         assertTrue(canTransition(RideStatus.ARRIVED, RideStatus.PICKED_UP))
         assertTrue(canTransition(RideStatus.PICKED_UP, RideStatus.DROPPED_OFF))
         assertTrue(canTransition(RideStatus.DROPPED_OFF, RideStatus.COMPLETED))
-        assertTrue(canTransition(RideStatus.COMPLETED, RideStatus.PROCESSED))
+        // COMPLETED is terminal (see finishedRidesHaveNoTransitions): the
+        // PROCESSED bookkeeping state is reached outside the transition table.
     }
 
     @Test

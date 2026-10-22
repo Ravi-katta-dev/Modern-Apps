@@ -123,7 +123,4 @@ class RcsMsrpLoopbackTest {
         }
         return acked
     }
-        assertTrue(got.contains("hello loopback"), "peer saw body: $got")
-        assertTrue(acked, "client saw 200 for its txid")
-    }
 }

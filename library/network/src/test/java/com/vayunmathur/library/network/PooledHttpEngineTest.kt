@@ -39,7 +39,8 @@ class PooledHttpEngineTest {
     }
 
     @Test
-    fun range_request_maps_status_headers_and_body() = runBlocking {
+    fun range_request_maps_status_headers_and_body() {
+        runBlocking {
         val body = ByteArray(4096) { (it % 251).toByte() }
         server.createContext("/range") { exchange ->
             val range = exchange.requestHeaders.getFirst("Range")
@@ -56,10 +57,12 @@ class PooledHttpEngineTest {
         assertContentEquals(body.copyOf(128), response.bytes)
         assertEquals(listOf("bytes 0-127/4096"), response.headerValues("Content-Range"))
         assertTrue(PooledHttpEngine.lastUsedPooled, "execute routes through the pool")
+        }
     }
 
     @Test
-    fun redirects_are_followed_and_final_url_reported() = runBlocking {
+    fun redirects_are_followed_and_final_url_reported() {
+        runBlocking {
         server.createContext("/old") { exchange ->
             exchange.responseHeaders.add("Location", "$baseUrl/new")
             exchange.sendResponseHeaders(302, -1)
@@ -74,10 +77,12 @@ class PooledHttpEngineTest {
         assertEquals(200, response.status)
         assertEquals("arrived", response.text)
         assertEquals("$baseUrl/new", response.url)
+        }
     }
 
     @Test
-    fun kill_switch_off_keeps_the_historical_path() = runBlocking {
+    fun kill_switch_off_keeps_the_historical_path() {
+        runBlocking {
         PooledHttpEngine.USE_POOLED_ENGINE = false
         server.createContext("/plain") { exchange ->
             val body = "legacy".toByteArray()
@@ -88,6 +93,7 @@ class PooledHttpEngineTest {
         assertEquals(200, response.status)
         assertEquals("legacy", response.text)
         assertFalse(PooledHttpEngine.lastUsedPooled, "kill-switch off bypasses the pool")
+        }
     }
 
     @Test

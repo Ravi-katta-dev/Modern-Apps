@@ -22,7 +22,11 @@ class DateStringEdgeTest {
 
     @Test
     fun date_short_uk_orders_day_first() {
-        assertEquals("14/03/25", DateString.dateShort(pi, Locale.UK))
+        // Day-first ordering is the contract; the year width (2 vs 4 digits)
+        // comes from the JDK's CLDR data and varies by runtime.
+        val text = DateString.dateShort(pi, Locale.UK)
+        assertTrue(text.startsWith("14/03/"), "day-first ordering, got: $text")
+        assertTrue(text.endsWith("25"), "year must survive, got: $text")
     }
 
     @Test

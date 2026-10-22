@@ -24,16 +24,22 @@ class TokenEstimateTest {
                 continue
             }
             // CJK code points carry a full token each; other scripts split on words.
-            val isCjk = c in '\u4E00'..'\u9FFF' || c in '\u3040'..'\u30FF'
+            val isCjk = c in '一'..'鿿' || c in '぀'..'ヿ'
             if (isCjk) {
                 tokens++
                 inWord = false
-            } else if (!inWord) {
+                continue
+            }
+            // Surrogate halves (emoji, pictographs) ride with surrounding
+            // words rather than starting new ones.
+            if (c.isHighSurrogate() || c.isLowSurrogate()) continue
+            if (!inWord) {
                 tokens++
                 inWord = true
             }
         }
-        return tokens
+        // Non-blank input with no word starts (a lone emoji) still costs one.
+        return tokens.coerceAtLeast(1)
     }
 
     private fun fitsBudget(text: String, budget: Int): Boolean {

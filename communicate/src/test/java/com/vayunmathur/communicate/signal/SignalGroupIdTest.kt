@@ -2,6 +2,7 @@ package com.vayunmathur.communicate.signal
 
 import com.vayunmathur.communicate.data.signal.SignalGroups
 import com.vayunmathur.communicate.data.signal.SignalProtocol
+import com.vayunmathur.communicate.data.signal.groupIdentifierOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse

@@ -39,7 +39,8 @@ class PooledHttpEngineRoutingTest {
     }
 
     @Test
-    fun error_status_maps_body_and_reports_failure() = runBlocking {
+    fun error_status_maps_body_and_reports_failure() {
+        runBlocking {
         server.createContext("/gone") { exchange ->
             val body = "nope".toByteArray()
             exchange.sendResponseHeaders(404, body.size.toLong())
@@ -50,10 +51,12 @@ class PooledHttpEngineRoutingTest {
         assertEquals("nope", response.text)
         assertFalse(response.isSuccess, "a 404 must not read as success")
         assertTrue(PooledHttpEngine.lastUsedPooled, "execute routes through the pool")
+        }
     }
 
     @Test
-    fun redirects_are_not_followed_when_suppressed() = runBlocking {
+    fun redirects_are_not_followed_when_suppressed() {
+        runBlocking {
         server.createContext("/hop") { exchange ->
             exchange.responseHeaders.add("Location", "$baseUrl/landed")
             exchange.sendResponseHeaders(302, -1)
@@ -63,10 +66,12 @@ class PooledHttpEngineRoutingTest {
         assertEquals(302, response.status)
         assertEquals("$baseUrl/hop", response.url)
         assertEquals("$baseUrl/landed", response.header("Location"))
+        }
     }
 
     @Test
-    fun custom_headers_are_forwarded_single_and_iterable() = runBlocking {
+    fun custom_headers_are_forwarded_single_and_iterable() {
+        runBlocking {
         server.createContext("/headers") { exchange ->
             val headers = exchange.requestHeaders
             fun first(name: String): String? =
@@ -82,10 +87,12 @@ class PooledHttpEngineRoutingTest {
             headers = mapOf("X-One" to "1", "X-Multi" to listOf("a", "b")),
         )
         assertEquals("1|a,b", response.text)
+        }
     }
 
     @Test
-    fun post_body_round_trips() = runBlocking {
+    fun post_body_round_trips() {
+        runBlocking {
         server.createContext("/echo") { exchange ->
             val received = exchange.requestBody.readAllBytes()
             exchange.sendResponseHeaders(200, received.size.toLong())
@@ -94,13 +101,16 @@ class PooledHttpEngineRoutingTest {
         val response = NetworkClient.execute(url = "$baseUrl/echo", method = "POST", body = "ping-body")
         assertEquals(200, response.status)
         assertEquals("ping-body", response.text)
+        }
     }
 
     @Test
-    fun connect_failure_surfaces_as_io_exception() = runBlocking {
-        val dead = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        val port = dead.address.port
-        dead.stop(0)
-        assertFailsWith<IOException> { NetworkClient.execute(url = "http://127.0.0.1:$port/gone") }
+    fun connect_failure_surfaces_as_io_exception() {
+        runBlocking {
+            val dead = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+            val port = dead.address.port
+            dead.stop(0)
+            assertFailsWith<IOException> { NetworkClient.execute(url = "http://127.0.0.1:$port/gone") }
+        }
     }
 }
