@@ -13,6 +13,8 @@
     <string name="layout_full_week">Full Week</string>
     <!-- Main calendar: Month view grid -->
     <string name="layout_month">Month</string>
+    <!-- Main calendar: Month grid with agenda list below -->
+    <string name="layout_month_agenda">Month + Agenda</string>
     <!-- Main calendar: Summary of work week events -->
     <string name="layout_work_week_summary">Work Week Summary</string>
     <!-- Main calendar: Summary of full week events -->
@@ -31,6 +33,8 @@
     <string name="layout_short_full_week">W7</string>
     <!-- Layout picker: short abbreviation for Month -->
     <string name="layout_short_month">M</string>
+    <!-- Layout picker: short abbreviation for Month + Agenda -->
+    <string name="layout_short_month_agenda">MA</string>
     <!-- Layout picker: short abbreviation for Work Week Summary (5-day summary) -->
     <string name="layout_short_work_week_summary">W5S</string>
     <!-- Layout picker: short abbreviation for Full Week Summary (7-day summary) -->

@@ -204,6 +204,15 @@ fun CalendarScreen(state: CalendarUiState, actions: CalendarActions) {
                     onDateViewingChanged = { actions.setSelectedDate(it) },
                     previewInstances = state.previewInstances,
                 )
+                CalendarViewModel.CalendarLayout.MonthAgenda -> MonthAgendaView(
+                    context, state.events, state.calendars, state.calendarVisibility, state.today, state.dateViewing,
+                    actions::visibleInstances,
+                    onEventClick = { actions.openEvent(it) },
+                    onDayClick = { actions.setSelectedDate(it) },
+                    onDayLongClick = { actions.createEventOn(it) },
+                    onDateViewingChanged = { actions.setSelectedDate(it) },
+                    previewInstances = state.previewInstances,
+                )
                 else -> {
                     CalendarPagerView(
                         context,
