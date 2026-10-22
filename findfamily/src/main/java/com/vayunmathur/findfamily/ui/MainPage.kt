@@ -124,6 +124,7 @@ import com.vayunmathur.findfamily.util.PersonUiState
 import com.vayunmathur.findfamily.util.Platform
 import com.vayunmathur.findfamily.util.UwbSessionManager
 import com.vayunmathur.library.map.GeoPoint
+import com.vayunmathur.library.map.CameraPosition
 import com.vayunmathur.library.map.rememberCameraState
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.ui.IconClose
@@ -272,7 +273,17 @@ fun MainPage(
     // reached through MainPageContent's stateless `map` slot. This was previously a
     // process-global `val camera` in MapView.kt for exactly that reason. rememberSaveable
     // inside rememberCameraState now also carries it across rotation and process death.
-    val camera = rememberCameraState()
+    //
+    // Seeded from the device's cached fix (LocationManager.getLastKnownLocation via
+    // Platform): synchronous, so cold start opens centred on the user with no DB or
+    // fresh-fix wait. Applies only on first composition — a restored camera wins.
+    // Read once: the initial expression would otherwise re-query LocationManager on
+    // every recomposition.
+    val seedTarget = remember { platform.lastKnownDeviceLocation() }
+    val camera = rememberCameraState(
+        initial = seedTarget?.let { CameraPosition(target = it, zoom = 15.0) }
+            ?: CameraPosition()
+    )
 
     MainPageContent(
         state = state,
@@ -311,6 +322,7 @@ fun MainPage(
         ffViewModel = ffViewModel,
         camera = camera,
         selectedUserId = selectedUserId,
+        selfUserId = state.selfUserId,
         isShowingPresent = isShowingPresent,
         historicalPosition = historicalPosition,
         userPositions = userPositions,

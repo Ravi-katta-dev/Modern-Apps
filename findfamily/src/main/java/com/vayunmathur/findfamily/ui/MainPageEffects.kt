@@ -156,6 +156,7 @@ internal fun MainPageEffects(
     ffViewModel: FindFamilyViewModel,
     camera: CameraState,
     selectedUserId: Long?,
+    selfUserId: Long,
     isShowingPresent: Boolean,
     historicalPosition: GeoPoint?,
     userPositions: Map<Long, LocationValue>,
@@ -166,6 +167,33 @@ internal fun MainPageEffects(
     showGpsWarning: Boolean,
     onShowGpsWarning: (Boolean) -> Unit,
 ) {
+    // Open on "my location": cold start lands with nothing selected and the camera at
+    // the default (0,0). Once the self fix is in, centre on it once. Skipped when a
+    // selection/deep-link takes over, when the camera is already placed (restored
+    // across rotation/process-death, or the user panned before the fix arrived), and
+    // after the first centring so later fixes never fight the user's gestures.
+    var centredOnSelf by remember { mutableStateOf(false) }
+    LaunchedEffect(selfUserId, userPositions, selectedUserId, selectedWaypointId) {
+        if (centredOnSelf) return@LaunchedEffect
+        if (selfUserId <= 0L) return@LaunchedEffect
+        if (selectedUserId != null || (selectedWaypointId != null && selectedWaypointId != 0L)) {
+            centredOnSelf = true
+            return@LaunchedEffect
+        }
+        if (camera.position.target.longitude != 0.0 || camera.position.target.latitude != 0.0) {
+            centredOnSelf = true
+            return@LaunchedEffect
+        }
+        val selfPosition = userPositions[selfUserId]?.coord?.toGeoPoint() ?: return@LaunchedEffect
+        centredOnSelf = true
+        camera.animateTo(
+            camera.position.copy(
+                target = selfPosition,
+                zoom = 15.0
+            )
+        )
+    }
+
     // Map animation logic
     LaunchedEffect(selectedUserId, isShowingPresent, historicalPosition) {
         if (selectedUserId != null) {

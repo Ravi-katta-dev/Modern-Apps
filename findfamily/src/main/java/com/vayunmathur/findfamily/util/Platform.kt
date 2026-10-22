@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
 import android.provider.ContactsContract
 import android.provider.ContactsPickerSessionContract
@@ -15,9 +17,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.core.content.ContextCompat
 import androidx.core.database.getBlobOrNull
 import androidx.core.database.getStringOrNull
 import com.vayunmathur.findfamily.R
+import com.vayunmathur.library.map.GeoPoint
 import com.vayunmathur.library.ui.rememberPermissionRequest
 import kotlinx.coroutines.launch
 import kotlin.io.encoding.Base64
@@ -161,9 +165,9 @@ class Platform(private val context: Context) {
             val cur = context.contentResolver.query(uri, null, null, null)!!
             if (cur.moveToFirst()) {
                 val name =
-                    cur.getString(cur.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME))
+                    cur.getString(cur.getColumnIndexOrThrow(ContactsContract.Contacts.DISPLAY_NAME))
                 val photo =
-                    cur.getStringOrNull(cur.getColumnIndex(ContactsContract.Contacts.PHOTO_URI))
+                    cur.getStringOrNull(cur.getColumnIndexOrThrow(ContactsContract.Contacts.PHOTO_URI))
                 cur.close()
                 name?.let { it to photo }
             } else {
@@ -180,5 +184,39 @@ class Platform(private val context: Context) {
         val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         val clipData = android.content.ClipData.newPlainText(context.getString(R.string.clipboard_label), content)
         clipboardManager.setPrimaryClip(clipData)
+    }
+
+    /**
+     * Best cached device fix, or null if none is available yet. Reads the synchronous
+     * [LocationManager.getLastKnownLocation] cache — no fix wait, no DB round-trip — so the
+     * map can open centred on the user immediately. GPS is preferred when both providers
+     * have a fix; otherwise the newest fix wins.
+     */
+    @SuppressLint("MissingPermission")
+    fun lastKnownDeviceLocation(): GeoPoint? {
+        val hasFine = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasFine && !hasCoarse) return null
+        return try {
+            val locationManager =
+                context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val gps = runCatching {
+                locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            }.getOrNull()
+            val network = runCatching {
+                locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            }.getOrNull()
+            // GPS first on ties: same timestamp means same fix batch, and GPS is the precise one.
+            val best = listOfNotNull(gps, network).maxWithOrNull(
+                compareBy({ it.time }, { if (it.provider == LocationManager.GPS_PROVIDER) 1 else 0 })
+            )
+            best?.let { GeoPoint(it.longitude, it.latitude) }
+        } catch (_: SecurityException) {
+            null
+        }
     }
 }
