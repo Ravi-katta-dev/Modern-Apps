@@ -198,6 +198,9 @@ class InAppCallConnectionService : ConnectionService() {
         request: ConnectionRequest?,
     ) {
         Log.status(TAG, "Telecom could not create the incoming connection; the call continues without it")
+        // The system surface is gone, but the line still owns a ringing call — surface it directly
+        // so it still rings instead of degrading to a silent heads-up.
+        runCatching { InAppCallForegroundService.start(applicationContext) }
     }
 
     private companion object {

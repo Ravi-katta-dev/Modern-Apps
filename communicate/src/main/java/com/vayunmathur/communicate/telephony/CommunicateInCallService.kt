@@ -13,6 +13,7 @@ import com.vayunmathur.communicate.MainActivity
 import com.vayunmathur.communicate.R
 import com.vayunmathur.communicate.data.CommunicateRepository
 import com.vayunmathur.communicate.data.findContactName
+import com.vayunmathur.library.util.deleteNotificationChannel
 import com.vayunmathur.library.util.ensureNotificationChannel
 
 /**
@@ -76,10 +77,14 @@ class CommunicateInCallService : InCallService() {
     private fun showOrClearNotification(call: Call) {
         when (call.details.state) {
             Call.STATE_RINGING -> showNotification(call, incoming = true)
-            Call.STATE_DIALING, Call.STATE_CONNECTING, Call.STATE_ACTIVE, Call.STATE_HOLDING -> showNotification(
-                call,
-                incoming = false)
-            else -> clearNotification()
+            Call.STATE_DIALING, Call.STATE_CONNECTING, Call.STATE_ACTIVE, Call.STATE_HOLDING -> {
+                showNotification(
+                    call,
+                    incoming = false)
+            }
+            else -> {
+                clearNotification()
+            }
         }
     }
 
@@ -93,6 +98,9 @@ class CommunicateInCallService : InCallService() {
     }
 
     private fun showNotification(call: Call, incoming: Boolean) {
+        // Retired: the pre-CallStyle channel, whose hand-built actions read as an ordinary
+        // notification rather than a ringing call.
+        deleteNotificationChannel(LEGACY_CHANNEL_ID)
         ensureNotificationChannel(
             id = CHANNEL_ID,
             name = getString(R.string.regular_call_channel_name),
@@ -100,42 +108,79 @@ class CommunicateInCallService : InCallService() {
             description = getString(R.string.regular_call_channel_desc),
         ) {
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            // Telecom (the system phone stack) owns ringing audio for carrier calls; this
+            // notification is only the answer/decline surface, so it stays silent and never
+            // re-alerts — otherwise its ding would double up with the system ringtone.
+            setSound(null, null)
+            enableVibration(false)
         }
 
-        val title =
-            if (incoming) getString(R.string.call_state_incoming_generic) else getString(R.string.inapp_ongoing_call)
+        if (incoming) {
+            showIncomingCallNotification(call)
+            return
+        }
         val number = call.details.handle?.schemeSpecificPart.orEmpty()
         val builder = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(title)
+            .setContentTitle(getString(R.string.inapp_ongoing_call))
             .setContentText(callerLabel(number).ifBlank { getString(R.string.app_name) })
-            .setSmallIcon(if (incoming) android.R.drawable.sym_call_incoming else android.R.drawable.sym_action_call)
+            .setSmallIcon(android.R.drawable.sym_action_call)
             .setCategory(Notification.CATEGORY_CALL)
             .setPriority(Notification.PRIORITY_HIGH)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setContentIntent(activityIntent())
-
-        if (incoming) {
-            builder
-                .addAction(
-                    android.R.drawable.sym_call_incoming,
-                    getString(R.string.call_answer),
-                    actionIntent(ACTION_ANSWER, 1))
-                .addAction(
-                    android.R.drawable.ic_menu_close_clear_cancel,
-                    getString(R.string.call_decline),
-                    actionIntent(ACTION_DECLINE, 2))
-        } else {
-            builder.addAction(
+            .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 getString(R.string.call_end),
                 actionIntent(ACTION_DISCONNECT, DISCONNECT_REQUEST_CODE),
             )
-        }
 
         val nm = getSystemService(NotificationManager::class.java) ?: return
         nm.notify(NOTIFICATION_ID, builder.build())
     }
+
+    /**
+     * Incoming-call notification using [Notification.CallStyle], which is what gives the system's
+     * standard green answer / red decline buttons and full-screen ringing treatment. Hand-built
+     * actions would render in the app's theme colours instead, which reads as an ordinary
+     * notification rather than a ringing call.
+     */
+    private fun showIncomingCallNotification(call: Call) {
+        val number = call.details.handle?.schemeSpecificPart.orEmpty()
+        val caller = android.app.Person.Builder()
+            .setName(callerLabel(number).ifBlank { getString(R.string.call_state_incoming_generic) })
+            .setImportant(true)
+            .build()
+        val notification = Notification.Builder(this, CHANNEL_ID)
+            .setStyle(
+                Notification.CallStyle.forIncomingCall(
+                    caller,
+                    actionIntent(ACTION_DECLINE, 2),
+                    actionIntent(ACTION_ANSWER, 1),
+                ),
+            )
+            .setSmallIcon(android.R.drawable.sym_call_incoming)
+            .setCategory(Notification.CATEGORY_CALL)
+            // Colorized plus CallStyle is what promotes it to the ringing treatment.
+            .setColorized(true)
+            .setVisibility(Notification.VISIBILITY_PUBLIC)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setContentIntent(activityIntent())
+            .setFullScreenIntent(fullScreenIntent(), true)
+            .build()
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        nm.notify(NOTIFICATION_ID, notification)
+    }
+
+    private fun fullScreenIntent(): PendingIntent = PendingIntent.getActivity(
+        this,
+        4,
+        Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        },
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
     /**
      * Memoised because the notification is rebuilt on every state and details change, and the
@@ -170,7 +215,10 @@ class CommunicateInCallService : InCallService() {
     )
 
     companion object {
-        private const val CHANNEL_ID = "regular_calls"
+        // Retired pre-CallStyle channel: the system keeps an existing channel's sound, so silencing
+        // it in place would never take effect — the renamed channel below replaces it and this deletes it.
+        private const val LEGACY_CHANNEL_ID = "regular_calls"
+        private const val CHANNEL_ID = "regular_calls_v2"
         private const val NOTIFICATION_ID = 4811
         private const val ACTION_ANSWER = "com.vayunmathur.communicate.regularcall.ANSWER"
         private const val ACTION_DECLINE = "com.vayunmathur.communicate.regularcall.DECLINE"

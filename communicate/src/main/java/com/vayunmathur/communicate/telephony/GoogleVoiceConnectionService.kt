@@ -8,6 +8,7 @@ import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.telecom.VideoProfile
 import com.vayunmathur.communicate.data.googlevoice.call.GoogleVoiceCallManager
+import com.vayunmathur.library.log.Log
 
 /**
  * Self-managed [ConnectionService] that makes Google Voice behave like a second line. Outgoing
@@ -59,5 +60,19 @@ class GoogleVoiceConnectionService : ConnectionService() {
         request: ConnectionRequest?,
     ) {
         GoogleVoiceCallManager.hangup()
+    }
+
+    override fun onCreateIncomingConnectionFailed(
+        connectionManagerPhoneAccount: PhoneAccountHandle?,
+        request: ConnectionRequest?,
+    ) {
+        Log.status(TAG, "Telecom could not create the incoming connection; the call continues without it")
+        // The system surface is gone, but the line still owns a ringing call — surface it directly
+        // so it still rings instead of degrading to a silent heads-up.
+        runCatching { GoogleVoiceCallForegroundService.start(applicationContext) }
+    }
+
+    private companion object {
+        const val TAG = "GoogleVoiceCallService"
     }
 }

@@ -66,6 +66,15 @@ object WhatsAppCallBridge {
                             capabilities = CallCapabilities.AudioAndVideo,
                         )
                         InAppCallTelecom.addIncoming(appContext, state.peerJid)
+                        // Telecom can silently drop the mirror (no callback); the ringing
+                        // surface still has to come up, so start it directly as well.
+                        // Idempotent with the ConnectionService path — the service collects
+                        // the same registry state and just re-posts the same notification.
+                        runCatching {
+                            com.vayunmathur.communicate.telephony.InAppCallForegroundService.start(
+                                appContext,
+                            )
+                        }
                     }
                     WhatsAppCallPhase.Connecting -> InAppCallRegistry.onPhase(InAppCallPhase.Connecting)
                     WhatsAppCallPhase.Active -> InAppCallRegistry.onPhase(InAppCallPhase.Active)

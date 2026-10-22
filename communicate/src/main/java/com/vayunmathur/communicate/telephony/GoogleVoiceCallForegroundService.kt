@@ -14,6 +14,7 @@ import com.vayunmathur.communicate.MainActivity
 import com.vayunmathur.communicate.R
 import com.vayunmathur.communicate.data.googlevoice.call.CallPhase
 import com.vayunmathur.communicate.data.googlevoice.call.GoogleVoiceCallManager
+import com.vayunmathur.library.util.deleteNotificationChannel
 import com.vayunmathur.library.util.ensureNotificationChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -60,6 +61,11 @@ class GoogleVoiceCallForegroundService : Service() {
     private fun startForegroundWithNotification() {
         ensureChannels()
         val state = GoogleVoiceCallManager.state.value
+        if (state.phase == CallPhase.Incoming) {
+            CallRinger.start(this)
+        } else {
+            CallRinger.stop()
+        }
         val contentIntent = callActivityIntent(0)
         val notification = if (state.phase == CallPhase.Incoming) {
             buildIncomingCallNotification(state.remoteNumber, contentIntent)
@@ -75,6 +81,8 @@ class GoogleVoiceCallForegroundService : Service() {
     }
 
     private fun ensureChannels() {
+        // Retired: the pre-ringer channel, whose system-kept sound would ding over the ringtone loop.
+        deleteNotificationChannel(LEGACY_INCOMING_CHANNEL_ID)
         ensureNotificationChannel(CHANNEL_ID, getString(R.string.gv_call_channel_name))
         ensureNotificationChannel(
             id = INCOMING_CHANNEL_ID,
@@ -83,32 +91,40 @@ class GoogleVoiceCallForegroundService : Service() {
             description = getString(R.string.gv_incoming_call_channel_desc),
         ) {
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            // The ringer owns audio; a channel sound here would ding once over the loop.
+            setSound(null, null)
+            enableVibration(false)
         }
     }
 
+    /**
+     * Incoming-call notification using [Notification.CallStyle], which is what gives the system's
+     * standard green answer / red decline buttons and full-screen ringing treatment. Hand-built
+     * actions would render in the app's theme colours instead, which reads as an ordinary
+     * notification rather than a ringing call.
+     */
     private fun buildIncomingCallNotification(remoteNumber: String, contentIntent: PendingIntent): Notification {
-        val fullScreenIntent = callActivityIntent(1)
+        val caller = android.app.Person.Builder()
+            .setName(remoteNumber.ifBlank { getString(R.string.account_google_voice) })
+            .setImportant(true)
+            .build()
         return Notification.Builder(this, INCOMING_CHANNEL_ID)
-            .setContentTitle(getString(R.string.call_state_incoming))
-            .setContentText(remoteNumber.ifBlank { getString(R.string.account_google_voice) })
+            .setStyle(
+                Notification.CallStyle.forIncomingCall(
+                    caller,
+                    serviceActionIntent(ACTION_HANGUP, HANGUP_REQUEST_CODE),
+                    serviceActionIntent(ACTION_ANSWER, 2),
+                ),
+            )
             .setSmallIcon(android.R.drawable.sym_call_incoming)
             .setCategory(Notification.CATEGORY_CALL)
-            .setPriority(Notification.PRIORITY_MAX)
+            // Colorized plus CallStyle is what promotes it to the ringing treatment.
+            .setColorized(true)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setAutoCancel(false)
             .setContentIntent(contentIntent)
-            .setFullScreenIntent(fullScreenIntent, true)
-            .addAction(
-                android.R.drawable.sym_call_incoming,
-                getString(R.string.call_answer),
-                serviceActionIntent(ACTION_ANSWER, 2),
-            )
-            .addAction(
-                android.R.drawable.ic_menu_close_clear_cancel,
-                getString(R.string.call_decline),
-                serviceActionIntent(ACTION_HANGUP, HANGUP_REQUEST_CODE),
-            )
+            .setFullScreenIntent(callActivityIntent(1), true)
             .build()
     }
 
@@ -154,6 +170,7 @@ class GoogleVoiceCallForegroundService : Service() {
     )
 
     private fun stopSelfSafely() {
+        CallRinger.stop()
         androidx.core.app.ServiceCompat.stopForeground(
             this, androidx.core.app.ServiceCompat.STOP_FOREGROUND_REMOVE,
         )
@@ -161,13 +178,17 @@ class GoogleVoiceCallForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        CallRinger.stop()
         observeJob?.cancel()
         super.onDestroy()
     }
 
     companion object {
         private const val CHANNEL_ID = "gv_calls"
-        private const val INCOMING_CHANNEL_ID = "gv_calls_incoming"
+        // Retired pre-ringer channel: the system keeps an existing channel's sound, so muting it
+        // in place would never take effect — the renamed channel below replaces it and this deletes it.
+        private const val LEGACY_INCOMING_CHANNEL_ID = "gv_calls_incoming"
+        private const val INCOMING_CHANNEL_ID = "gv_calls_incoming_v2"
         private const val NOTIFICATION_ID = 4711
         private const val ACTION_ANSWER = "com.vayunmathur.communicate.googlevoice.ANSWER_CALL"
         private const val ACTION_HANGUP = "com.vayunmathur.communicate.googlevoice.HANGUP_CALL"

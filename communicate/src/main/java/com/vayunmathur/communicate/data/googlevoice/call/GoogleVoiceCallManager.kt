@@ -216,6 +216,14 @@ object GoogleVoiceCallManager {
             pendingInviteSdp = remoteSdp
             _state.value = CallState(phase = CallPhase.Incoming, remoteNumber = from)
             onIncomingCall?.invoke(from)
+            // Telecom can silently drop the mirror (no failure callback); the ringing surface
+            // still has to come up, so start it directly as well. Idempotent with the
+            // ConnectionService path — the service collects the same manager state.
+            appContext?.let { ctx ->
+                runCatching {
+                    com.vayunmathur.communicate.telephony.GoogleVoiceCallForegroundService.start(ctx)
+                }
+            }
         }
     }
 

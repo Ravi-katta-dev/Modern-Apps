@@ -128,6 +128,13 @@ private suspend fun SignalClient.handleCallOffer(
     )
     // Hand the call to the system so it owns ringing, audio focus and routing.
     appContext?.let { ctx -> InAppCallTelecom.addIncoming(ctx, senderAci) }
+    // Telecom can silently drop the mirror (no failure callback); the ringing surface still
+    // has to come up, so start it directly as well. Idempotent with the ConnectionService path.
+    appContext?.let { ctx ->
+        runCatching {
+            com.vayunmathur.communicate.telephony.InAppCallForegroundService.start(ctx)
+        }
+    }
     manager.receivedOffer(
         callId = offer.id,
         senderAci = senderAci,

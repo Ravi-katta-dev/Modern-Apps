@@ -16,6 +16,7 @@ import com.vayunmathur.communicate.MainActivity
 import com.vayunmathur.communicate.R
 import com.vayunmathur.communicate.data.call.InAppCallPhase
 import com.vayunmathur.communicate.data.call.InAppCallRegistry
+import com.vayunmathur.library.util.deleteNotificationChannel
 import com.vayunmathur.library.util.ensureNotificationChannel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -62,6 +63,11 @@ class InAppCallForegroundService : Service() {
     private fun startForegroundWithNotification() {
         ensureChannels()
         val state = InAppCallRegistry.state.value
+        if (state.phase == InAppCallPhase.Incoming) {
+            CallRinger.start(this)
+        } else {
+            CallRinger.stop()
+        }
         val notification = if (state.phase == InAppCallPhase.Incoming) {
             buildIncomingCallNotification(state.peerName)
         } else {
@@ -82,6 +88,8 @@ class InAppCallForegroundService : Service() {
     }
 
     private fun ensureChannels() {
+        // Retired: the pre-ringer channel, whose system-kept sound would ding over the ringtone loop.
+        deleteNotificationChannel(LEGACY_INCOMING_CHANNEL_ID)
         ensureNotificationChannel(CHANNEL_ID, getString(R.string.inapp_call_channel_name))
         ensureNotificationChannel(
             id = INCOMING_CHANNEL_ID,
@@ -90,6 +98,9 @@ class InAppCallForegroundService : Service() {
             description = getString(R.string.inapp_incoming_call_channel_desc),
         ) {
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            // The ringer owns audio; a channel sound here would ding once over the loop.
+            setSound(null, null)
+            enableVibration(false)
         }
     }
 
@@ -159,18 +170,23 @@ class InAppCallForegroundService : Service() {
     )
 
     private fun stopSelfSafely() {
+        CallRinger.stop()
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
     override fun onDestroy() {
+        CallRinger.stop()
         observeJob?.cancel()
         super.onDestroy()
     }
 
     companion object {
         private const val CHANNEL_ID = "inapp_calls"
-        private const val INCOMING_CHANNEL_ID = "inapp_calls_incoming"
+        // Retired pre-ringer channel: the system keeps an existing channel's sound, so muting it
+        // in place would never take effect — the renamed channel below replaces it and this deletes it.
+        private const val LEGACY_INCOMING_CHANNEL_ID = "inapp_calls_incoming"
+        private const val INCOMING_CHANNEL_ID = "inapp_calls_incoming_v2"
         private const val NOTIFICATION_ID = 4712
 
         private const val ACTION_ANSWER = "com.vayunmathur.communicate.inappcall.ANSWER_CALL"
