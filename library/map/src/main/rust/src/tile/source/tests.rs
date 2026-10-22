@@ -407,6 +407,10 @@ fn an_origin_marker_names_the_layout_the_url_and_the_build() {
 
 /// Batch reads overlap latency: two ranges cost each its own request, in order, with one
 /// request per range — no merging, no reordering.
+///
+/// The `Fake` fetcher has no `fetch_batch` override, so the wave serializes through the
+/// default — which is exactly what this pins: the batch structure (one slot per range, in
+/// order) holds regardless of whether the transport multiplexes the wave.
 #[test]
 fn a_batch_read_issues_one_request_per_range_in_order() {
     let f = Fixture::new("batch");

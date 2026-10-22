@@ -26,6 +26,27 @@ use crate::proto::{err, Result};
 /// it. A caller needing an exact count checks.
 pub trait RangeReader {
     fn read(&self, offset: u64, length: u32) -> Result<Vec<u8>>;
+
+    /// Several ranges at once, answered in order with one slot per request.
+    ///
+    /// The default serves each range through [`read`](Self::read) in turn, which is
+    /// exact for files and memory. Readers over a network override this to overlap the
+    /// round trips — one multiplexed fetch for the whole batch instead of one per range —
+    /// which is what makes a cold screenful cost waves rather than serial round trips.
+    /// Failures stay per-slot: a failed range is an error for that slot, never a
+    /// poisoned batch.
+    fn read_batch(&self, requests: &[(u64, u32)]) -> Vec<Result<Vec<u8>>> {
+        requests.iter().map(|&(offset, length)| self.read(offset, length)).collect()
+    }
+
+    /// Order recently written ranges on disk, batched.
+    ///
+    /// The default is a no-op (files and memory have nothing to flush). Readers over a
+    /// disk cache override this to durability-flush everything written since the last call
+    /// in one pass — so a fetch wave costs one flush pass, not one fsync per range. Called
+    /// by the worker after each wave; best-effort like the cache itself (a missed flush
+    /// only risks a re-fetch, never correctness).
+    fn flush_pending(&self) {}
 }
 
 /// The spec advises keeping the root directory inside the first 16 KB so a cold open

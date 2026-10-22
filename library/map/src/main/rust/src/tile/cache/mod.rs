@@ -64,7 +64,23 @@ pub struct RangeCache {
     /// disk must not stop the map), so the scan runs every [`EVICT_EVERY_WRITES`] writes; the
     /// cache overshoots its cap by at most that many entries in between.
     writes_since_evict: std::sync::atomic::AtomicU64,
+    /// Keys written but not yet durability-flushed (see [`flush_entry`](Self::flush_entry)).
+    ///
+    /// Workers push here on every write without an fsync; the render thread's once-per-frame
+    /// [`drain`](Self::drain) takes the whole list and flushes it in one pass. A `Mutex`, not
+    /// a channel, because the render thread already polls per frame and the list is drained,
+    /// not awaited — and because a poisoned lock degrades to skipping one frame's flush
+    /// (re-fetched on demand), never to losing a tile.
+    pending_flush: std::sync::Mutex<Vec<String>>,
 }
+
+/// How many unflushed keys accumulate before the oldest are dropped from the flush list.
+///
+/// The list is drained every frame, so in practice it holds one frame's writes (dozens). The
+/// cap only matters if the surface stops drawing for a long while mid-fill: dropping a key
+/// here skips its durability flush, never its bytes — the entry is already renamed and
+/// readable, it just risks a re-fetch after a crash. 1024 keys is ~32 screenfuls of margin.
+const PENDING_FLUSH_CAP: usize = 1024;
 
 /// How many writes accumulate between eviction scans. A screenful is dozens of ranges, so the
 /// scan runs about once per screenful rather than once per range.
@@ -94,6 +110,7 @@ impl RangeCache {
             max_bytes,
             clock,
             writes_since_evict: std::sync::atomic::AtomicU64::new(0),
+            pending_flush: std::sync::Mutex::new(Vec::new()),
         };
         cache.invalidate_on_origin_change(origin);
         cache
@@ -188,19 +205,31 @@ impl RangeCache {
         }
     }
 
+    /// The keys written since the last [`drain`](Self::drain) that still need a
+    /// [`flush_entry`](Self::flush_entry). Returned and cleared by `drain`, so the render
+    /// thread's once-per-frame drain is what batches durability: writes stream in without
+    /// an fsync each, and one pass per frame orders them all.
+    pub fn drain(&self) -> Vec<String> {
+        let mut pending = self
+            .pending_flush
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        std::mem::take(&mut *pending)
+    }
+
     fn write_inner(&self, key: &str, body: &[u8]) -> std::io::Result<()> {
         let now = (self.clock)();
         // Meta first, then data, each temp-then-rename, so the presence of the data file
-        // implies a complete meta. Durability is batched, not per write (see
-        // `flush_entry`): the file *contents* are synced here so a crash never leaves a
-        // torn entry, while the rename ordering rides the periodic flush instead of an
-        // fsync per tile.
+        // implies a complete meta. No fsync here: durability rides the once-per-frame
+        // `drain` + `flush_entry` pass instead of a sync per tile, because a cold screenful
+        // writes dozens of ranges and an fsync per range is the frame-time tail. The rename
+        // is still atomic — a crash loses the entry (re-fetched on demand), never serves a
+        // torn one (every read validates its recorded length).
         let meta_tmp = self.dir.join(format!("{key}.meta.tmp"));
         {
             let mut file = fs::File::create(&meta_tmp)?;
             writeln!(file, "fetchedAt={now}")?;
             writeln!(file, "length={}", body.len())?;
-            file.sync_all()?;
         }
         fs::rename(&meta_tmp, self.dir.join(format!("{key}.meta")))?;
 
@@ -208,11 +237,18 @@ impl RangeCache {
         {
             let mut file = fs::File::create(&data_tmp)?;
             file.write_all(body)?;
-            file.sync_all()?;
         }
         let data_path = self.dir.join(format!("{key}.data"));
         fs::rename(&data_tmp, &data_path)?;
         let _ = filetime_touch(&data_path, now);
+        // Remember for the batched durability pass. Bounded: the drain clears it every
+        // frame, and duplicates are harmless (one extra open+sync of an already-flushed
+        // entry), so no dedup cost on the fetch path.
+        if let Ok(mut pending) = self.pending_flush.lock() {
+            if pending.len() < PENDING_FLUSH_CAP {
+                pending.push(key.to_string());
+            }
+        }
         Ok(())
     }
 

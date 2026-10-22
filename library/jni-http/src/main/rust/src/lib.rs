@@ -171,7 +171,161 @@ pub fn request(
         .attach_current_thread(|env| request_with_env(env, method, url, headers, body))
 }
 
+/// A wave of GETs against one URL in a single JNI crossing.
+///
+/// Sends the `Range` header values and returns one [`ResponseFrame`] per range, in order.
+/// A failed slot decodes like any status-0 frame (see [`ResponseFrame::error`]); a batch
+/// that cannot be framed at all is an [`Error::Bridge`], and the caller fails every slot
+/// rather than hanging one.
+pub fn request_batch(url: &str, ranges: &[String]) -> Result<Vec<ResponseFrame>> {
+    let cached = cached()?;
+    cached.vm.attach_current_thread(|env| {
+        let class = &cached.class;
+        let jurl: JString = env
+            .new_string(url)
+            .map_err(|e| Error::Bridge(format!("url: {e}")))?;
+        let jranges = env
+            .new_object_array(
+                ranges.len() as i32,
+                jni_str!("java/lang/String"),
+                JObject::null(),
+            )
+            .map_err(|e| Error::Bridge(format!("ranges: {e}")))?;
+        for (i, range) in ranges.iter().enumerate() {
+            let jrange: JString = env
+                .new_string(range)
+                .map_err(|e| Error::Bridge(format!("range: {e}")))?;
+            env.set_object_array_element(&jranges, i, jrange)
+                .map_err(|e| Error::Bridge(format!("ranges: {e}")))?;
+        }
+
+        let result = env
+            .call_static_method(
+                class,
+                jni_str!("requestBatch"),
+                jni_sig!("(Ljava/lang/String;[Ljava/lang/String;)[B"),
+                &[JValue::Object(&jurl), JValue::Object(&jranges)],
+            )
+            .map_err(|e| {
+                let _ = env.exception_clear();
+                Error::Bridge(format!("batch request call failed: {e}"))
+            })?;
+
+        let object = result.l().map_err(|e| Error::Bridge(format!("bad return: {e}")))?;
+        if object.is_null() {
+            return Err(Error::Transport("bridge returned null".into()));
+        }
+        let bytes = env
+            .convert_byte_array(env.cast_local::<JByteArray>(object)?)
+            .map_err(|e| Error::Bridge(format!("reading batch frame: {e}")))?;
+        decode_batch(&bytes).ok_or_else(|| Error::Bridge("malformed batch frame".into()))
+    })
+}
+
+/// Split a `requestBatch` reply: u32 count, then per-reply u32 length + reply frame.
+///
+/// Mirrors `NativeHttpBridge.packBatch` exactly (big-endian throughout). `None` on any
+/// truncation or count/length disagreement — treated as a transport failure for the
+/// whole wave, so every slot fails rather than one hanging.
+fn decode_batch(bytes: &[u8]) -> Option<Vec<ResponseFrame>> {
+    const MAX_BATCH_REPLIES: usize = 4096;
+    let mut pos = 0usize;
+    let take = |pos: &mut usize, n: usize| -> Option<&[u8]> {
+        let end = pos.checked_add(n)?;
+        let out = bytes.get(*pos..end)?;
+        *pos = end;
+        Some(out)
+    };
+    let u32_at = |pos: &mut usize| -> Option<usize> {
+        let b = take(pos, 4)?;
+        Some(u32::from_be_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    };
+    let count = u32_at(&mut pos)?;
+    if count > MAX_BATCH_REPLIES {
+        return None;
+    }
+    let mut out = Vec::with_capacity(count);
+    for _ in 0..count {
+        let len = u32_at(&mut pos)?;
+        let frame = take(&mut pos, len)?;
+        out.push(ResponseFrame::decode(frame)?);
+    }
+    if pos != bytes.len() {
+        return None;
+    }
+    Some(out)
+}
+
 /// Convenience for a GET with no extra headers.
 pub fn get(url: &str) -> Result<ResponseFrame> {
     request(Method::Get, url, &[], None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(status: u16, body: &[u8]) -> ResponseFrame {
+        ResponseFrame {
+            status,
+            final_url: "https://example.invalid/a".into(),
+            headers: vec![("Content-Range".into(), "bytes 0-1/8".into())],
+            body: body.to_vec(),
+        }
+    }
+
+    /// The test-side twin of `NativeHttpBridge.packBatch`: u32 count, then u32 len + frame.
+    fn pack_batch(frames: &[ResponseFrame]) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&(frames.len() as u32).to_be_bytes());
+        for f in frames {
+            let encoded = f.encode();
+            out.extend_from_slice(&(encoded.len() as u32).to_be_bytes());
+            out.extend_from_slice(&encoded);
+        }
+        out
+    }
+
+    #[test]
+    fn a_batch_decodes_one_frame_per_range_in_order() {
+        let frames = vec![frame(206, &[1, 2]), frame(206, &[3]), frame(0, b"reset")];
+        let back = decode_batch(&pack_batch(&frames)).expect("decode");
+        assert_eq!(back, frames);
+        // And a status-0 slot still decodes (the caller maps it to a per-slot error).
+        assert_eq!(back[2].error().as_deref(), Some("reset"));
+    }
+
+    #[test]
+    fn a_truncated_or_padded_batch_is_refused_not_partially_served() {
+        let packed = pack_batch(&[frame(206, &[1]), frame(206, &[2])]);
+        for cut in 0..packed.len() {
+            assert!(
+                decode_batch(&packed[..cut]).is_none(),
+                "prefix of {cut} bytes decoded",
+            );
+        }
+        let mut padded = packed.clone();
+        padded.push(0);
+        assert!(decode_batch(&padded).is_none(), "trailing bytes");
+        assert!(decode_batch(&[]).is_none(), "empty");
+        // A lying count is refused, not allocated into.
+        let mut lying = vec![0xFFu8; 4];
+        lying.extend_from_slice(&packed[4..]);
+        assert!(decode_batch(&lying).is_none(), "a huge count");
+    }
+
+    #[test]
+    fn a_frame_that_will_not_parse_fails_its_batch() {
+        let mut packed = pack_batch(&[frame(206, &[1])]);
+        // Lie about the frame length so `ResponseFrame::decode` runs past the buffer.
+        let len_at = 4;
+        let len = u32::from_be_bytes([
+            packed[len_at],
+            packed[len_at + 1],
+            packed[len_at + 2],
+            packed[len_at + 3],
+        ]);
+        packed[len_at..len_at + 4].copy_from_slice(&(len + 64).to_be_bytes());
+        assert!(decode_batch(&packed).is_none());
+    }
 }

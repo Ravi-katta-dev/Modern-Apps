@@ -1,5 +1,7 @@
 package com.vayunmathur.library.network
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -48,6 +50,12 @@ object NativeHttpBridge {
     private const val U32_BYTE_SHIFTS = 3
 
     /**
+     * Upper bound on replies per batch, so a corrupt count cannot allocate a huge list.
+     * A viewport's waves are dozens of ranges; thousands would be a bug, not a batch.
+     */
+    internal const val MAX_BATCH_REPLIES = 4096
+
+    /**
      * Called from Rust. Never throws.
      *
      * @param method one of [GET], [POST], [HEAD].
@@ -58,6 +66,24 @@ object NativeHttpBridge {
     @JvmStatic
     fun request(method: Int, url: String, headers: ByteArray?, body: ByteArray?): ByteArray =
         executeRequest(method, url, headers, body)
+
+    /**
+     * A wave of GETs against one host in one JNI crossing. Never throws.
+     *
+     * Each range fetch is its own HTTP request (HTTP has no multi-range-across-requests), but
+     * crossing once instead of N times drops N-1 thread-attach/detach cycles and N-1
+     * `runBlocking` hops, and the N calls run concurrently inside one coroutine scope over the
+     * shared pooled client — so a leaf wave plus a body wave costs two crossings, not 2N.
+     * Order is preserved: reply `i` answers `ranges[i]`. A failed slot packs a status-0 frame,
+     * exactly like [request]'s failure path, so per-slot errors stay per-slot.
+     *
+     * @param url the archive URL every range is read from.
+     * @param ranges the `Range` header values, one per request.
+     * @return u32 count followed by per-reply u32 length + reply frame (the [request] format).
+     */
+    @JvmStatic
+    fun requestBatch(url: String, ranges: Array<String>): ByteArray =
+        executeBatch(url, ranges)
 
     // Never-throws JNI boundary: any non-IO failure (interrupted runBlocking, packing bugs)
     // must still become a status-0 reply rather than a pending JNI exception.
@@ -82,6 +108,41 @@ object NativeHttpBridge {
         }
     }
 
+    /**
+     * One crossing for a wave of range GETs: N concurrent `execute` calls inside one
+     * `runBlocking`, over the shared pooled client, replies concatenated in order.
+     *
+     * `async`/`awaitAll` (not N sequential `execute` calls) is what makes this a wave rather
+     * than N serial round trips: OkHttp's dispatcher multiplexes them over reused connections
+     * (HTTP/2 where the server speaks it), so the wave costs ~1 round trip on a warm pool.
+     */
+    private fun executeBatch(url: String, ranges: Array<String>): ByteArray {
+        try {
+            val replies = runBlocking {
+                val pending: List<kotlinx.coroutines.Deferred<ByteArray>> = ranges.map { range ->
+                    async {
+                        try {
+                            val response = NetworkClient.execute(
+                                url = url,
+                                method = "GET",
+                                headers = mapOf("Range" to range),
+                                body = null,
+                            )
+                            packReply(response.status, response.url, response.headers, response.bytes)
+                        } catch (e: Exception) {
+                            packFailure(url, e.message ?: e::class.simpleName ?: "request failed")
+                        }
+                    }
+                }
+                pending.awaitAll()
+            }
+            return packBatch(replies)
+        } catch (e: Exception) {
+            // The batch framing itself failed: every slot reports the failure, so no slot hangs.
+            return packBatch(ranges.map { packFailure(url, e.message ?: "batch failed") })
+        }
+    }
+
     private fun packFailure(url: String, reason: String): ByteArray {
         // Status 0 tells Rust the request never completed; the body carries the reason.
         return packReply(
@@ -90,6 +151,37 @@ object NativeHttpBridge {
             headers = emptyMap(),
             body = reason.toByteArray(),
         )
+    }
+
+    /**
+     * Concatenate per-reply frames behind a u32 count with u32 lengths, so Rust can split them
+     * without parsing: `count, (len, frame) * count`, all big-endian.
+     */
+    private fun packBatch(replies: List<ByteArray>): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        writeU32(out, replies.size)
+        for (reply in replies) {
+            writeU32(out, reply.size); out.write(reply)
+        }
+        return out.toByteArray()
+    }
+
+    /** Split [packBatch] output; null when truncated or the count disagrees with the frames. */
+    internal fun unpackBatch(packed: ByteArray): List<ByteArray>? {
+        if (packed.size < U32_BYTES) return null
+        var pos = 0
+        val count = readU32(packed, pos); pos += U32_BYTES
+        if (count < 0 || count > MAX_BATCH_REPLIES) return null
+        val out = ArrayList<ByteArray>(count)
+        repeat(count) {
+            if (pos + U32_BYTES > packed.size) return null
+            val len = readU32(packed, pos); pos += U32_BYTES
+            if (len < 0 || pos + len > packed.size) return null
+            out.add(packed.copyOfRange(pos, pos + len))
+            pos += len
+        }
+        if (pos != packed.size) return null
+        return out
     }
 
     /** Packed pairs → the multimap [NetworkClient] expects. */
@@ -176,6 +268,12 @@ object NativeHttpBridge {
 
     private fun readU16(b: ByteArray, at: Int): Int =
         ((b[at].toInt() and BYTE_MASK) shl BYTE_SHIFT) or (b[at + 1].toInt() and BYTE_MASK)
+
+    private fun readU32(b: ByteArray, at: Int): Int =
+        ((b[at].toInt() and BYTE_MASK) shl 24) or
+            ((b[at + 1].toInt() and BYTE_MASK) shl 16) or
+            ((b[at + 2].toInt() and BYTE_MASK) shl BYTE_SHIFT) or
+            (b[at + 3].toInt() and BYTE_MASK)
 
     private fun writeU16(out: java.io.ByteArrayOutputStream, v: Int) {
         out.write((v ushr BYTE_SHIFT) and BYTE_MASK)

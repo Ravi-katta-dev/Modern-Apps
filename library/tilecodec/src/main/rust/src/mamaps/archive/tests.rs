@@ -5,8 +5,8 @@ use crate::mamaps::header::Header;
 // revert of that fact quotes its failure (`left` vs `right`) rather than a
 // vague mismatch. Revert → quote the failure → restore.
 
-/// A tile header big enough to anchor a sidecar: no shared section (v7),
-/// tile data ending at 4096, file extended past it by the test.
+/// A tile header big enough to anchor a sidecar: tile data ending at 4096,
+/// file extended past it by the test.
 fn v7_header(file_len: u64) -> Header {
     Header {
         flags: 0,
@@ -32,10 +32,6 @@ fn v7_header(file_len: u64) -> Header {
         min_lat_e7: 0,
         max_lon_e7: 0,
         max_lat_e7: 0,
-        shared_offset: 0,
-        shared_len: 0,
-        shared_flags: 0,
-        shared_pools: 0,
     }
 }
 
@@ -107,16 +103,12 @@ fn entries_are_32_bytes_with_thirteen_known_kinds() {
     assert!(ArchiveEntry::parse(&bad).is_err(), "unknown kind");
 }
 
-/// Fail-watched: the sidecar starts past the tile data on v7 and past the
-/// shared section on v8 — never inside the header tail it coordinates with.
+/// Fail-watched: the sidecar starts past the tile data — never inside the header tail
+/// it coordinates with.
 #[test]
-fn the_sidecar_starts_past_tiles_and_shared() {
+fn the_sidecar_starts_past_the_tiles() {
     let v7 = v7_header(8192);
     assert_eq!(sidecar_start(&v7), 240 + 3856, "v7: data end");
-    let mut v8 = v7_header(8192);
-    v8.shared_offset = 4096;
-    v8.shared_len = 512;
-    assert_eq!(sidecar_start(&v8), 4608, "v8: shared end");
 }
 
 /// Fail-watched: a minimal sidecar (meta + nodes + transit stub) parses and

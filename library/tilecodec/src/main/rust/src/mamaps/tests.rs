@@ -387,3 +387,176 @@ fn the_body_scratch_file_is_removed_however_the_build_ends() {
     assert!(scratch.files().is_empty());
     assert!(!refused.exists(), "and the destination was never touched");
 }
+
+/// A reader that counts `read_batch` waves as well as single reads, so a test can assert on
+/// the batch structure — not just the bytes — of a multi-tile fetch.
+struct Batched {
+    inner: Counting,
+    single_reads: std::cell::Cell<usize>,
+    batch_waves: RefCell<Vec<usize>>,
+}
+
+impl Batched {
+    fn new(bytes: Vec<u8>) -> Batched {
+        Batched {
+            inner: Counting { bytes, requests: RefCell::new(Vec::new()) },
+            single_reads: std::cell::Cell::new(0),
+            batch_waves: RefCell::new(Vec::new()),
+        }
+    }
+}
+
+impl RangeReader for Batched {
+    fn read(&self, offset: u64, length: u32) -> Result<Vec<u8>> {
+        self.single_reads.set(self.single_reads.get() + 1);
+        self.inner.read(offset, length)
+    }
+
+    fn read_batch(&self, requests: &[(u64, u32)]) -> Vec<Result<Vec<u8>>> {
+        self.batch_waves.borrow_mut().push(requests.len());
+        requests.iter().map(|&(o, l)| self.inner.read(o, l)).collect()
+    }
+}
+
+fn open_batched(bytes: Vec<u8>) -> MamapsArchive<Batched> {
+    MamapsArchive::open(Batched::new(bytes)).expect("open")
+}
+
+/// **The batch contract.** A cold screenful of tiles costs two waves — one per distinct cold
+/// leaf, then one for the bodies — not two serial round trips per tile.
+///
+/// The `Batched` reader serves each range out of memory, so this measures the *structure* of
+/// the fetch (how many waves, how many ranges per wave), not the network. The production
+/// reader overlaps each wave in one multiplexed fetch; the per-tile path would cost
+/// `2 * tiles.len()` serial reads here instead.
+#[test]
+fn a_batch_of_cold_tiles_costs_two_waves_not_two_round_trips_per_tile() {
+    // Eight tiles across several leaves, so the leaf wave is real.
+    let mut tiles: Vec<(u8, u64, u64, i16)> = Vec::new();
+    for x in 0..4u64 {
+        for y in 0..2u64 {
+            tiles.push((3, x, y, (x * 2 + y) as i16));
+        }
+    }
+    let options = Options { leaf_entry_capacity: 2, ..Options::default() };
+    let a = open_batched(archive(&tiles, options));
+    assert!(a.header.leaf_count > 1, "this test needs several leaves");
+    // The open itself is a single read, before any batch runs.
+    a.reader.inner.requests.borrow_mut().clear();
+    a.reader.single_reads.set(0);
+    a.reader.batch_waves.borrow_mut().clear();
+
+    let want: Vec<(u8, u32, u32)> =
+        tiles.iter().map(|(z, x, y, _)| (*z, *x as u32, *y as u32)).collect();
+    let found = a.tiles(&want);
+    assert_eq!(found.len(), want.len());
+    for (slot, result) in found.iter().enumerate() {
+        let (_, _, _, seed) = tiles[slot];
+        assert_eq!(
+            result.as_ref().expect("read").as_ref().expect("present"),
+            &body_for(seed),
+            "slot {slot}",
+        );
+    }
+    // Two waves: the distinct cold leaves, then the bodies. No single reads at all —
+    // the whole batch rides `read_batch`.
+    assert_eq!(a.reader.single_reads.get(), 0, "no serial reads on the batch path");
+    let waves = a.reader.batch_waves.borrow().clone();
+    assert_eq!(waves.len(), 2, "one leaf wave and one body wave, got {waves:?}");
+    assert_eq!(
+        waves[1], want.len(),
+        "every tile's body in the second wave, got {waves:?}",
+    );
+    // And the leaf wave fetches each distinct leaf exactly once, however many tiles share it.
+    let distinct_leaves: std::collections::HashSet<u64> = a
+        .reader
+        .inner
+        .requests
+        .borrow()
+        .iter()
+        .take(waves[0])
+        .map(|(o, _)| *o)
+        .collect();
+    assert_eq!(distinct_leaves.len(), waves[0], "one request per distinct leaf");
+}
+
+/// A warm batch — every leaf already cached — costs one wave: the bodies only.
+#[test]
+fn a_batch_of_warm_tiles_costs_one_body_wave() {
+    let mut tiles: Vec<(u8, u64, u64, i16)> = Vec::new();
+    for x in 0..4u64 {
+        for y in 0..2u64 {
+            tiles.push((3, x, y, (x * 2 + y) as i16));
+        }
+    }
+    let options = Options { leaf_entry_capacity: 2, ..Options::default() };
+    let a = open_batched(archive(&tiles, options));
+    let want: Vec<(u8, u32, u32)> =
+        tiles.iter().map(|(z, x, y, _)| (*z, *x as u32, *y as u32)).collect();
+    // Warm the leaves with one tile each (single-tile path), then clear the counters.
+    for (z, x, y) in &want {
+        let _ = a.tile(*z, *x, *y).expect("warm");
+    }
+    a.reader.single_reads.set(0);
+    a.reader.batch_waves.borrow_mut().clear();
+
+    let found = a.tiles(&want);
+    assert!(found.iter().all(|r| r.as_ref().expect("read").is_some()));
+    let waves = a.reader.batch_waves.borrow().clone();
+    assert_eq!(waves, vec![want.len()], "one body wave and nothing else, got {waves:?}");
+    assert_eq!(a.reader.single_reads.get(), 0, "no serial reads on the batch path");
+}
+
+/// Absences and failures stay per-slot: a hole in the middle of a batch is `None` in its
+/// slot, and the tiles around it still land.
+#[test]
+fn a_batch_keeps_absences_per_slot() {
+    // z3 x0..4 y0..2, but only the even seeds are written — the odd tiles are holes.
+    let mut tiles: Vec<(u8, u64, u64, i16)> = Vec::new();
+    for x in 0..4u64 {
+        for y in 0..2u64 {
+            if (x + y) % 2 == 0 {
+                tiles.push((3, x, y, (x * 2 + y) as i16));
+            }
+        }
+    }
+    let options = Options { leaf_entry_capacity: 8, ..Options::default() };
+    let a = open_batched(archive(&tiles, options));
+    a.reader.inner.requests.borrow_mut().clear();
+
+    let want: Vec<(u8, u32, u32)> = (0..4u32)
+        .flat_map(|x| (0..2u32).map(move |y| (3u8, x, y)))
+        .collect();
+    let found = a.tiles(&want);
+    assert_eq!(found.len(), want.len());
+    for (slot, result) in found.iter().enumerate() {
+        let (x, y) = (want[slot].1, want[slot].2);
+        if (x as u64 + y as u64) % 2 == 0 {
+            let seed = (x * 2 + y) as i16;
+            assert_eq!(
+                result.as_ref().expect("read").as_ref().expect("present"),
+                &body_for(seed),
+                "slot {slot}",
+            );
+        } else {
+            assert!(
+                result.as_ref().expect("read").is_none(),
+                "slot {slot} is a hole, not an error",
+            );
+        }
+    }
+}
+
+/// A one-tile batch is the single-tile path with identical bytes and identical cost.
+#[test]
+fn a_single_tile_batch_reads_like_a_plain_read() {
+    let a = open_batched(archive(&[(3, 1, 2, 42)], Options::default()));
+    a.reader.inner.requests.borrow_mut().clear();
+    let found = a.tiles(&[(3, 1, 2)]);
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].as_ref().expect("read").as_ref().expect("present"),
+        &body_for(42),
+    );
+    assert!(a.reader.batch_waves.borrow().is_empty(), "no wave for one tile");
+}

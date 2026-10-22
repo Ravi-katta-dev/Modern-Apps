@@ -59,48 +59,13 @@ impl<F: RangeFetcher> CachingRangeReader<F> {
     fn is_online(&self) -> bool {
         self.online.load(std::sync::atomic::Ordering::Relaxed)
     }
-}
 
-/// Read a batch of ranges concurrently, returning each range's bytes in order.
-///
-/// The tile fetch path issues each tile's ranges (leaf directory, then body) one at a
-/// time; on a high-latency radio the round trips serialise and a cold screenful takes
-/// seconds. Batching the independent ranges across scoped threads overlaps the
-/// latency: N ranges cost ~1 round trip instead of N. Failures are per-range —
-/// a failed range is an error for that slot, never a poisoned batch — so one slow
-/// range cannot fail the others, and caching still applies per range (fresh entries
-/// are served without touching the network, exactly as in `read`).
-///
-/// `F: Sync` is required because the scoped threads share one `&self` borrow. The
-/// real fetchers qualify: `JniRangeFetcher` is a stateless unit struct (each JNI call
-/// pins its own env), and the test `Fake` logs through a `Mutex`. The thread count is
-/// bounded by the batch size (a tile's ranges, a handful), never by the viewport —
-/// this batches *within* a tile, not across tiles, so worker parallelism still bounds
-/// the total.
-pub fn read_batch<F: RangeFetcher + Sync>(
-    reader: &CachingRangeReader<F>,
-    requests: &[(u64, u32)],
-) -> Vec<Result<Vec<u8>>> {
-    if requests.len() < 2 {
-        return requests.iter().map(|&(o, l)| reader.read(o, l)).collect();
-    }
-    std::thread::scope(|scope| {
-        let handles: Vec<_> = requests
-            .iter()
-            .map(|&(offset, length)| scope.spawn(move || reader.read(offset, length)))
-            .collect();
-        handles
-            .into_iter()
-            .map(|h| match h.join() {
-                Ok(slot) => slot,
-                Err(_) => err("range batch thread failed"),
-            })
-            .collect()
-    })
-}
-
-impl<F: RangeFetcher> RangeReader for CachingRangeReader<F> {
-    fn read(&self, offset: u64, length: u32) -> Result<Vec<u8>> {
+    /// One range through the full policy: revalidation gate, disk cache, single fetch.
+    ///
+    /// The batch path inlines its own cache pass (so a wave costs one JNI crossing), and this
+    /// is what serves sub-two-range batches plus the archive open prefix — same policy, one
+    /// range at a time.
+    fn read_single(&self, offset: u64, length: u32) -> Result<Vec<u8>> {
         if length == 0 {
             return Ok(Vec::new());
         }
@@ -148,5 +113,124 @@ impl<F: RangeFetcher> RangeReader for CachingRangeReader<F> {
             self.cache.write(&key, &response.body);
         }
         Ok(response.body)
+    }
+}
+
+/// Read a batch of ranges, returning each range's bytes in order.
+///
+/// Thin forwarder to [`RangeReader::read_batch`]: one disk-cache pass, then one network
+/// wave for every miss. Failures are per-range — a failed range is an error for that slot,
+/// never a poisoned batch — and caching applies per range (fresh entries are served
+/// without touching the network, exactly as in a single read).
+pub fn read_batch<F: RangeFetcher>(
+    reader: &CachingRangeReader<F>,
+    requests: &[(u64, u32)],
+) -> Vec<Result<Vec<u8>>> {
+    reader.read_batch(requests)
+}
+
+impl<F: RangeFetcher> RangeReader for CachingRangeReader<F> {
+    fn read(&self, offset: u64, length: u32) -> Result<Vec<u8>> {
+        let out = self.read_batch(&[(offset, length)]);
+        debug_assert_eq!(out.len(), 1);
+        out.into_iter().next().unwrap_or_else(|| err("a range read left its slot unresolved"))
+    }
+
+    /// Order recently written ranges on disk, one pass per wave.
+    ///
+    /// Workers call this after each fetch wave: it drains the keys written since the last
+    /// call and durability-flushes them together, instead of the fsync per range the old
+    /// write path paid. Best-effort — a missed flush only risks a re-fetch.
+    fn flush_pending(&self) {
+        for key in self.cache.drain() {
+            self.cache.flush_entry(&key);
+        }
+    }
+
+    /// The batch policy: one cache pass, then one network wave for every miss.
+    ///
+    /// This is what makes the archive's two-wave batch (`tiles`) cost two network round
+    /// trips instead of 2N: each wave arrives here as one `read_batch`, the fresh/miss split
+    /// is decided per range from the disk cache (no I/O beyond the cache reads themselves),
+    /// and every miss goes out in a single [`fetch_batch`](RangeFetcher::fetch_batch) — one
+    /// JNI crossing and one OkHttp dispatcher wave, not one crossing per range.
+    ///
+    /// The first-read revalidation gate (see `read_single`) applies per wave rather than
+    /// per range: the first wave of a session revalidates its misses, exactly as the first
+    /// read used to.
+    fn read_batch(&self, requests: &[(u64, u32)]) -> Vec<Result<Vec<u8>>> {
+        if requests.len() < 2 {
+            return requests.iter().map(|&(o, l)| self.read_single(o, l)).collect();
+        }
+        // Pass 1: every range against the disk cache. Fresh hits (or offline hits) answer
+        // immediately; everything else queues for the network wave. No I/O here beyond the
+        // cache reads themselves.
+        let first = !self.prefix_checked.swap(true, std::sync::atomic::Ordering::Relaxed);
+        let revalidate = first && self.is_online();
+        let mut out: Vec<Option<Result<Vec<u8>>>> = Vec::with_capacity(requests.len());
+        let mut miss_slots: Vec<usize> = Vec::new();
+        let mut miss_ranges: Vec<String> = Vec::new();
+        let mut miss_keys: Vec<String> = Vec::new();
+        let mut miss_lengths: Vec<u32> = Vec::new();
+        for _ in requests {
+            out.push(None);
+        }
+        for (slot, &(offset, length)) in requests.iter().enumerate() {
+            if length == 0 {
+                out[slot] = Some(Ok(Vec::new()));
+                continue;
+            }
+            let range = format!("bytes={}-{}", offset, offset + length as u64 - 1);
+            let key = RangeCache::key(&self.url, &range);
+            match self.cache.read(&key) {
+                Some(entry)
+                    if !revalidate && (self.cache.is_fresh(&entry) || !self.is_online()) =>
+                {
+                    out[slot] = Some(Ok(entry.body.clone()));
+                }
+                _ => {
+                    miss_slots.push(slot);
+                    miss_ranges.push(range);
+                    miss_keys.push(key);
+                    miss_lengths.push(length);
+                }
+            }
+        }
+        // Wave: every miss in one `fetch_batch` — one JNI crossing, one dispatcher wave.
+        if !miss_slots.is_empty() {
+            let fetched = self.fetcher.fetch_batch(&self.url, &miss_ranges);
+            debug_assert_eq!(fetched.len(), miss_slots.len());
+            for (i, slot) in miss_slots.iter().enumerate() {
+                let range = &miss_ranges[i];
+                let key = &miss_keys[i];
+                let length = miss_lengths[i];
+                match fetched.get(i) {
+                    Some(Ok(response)) => {
+                        if !(200..300).contains(&response.status) {
+                            out[*slot] = Some(err(format!(
+                                "range request for {range} of {} failed with HTTP {}",
+                                self.url, response.status
+                            )));
+                            continue;
+                        }
+                        // Only a body we trust: a 206 partial whose length matches the request.
+                        if response.status == 206 && response.body.len() == length as usize {
+                            self.cache.write(key, &response.body);
+                        }
+                        out[*slot] = Some(Ok(response.body.clone()));
+                    }
+                    Some(Err(e)) => out[*slot] = Some(Err(tilecodec::proto::Error(e.0.clone()))),
+                    None => {
+                        out[*slot] = Some(err(format!(
+                            "range request for {range} of {} left its slot unresolved",
+                            self.url
+                        )));
+                    }
+                }
+            }
+        }
+        out.into_iter()
+            .map(|slot| slot.unwrap_or_else(|| err("a range batch left a slot unresolved")))
+            .collect()
     }
 }

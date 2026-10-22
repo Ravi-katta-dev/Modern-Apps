@@ -184,7 +184,16 @@ fn fetch_header_with_retry(archive_url: &str) -> Option<u64> {
         }
     }
 }
+/// How many queued tiles one worker takes per wave.
 ///
+/// The frame enqueues centre-first, and the archive serves a batch in two waves (cold leaves,
+/// then bodies) instead of two serial round trips per tile. Four is a viewport's share per
+/// worker (a couple of dozen tiles across [`WORKER_COUNT`](super::handle::WORKER_COUNT)
+/// workers): large enough that a cold screenful costs waves rather than serial tiles, small
+/// enough that one worker never hoards the queue while others idle, and a toggle change still
+/// reaches every tile within one wave (each tile tessellates under its own snapshot below).
+const BATCH_TILES: usize = 4;
+
 /// Generic over the reader so the same loop drives both the URL-backed
 /// [`CachingRangeReader`] and the disk-backed [`FileRangeReader`]: only how the archive
 /// is opened differs, never how tiles are served from it.
@@ -206,66 +215,156 @@ fn serve<R: RangeReader>(
     let rings_validated = archive.header.rings_validated();
 
     loop {
-        // Hold the queue lock only long enough to take one tile, never across the
-        // fetch — otherwise the workers would run strictly in turn.
-        let next = match queue.lock() {
+        // One blocking take, then drain whatever else is waiting without blocking: a wave of
+        // up to `BATCH_TILES` the archive fetches in two concurrent waves (cold leaves, then
+        // bodies) instead of two serial round trips per tile. The lock is held only across the
+        // takes, never across the fetch — otherwise the workers would run strictly in turn.
+        let first = match queue.lock() {
             Ok(guard) => guard.recv(),
             Err(_) => return,
         };
-        let Ok(tile) = next else { return };
-        let key = tile.key();
+        let Ok(first) = first else { return };
+        let mut batch = vec![first];
+        if let Ok(guard) = queue.try_lock() {
+            while batch.len() < BATCH_TILES {
+                match guard.try_recv() {
+                    Ok(tile) => batch.push(tile),
+                    Err(_) => break,
+                }
+            }
+        }
+        if batch.len() < 2 {
+            // One tile: the single-tile path, identical cost to before — no batch framing.
+            let tile = batch[0];
+            let result = build_one(
+                &archive,
+                tile,
+                std::time::Instant::now(),
+                layers,
+                rings_validated,
+                toggles,
+            );
+            // A closed receiver means the surface went away mid-decode.
+            if finished.send((tile.key(), result)).is_err() {
+                return;
+            }
+            continue;
+        }
+        // The wave: every tile's body in two concurrent fetches. Tessellation stays per
+        // tile under its own toggle snapshot (a toggle change still reaches the very next
+        // tile built), and each result is reported under its own key.
         let dequeue_at = std::time::Instant::now();
-
-        // Read per tile, not once per worker: a toggle change has to reach the
-        // very next tile built, and all three parts come from one snapshot so the
-        // stamp can never describe different flags than the mesh was built with.
-        let (enabled, kinds, generation) = toggles.get();
         let fetch_start = std::time::Instant::now();
-        let fetched = archive.tile(tile.z, tile.x, tile.y);
+        let coords: Vec<(u8, u32, u32)> = batch.iter().map(|t| (t.z, t.x, t.y)).collect();
+        let fetched = archive.tiles(&coords);
         let fetch_ms = fetch_start.elapsed().as_millis();
-        let result = match fetched {
-            Ok(Some(body)) => {
-                let tess_start = std::time::Instant::now();
-                let mesh = geometry::build_toggled(
-                    &body,
-                    layers,
-                    tile.z,
-                    tile.x,
-                    tile.y,
-                    rings_validated,
-                    enabled,
-                    &kinds,
-                    generation,
-                );
-                let tess_ms = tess_start.elapsed().as_millis();
-                // Per-tile pipeline timing for issue 815: queue wait vs fetch/decode
-                // vs tessellation, at info level beside the per-frame report.
-                // `queue_ms` includes time spent serving earlier queued tiles; a
-                // large value on the first tiles of a cold load means the queue
-                // is the bottleneck, not the network.
-                log_info(&format!(
-                    "tile {}/{}/{} queue={}ms fetch={}ms tess={}ms",
-                    tile.z,
-                    tile.x,
-                    tile.y,
-                    dequeue_at.elapsed().as_millis().saturating_sub(fetch_ms + tess_ms),
-                    fetch_ms,
-                    tess_ms,
-                ));
-                TileResult::Ready(mesh)
+        // One durability pass per wave, not one fsync per range: order everything the wave
+        // just wrote while it is still hot, before tessellation takes the worker elsewhere.
+        archive.reader().flush_pending();
+        debug_assert_eq!(fetched.len(), batch.len());
+        for (tile, body) in batch.iter().zip(fetched) {
+            // Read per tile, not once per batch: a toggle change has to reach the
+            // very next tile built, and all three parts come from one snapshot so the
+            // stamp can never describe different flags than the mesh was built with.
+            let (enabled, kinds, generation) = toggles.get();
+            let tess_start = std::time::Instant::now();
+            let result = match body {
+                Ok(Some(body)) => {
+                    let mesh = geometry::build_toggled(
+                        &body,
+                        layers,
+                        tile.z,
+                        tile.x,
+                        tile.y,
+                        rings_validated,
+                        enabled,
+                        &kinds,
+                        generation,
+                    );
+                    let tess_ms = tess_start.elapsed().as_millis();
+                    log_info(&format!(
+                        "tile {}/{}/{} queue={}ms fetch={}ms tess={}ms",
+                        tile.z,
+                        tile.x,
+                        tile.y,
+                        dequeue_at.elapsed().as_millis().saturating_sub(fetch_ms + tess_ms),
+                        fetch_ms,
+                        tess_ms,
+                    ));
+                    TileResult::Ready(mesh)
+                }
+                Ok(None) => TileResult::Absent,
+                Err(e) => {
+                    log(&format!("tile {}/{}/{} failed: {e}", tile.z, tile.x, tile.y));
+                    TileResult::Failed
+                }
+            };
+            // A closed receiver means the surface went away mid-decode.
+            if finished.send((tile.key(), result)).is_err() {
+                return;
             }
-            Ok(None) => TileResult::Absent,
-            Err(e) => {
-                log(&format!(
-                    "tile {}/{}/{} failed: {e}",
-                    tile.z, tile.x, tile.y
-                ));
-                TileResult::Failed
-            }
-        };
-        // A closed receiver means the surface went away mid-decode.
-        if finished.send((key, result)).is_err() {
-            return;
+        }
+    }
+}
+
+/// One tile through fetch + tessellation, off the batch path.
+///
+/// What the worker did before batching, unchanged: the single-tile fallback above keeps it
+/// for the one-deep queue, so its timing shape (`queue/fetch/tess` per tile) stays comparable
+/// in the logs.
+fn build_one<R: RangeReader>(
+    archive: &MamapsArchive<R>,
+    tile: TileId,
+    dequeue_at: std::time::Instant,
+    layers: &[style::Layer],
+    rings_validated: bool,
+    toggles: &Arc<SharedToggles>,
+) -> TileResult {
+    // Read per tile, not once per worker: a toggle change has to reach the
+    // very next tile built, and all three parts come from one snapshot so the
+    // stamp can never describe different flags than the mesh was built with.
+    let (enabled, kinds, generation) = toggles.get();
+    let fetch_start = std::time::Instant::now();
+    let fetched = archive.tile(tile.z, tile.x, tile.y);
+    let fetch_ms = fetch_start.elapsed().as_millis();
+    match fetched {
+        Ok(Some(body)) => {
+            let tess_start = std::time::Instant::now();
+            let mesh = geometry::build_toggled(
+                &body,
+                layers,
+                tile.z,
+                tile.x,
+                tile.y,
+                rings_validated,
+                enabled,
+                &kinds,
+                generation,
+            );
+            let tess_ms = tess_start.elapsed().as_millis();
+            // Per-tile pipeline timing for issue 815: queue wait vs fetch/decode
+            // vs tessellation, at info level beside the per-frame report.
+            // `queue_ms` includes time spent serving earlier queued tiles; a
+            // large value on the first tiles of a cold load means the queue
+            // is the bottleneck, not the network.
+            log_info(&format!(
+                "tile {}/{}/{} queue={}ms fetch={}ms tess={}ms",
+                tile.z,
+                tile.x,
+                tile.y,
+                dequeue_at.elapsed().as_millis().saturating_sub(fetch_ms + tess_ms),
+                fetch_ms,
+                tess_ms,
+            ));
+            TileResult::Ready(mesh)
+        }
+        Ok(None) => TileResult::Absent,
+        Err(e) => {
+            log(&format!(
+                "tile {}/{}/{} failed: {e}",
+                tile.z, tile.x, tile.y
+            ));
+            TileResult::Failed
         }
     }
 }

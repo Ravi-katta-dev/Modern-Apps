@@ -261,6 +261,35 @@ fn flushing_an_entry_keeps_it_readable() {
     cache.flush_entry(&RangeCache::key(URL, "bytes=999-1003"));
 }
 
+/// Writes queue for the batched durability pass instead of syncing each: `drain` returns
+/// every key written since the last drain, then clears — so one pass per wave orders a
+/// whole screenful, not one fsync per range.
+#[test]
+fn writes_queue_for_a_batched_durability_pass() {
+    let f = Fixture::new("drain");
+    let clock = Arc::new(AtomicU64::new(1_000_000));
+    let cache = cache_with(&f.dir, clock.clone(), DEFAULT_MAX_BYTES);
+    assert!(cache.drain().is_empty(), "nothing written, nothing pending");
+    let first = RangeCache::key(URL, "bytes=0-3");
+    let second = RangeCache::key(URL, "bytes=4-7");
+    cache.write(&first, &[1, 2, 3, 4]);
+    cache.write(&second, &[5, 6, 7, 8]);
+    // Both entries are already readable — durability never gates readability.
+    assert!(cache.read(&first).is_some());
+    assert!(cache.read(&second).is_some());
+    let mut pending = cache.drain();
+    pending.sort();
+    let mut expected = vec![first.clone(), second.clone()];
+    expected.sort();
+    assert_eq!(pending, expected, "one pass collects the whole wave");
+    assert!(cache.drain().is_empty(), "and the drain clears");
+    // Flushing the drained keys keeps them readable (the pass from the worker path).
+    for key in &[first, second] {
+        cache.flush_entry(key);
+        assert!(cache.read(key).is_some());
+    }
+}
+
 /// Freshness ends exactly at the interval and a clock behind the fetch reads as fresh.
 ///
 /// `is_fresh` is `elapsed < interval` with a saturating clock, so an entry exactly
