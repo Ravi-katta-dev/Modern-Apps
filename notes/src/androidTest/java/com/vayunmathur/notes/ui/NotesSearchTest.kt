@@ -64,7 +64,13 @@ class NotesSearchTest {
     }
 
     private fun createNote(device: UiDevice, title: String) {
-        device.findObject(By.desc(ADD_DESCRIPTION))!!.click()
+        // The Add icon itself is not clickable — its ancestor is.
+        val add = device.wait(
+            Until.findObject(By.clickable(true).hasDescendant(By.desc(ADD_DESCRIPTION))),
+            CONTENT_TIMEOUT_MS,
+        )
+        assertNotNull("add button never appeared", add)
+        add!!.click()
         assertNotNull(
             "note editor never opened",
             device.wait(Until.findObject(By.text(EDITOR_TITLE_HINT)), CONTENT_TIMEOUT_MS),
@@ -73,6 +79,11 @@ class NotesSearchTest {
         assertNotNull("editor fields never appeared", fields)
         fields!![0].click()
         fields[0].setText(title)
+        // Title-only notes are dropped on back: fill the body too.
+        if (fields.size > 1) {
+            fields[1].click()
+            fields[1].setText("$title body text")
+        }
         device.pressBack()
         assertNotNull(
             "created note is not listed",

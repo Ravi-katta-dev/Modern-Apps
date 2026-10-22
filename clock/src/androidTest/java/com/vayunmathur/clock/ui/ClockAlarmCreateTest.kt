@@ -60,11 +60,15 @@ class ClockAlarmCreateTest {
         )
 
         // Open the creator: empty-state button on first run, add button after.
+        // (The Add icon itself is not clickable — its ancestor is.)
         val emptyCta = device.wait(Until.findObject(By.text(EMPTY_STATE_CTA)), GATE_TIMEOUT_MS)
         if (emptyCta != null) {
             emptyCta.click()
         } else {
-            val add = device.wait(Until.findObject(By.desc(ADD_DESC)), GATE_TIMEOUT_MS)
+            val add = device.wait(
+                Until.findObject(By.clickable(true).hasDescendant(By.desc(ADD_DESC))),
+                GATE_TIMEOUT_MS,
+            )
             assertNotNull("no alarm creator control found", add)
             add!!.click()
         }
@@ -80,6 +84,8 @@ class ClockAlarmCreateTest {
         assertNotNull("alarm name field never appeared", nameHint)
         nameHint!!.click()
         nameHint.setText(ALARM_NAME)
+        // Dismiss the keyboard: it can cover the Save button.
+        device.pressBack()
 
         val save = device.wait(Until.findObject(By.text(SAVE_LABEL)), GATE_TIMEOUT_MS)
         assertNotNull("save button never appeared", save)

@@ -44,7 +44,11 @@ class NotesCreateTest {
             device.wait(Until.findObject(By.text(SEARCH_PLACEHOLDER)), CONTENT_TIMEOUT_MS),
         )
 
-        val fab = device.wait(Until.findObject(By.desc(ADD_DESCRIPTION)), SHORT_TIMEOUT_MS)
+        // The Add icon itself is not clickable — its ancestor is.
+        val fab = device.wait(
+            Until.findObject(By.clickable(true).hasDescendant(By.desc(ADD_DESCRIPTION))),
+            SHORT_TIMEOUT_MS,
+        )
         assertNotNull("create-note FAB never appeared", fab)
         fab!!.click()
         assertNotNull(

@@ -62,9 +62,13 @@ class ClockTimerTest {
         timerTab!!.click()
 
         // Keypad shows while empty; the add button reveals it when timers exist.
+        // (The Add icon itself is not clickable — its ancestor is.)
         var nameHint = device.wait(Until.findObject(By.text(KEYPAD_NAME_HINT)), GATE_TIMEOUT_MS)
         if (nameHint == null) {
-            val add = device.wait(Until.findObject(By.desc(ADD_DESC)), GATE_TIMEOUT_MS)
+            val add = device.wait(
+                Until.findObject(By.clickable(true).hasDescendant(By.desc(ADD_DESC))),
+                GATE_TIMEOUT_MS,
+            )
             assertNotNull("timer keypad never appeared", add)
             add!!.click()
             nameHint = device.wait(Until.findObject(By.text(KEYPAD_NAME_HINT)), CONTENT_TIMEOUT_MS)
@@ -79,7 +83,10 @@ class ClockTimerTest {
         assertNotNull("timer keypad digit never appeared", zero)
         zero!!.click()
 
-        val play = device.wait(Until.findObject(By.desc(PLAY_DESC)), GATE_TIMEOUT_MS)
+        val play = device.wait(
+            Until.findObject(By.clickable(true).hasDescendant(By.desc(PLAY_DESC))),
+            GATE_TIMEOUT_MS,
+        )
         assertNotNull("timer start control never appeared", play)
         play!!.click()
 

@@ -41,7 +41,13 @@ class NotesDeleteTest {
             "notes list never appeared; the app may have crashed on launch",
             device.wait(Until.findObject(By.text(SEARCH_PLACEHOLDER)), CONTENT_TIMEOUT_MS),
         )
-        device.findObject(By.desc(ADD_DESCRIPTION))!!.click()
+        // The Add icon itself is not clickable — its ancestor is.
+        val add = device.wait(
+            Until.findObject(By.clickable(true).hasDescendant(By.desc(ADD_DESCRIPTION))),
+            CONTENT_TIMEOUT_MS,
+        )
+        assertNotNull("add button never appeared", add)
+        add!!.click()
         assertNotNull(
             "note editor never opened",
             device.wait(Until.findObject(By.text(EDITOR_TITLE_HINT)), CONTENT_TIMEOUT_MS),
@@ -50,6 +56,11 @@ class NotesDeleteTest {
         assertNotNull("editor fields never appeared", fields)
         fields!![0].click()
         fields[0].setText(NOTE_TITLE)
+        // Title-only notes are dropped on back: fill the body too.
+        if (fields.size > 1) {
+            fields[1].click()
+            fields[1].setText("$NOTE_TITLE body text")
+        }
         device.pressBack()
         val row = device.wait(Until.findObject(By.text(NOTE_TITLE)), CONTENT_TIMEOUT_MS)
         assertNotNull("created note is not listed", row)

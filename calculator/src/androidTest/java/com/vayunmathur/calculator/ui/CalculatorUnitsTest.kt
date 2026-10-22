@@ -98,7 +98,11 @@ class CalculatorUnitsTest {
         private const val UNITS_TAB = "Units"
         // Candidate categories observed on device; the converter opens on
         // whichever was last used, so the test switches away from it.
-        private val CATEGORIES = arrayOf("Length", "Mass")
+        private val CATEGORIES = arrayOf(
+            "Length", "Mass", "Temperature", "Time", "Speed", "Area", "Volume",
+            "Data", "Energy", "Power", "Pressure", "Force", "Frequency", "Charge",
+            "Current", "Voltage", "Resistance",
+        )
         private const val RESULT_LABEL = "Result"
         private const val PERMISSION_GATE_TITLE = "Grant Required Permissions"
         private val SPECIAL_ACCESS_COMMANDS = arrayOf(
