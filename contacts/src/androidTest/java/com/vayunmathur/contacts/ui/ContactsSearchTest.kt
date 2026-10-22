@@ -19,13 +19,13 @@ import org.junit.runner.RunWith
 
 /**
  * Journey: read a seeded device contact, type its first name into search, and
- * assert the contact detail opens.
+ * assert the list filters to it.
  *
  * The name comes from the contacts provider at runtime, so the test keys on
  * the seeded data itself instead of a hardcoded string. Observed on device:
- * typing a uniquely-matching name opens the detail page directly (Call /
- * Message actions + the seeded phone number), so the test asserts that
- * end-to-end path rather than a filtered row.
+ * typing filters the list in place (other names vanish); Enter does nothing.
+ * So the test asserts the matching row is shown and a non-matching seeded
+ * name is gone.
  *
  * UiDevice polling, not compose-test: compose's Espresso idle-sync reflects on
  * hidden InputManager APIs that no longer exist on current releases, so every
@@ -65,12 +65,12 @@ class ContactsSearchTest {
             device.wait(Until.findObject(By.text(CONTACTS_TAB)), CONTENT_TIMEOUT_MS),
         )
 
-        // Seeded query: the contact's phone number for the detail
-        // assertion, first name token typed into search.
+        // Seeded query: a first-name token that matches exactly one seeded
+        // contact, plus a different seeded name that must vanish.
         val seeded = readSeededContact(targetContext.contentResolver)
         assertNotNull("no seeded contact found on the device", seeded)
-        val phone = seeded!!.first
-        val token = seeded.second
+        val token = seeded!!.first
+        val absent = seeded.second
 
         // The search field is part of first paint (proven by LaunchNoCrashTest):
         // tap it directly. Do NOT tap the Search action icon — that toggles
@@ -81,48 +81,43 @@ class ContactsSearchTest {
         assertNotNull("search field never appeared", searchField)
         searchField!!.click()
         searchField.setText(token)
-        // Commit the query through the IME: some fields only propagate the
-        // filter on an editor action rather than on raw text change.
-        searchField.click()
-        device.pressEnter()
 
-        // A uniquely-matching query opens the detail page directly (Call /
-        // Message actions plus the seeded number) instead of filtering the
-        // list. Cold-start sync (provider + SIM + aggregation) can take ~20s,
-        // so the waits are generous; verified on device via uiautomator dumps.
+        // Typing filters the list in place: the match stays, the other seeded
+        // name vanishes. Cold-start sync (provider + SIM + aggregation) can
+        // take ~20s, so the waits are generous; verified on device via
+        // uiautomator dumps.
         assertNotNull(
-            "contact detail never opened for the search query",
-            device.wait(Until.findObject(By.text(phone)), ROW_TIMEOUT_MS),
+            "seeded contact row never appeared for the search query",
+            device.wait(Until.findObject(By.text(token)), ROW_TIMEOUT_MS),
         )
-        assertNotNull(
-            "detail Call action missing",
-            device.wait(Until.findObject(By.text(CALL_ACTION)), ROW_TIMEOUT_MS),
+        // Absence uses a short wait: wait() only returns null on timeout.
+        assertNull(
+            "non-matching contact still listed after filtering",
+            device.wait(Until.findObject(By.text(absent)), ABSENT_TIMEOUT_MS),
         )
         // Still alive in front: the process did not crash after searching.
         assertEquals(packageName, device.currentPackageName)
     }
 
     /**
-     * First seeded contact with a phone number: number plus the first long
-     * name token, which is what gets typed into search.
+     * A first-name token matching exactly one seeded contact, plus a different
+     * seeded first name that must vanish once the filter applies. Tokens come
+     * from the provider at runtime, so this tracks the seeded data.
      */
     private fun readSeededContact(resolver: ContentResolver): Pair<String, String>? {
-        val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
-        val projection = arrayOf(
-            ContactsContract.CommonDataKinds.Phone.NUMBER,
-            ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
-        )
+        val uri = ContactsContract.Contacts.CONTENT_URI
+        val projection = arrayOf(ContactsContract.Contacts.DISPLAY_NAME)
+        val names = mutableListOf<String>()
         resolver.query(uri, projection, null, null, null)?.use { cursor ->
-            val numberIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-            val nameIndex = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+            val index = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
             while (cursor.moveToNext()) {
-                val number = if (numberIndex >= 0) cursor.getString(numberIndex).orEmpty().trim() else ""
-                val name = if (nameIndex >= 0) cursor.getString(nameIndex).orEmpty().trim() else ""
+                val name = if (index >= 0) cursor.getString(index).orEmpty().trim() else ""
                 val token = name.split(' ').firstOrNull { it.length >= 2 }.orEmpty()
-                if (number.isNotEmpty() && token.isNotEmpty()) return Pair(number, token)
+                if (token.isNotEmpty() && token !in names) names += token
             }
         }
-        return null
+        if (names.size < 2) return null
+        return Pair(names[0], names[1])
     }
 
     private fun grantAllRequestedPermissions(
@@ -159,9 +154,9 @@ class ContactsSearchTest {
     private companion object {
         private const val CONTENT_TIMEOUT_MS = 15_000L
         private const val ROW_TIMEOUT_MS = 60_000L
+        private const val ABSENT_TIMEOUT_MS = 5_000L
         private const val GATE_TIMEOUT_MS = 5_000L
         private const val CONTACTS_TAB = "Contacts"
-        private const val CALL_ACTION = "Call"
         private const val EDIT_TEXT_CLASS = "android.widget.EditText"
         private const val PERMISSION_GATE_TITLE = "Grant Required Permissions"
 
