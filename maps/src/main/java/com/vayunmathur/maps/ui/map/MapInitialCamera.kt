@@ -1,5 +1,9 @@
 package com.vayunmathur.maps.ui.map
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -8,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import com.vayunmathur.library.map.CameraPosition
 import com.vayunmathur.library.map.CameraState
 import com.vayunmathur.library.map.GeoPoint
@@ -25,8 +30,9 @@ private const val FIRST_FIX_ZOOM = 14.0
 /**
  * Cold-start camera for the map screen.
  *
- * Seeded from the persisted last fix so the map opens where the user was, not
- * the SF fallback. DataStore's snapshot read can be empty on a truly cold
+ * Seeded from the OS-cached device fix (synchronous `LocationManager`
+ * `getLastKnownLocation`), falling back to the persisted last fix and then the
+ * SF fallback. DataStore's snapshot read can be empty on a truly cold
  * process (not yet hydrated), so the first live fix still centers below —
  * either way the zoom stays at the browse default.
  *
@@ -38,13 +44,14 @@ private const val FIRST_FIX_ZOOM = 14.0
 fun rememberInitialCamera(viewModel: SelectedFeatureViewModel): CameraState {
     val context = LocalContext.current
     val dataStore = remember(context) { DataStoreUtils.getInstance(context) }
-    val snapshotLast = remember(dataStore) {
-        val lon = dataStore.getDouble(MapPreferences.KEY_LAST_LON)
-        val lat = dataStore.getDouble(MapPreferences.KEY_LAST_LAT)
-        if (lon != null && lat != null && (lat != 0.0 || lon != 0.0)) GeoPoint(lon, lat) else null
+    // Read once: the seed expression would otherwise re-query LocationManager
+    // on every recomposition.
+    val seed = remember(dataStore) {
+        lastKnownDeviceLocation(context)
+            ?: persistedLastFix(dataStore)
     }
     val camera = rememberCameraState(
-        snapshotLast?.let { CameraPosition(target = it, zoom = FIRST_FIX_ZOOM) } ?: FALLBACK_CAMERA,
+        seed?.let { CameraPosition(target = it, zoom = FIRST_FIX_ZOOM) } ?: FALLBACK_CAMERA,
     )
 
     val userPosition by viewModel.userPosition.collectAsState()
@@ -67,4 +74,45 @@ fun rememberInitialCamera(viewModel: SelectedFeatureViewModel): CameraState {
         )
     }
     return camera
+}
+
+/** The persisted last fix, or null when no fix was ever stored. */
+private fun persistedLastFix(dataStore: DataStoreUtils): GeoPoint? {
+    val lon = dataStore.getDouble(MapPreferences.KEY_LAST_LON) ?: return null
+    val lat = dataStore.getDouble(MapPreferences.KEY_LAST_LAT) ?: return null
+    if (lat == 0.0 && lon == 0.0) return null
+    return GeoPoint(lon, lat)
+}
+
+/**
+ * Best cached device fix, or null if none is available yet. Reads the synchronous
+ * [LocationManager.getLastKnownLocation] cache — no fix wait — so the map can open
+ * centred on the user immediately. Newest of GPS/network wins; a (0,0) cached
+ * fix is the OS having nothing real, not the Gulf of Guinea.
+ */
+private fun lastKnownDeviceLocation(context: Context): GeoPoint? {
+    val hasFine = ContextCompat.checkSelfPermission(
+        context, Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+    val hasCoarse = ContextCompat.checkSelfPermission(
+        context, Manifest.permission.ACCESS_COARSE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+    if (!hasFine && !hasCoarse) return null
+    // The map sits behind an AppPermissionsGate, so permission is granted in practice;
+    // a SecurityException (provider state changed mid-call) reads as no fix.
+    return try {
+        val locationManager =
+            context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        val gps = runCatching {
+            locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+        }.getOrNull()
+        val network = runCatching {
+            locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+        }.getOrNull()
+        val best = listOfNotNull(gps, network).maxByOrNull { it.time }
+        best?.takeIf { it.latitude != 0.0 || it.longitude != 0.0 }
+            ?.let { GeoPoint(it.longitude, it.latitude) }
+    } catch (_: SecurityException) {
+        null
+    }
 }
