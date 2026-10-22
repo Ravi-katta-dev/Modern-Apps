@@ -52,13 +52,17 @@ class FormattingEdgeTest {
     @Test
     fun tokenFormUsesPlainSpaceForRoundTrips() {
         val q = Expression.parse("5m").evalQuantity()
-        assertEquals("5 m", formatQuantity(q, unit("m"), useToken = true))
+        XX(q, unit("m"), useToken = true))
     }
 
     @Test
     fun displayFormUsesThinSpace() {
         val q = Expression.parse("5m").evalQuantity()
-        assertEquals("5\\u202Fm", formatQuantity(q, unit("m")))
+        val text = formatQuantity(q, unit("m"))
+        assertEquals(3, text.length)
+        assertEquals('5', text[0])
+        assertEquals(0x202F, text[1].code)
+        assertEquals('m', text[2])
     }
 
     @Test
