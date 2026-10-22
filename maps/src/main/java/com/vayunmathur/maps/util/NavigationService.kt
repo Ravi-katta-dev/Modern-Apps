@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import com.vayunmathur.library.log.Log
 import androidx.core.app.NotificationCompat
+import com.vayunmathur.library.util.LiveUpdateSupport
 import com.vayunmathur.maps.MainActivity
 import com.vayunmathur.maps.R
 import com.vayunmathur.maps.util.RouteService.TravelMode
@@ -205,23 +206,56 @@ class NavigationService : Service() {
         val destLabel = NavigationSessionManager.session.value.destinationName
             ?: getString(R.string.nav_default_destination)
 
-        val (title, content, progressPercent, smallIcon) = describe(state, mode, destLabel)
+        val (title, content, progressPercent, chipText, smallIcon) = describe(state, mode, destLabel)
+        val isOngoing = state !is NavigationSessionManager.NavState.Arrived &&
+            state !is NavigationSessionManager.NavState.Failed
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(content)
             .setSmallIcon(smallIcon)
-            .setOngoing(state !is NavigationSessionManager.NavState.Arrived &&
-                        state !is NavigationSessionManager.NavState.Failed)
+            .setOngoing(isOngoing)
             .setSilent(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(tapIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            // Promotion requires a colorized notification with a content title.
+            .setColorized(true)
+            .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
             .addAction(NO_ICON, getString(R.string.nav_action_end), stopIntent)
 
         builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
 
-        progressPercent?.let { p -> builder.setProgress(FULL_PROGRESS_PERCENT, p, false) }
+        if (LiveUpdateSupport.isStyleSupported()) {
+            // Live Update (API 36): determinate ProgressStyle with the route
+            // fraction and a status chip showing the next-maneuver distance.
+            // Compat progress is in whole-percentage units (one segment of 100).
+            // Terminal states use a plain style with no tracker; Failed is
+            // never promoted.
+            val navigating = state as? NavigationSessionManager.NavState.Navigating
+            val percent = navigating?.progress?.let {
+                (it.fractionComplete * PERCENT_SCALE).roundToInt()
+                    .coerceIn(0, FULL_PROGRESS_PERCENT)
+            } ?: if (state is NavigationSessionManager.NavState.Arrived) {
+                FULL_PROGRESS_PERCENT
+            } else {
+                0
+            }
+            builder.setStyle(
+                NotificationCompat.ProgressStyle()
+                    .setProgressSegments(listOf(NotificationCompat.ProgressStyle.Segment(100)))
+                    .setProgress(percent),
+            )
+            if (chipText != null) builder.setShortCriticalText(chipText)
+            if (isOngoing && state !is NavigationSessionManager.NavState.Failed &&
+                LiveUpdateSupport.canPostPromoted(this)
+            ) {
+                // 36.1+ only behind canPostPromoted — unguarded this crashes on 36.0.
+                builder.setRequestPromotedOngoing(true)
+            }
+        } else {
+            progressPercent?.let { p -> builder.setProgress(FULL_PROGRESS_PERCENT, p, false) }
+        }
         return builder.build()
     }
 
@@ -229,6 +263,8 @@ class NavigationService : Service() {
         val title: String,
         val content: String,
         val progressPercent: Int?,
+        /** Live Update status chip (API 36): next-maneuver distance, or null for no chip. */
+        val chipText: String?,
         val smallIcon: Int,
     )
 
@@ -266,7 +302,7 @@ class NavigationService : Service() {
     }
 
     private fun idleInfo(defaultIcon: Int) = NotificationInfo(
-        getString(R.string.nav_status_idle), "", null, defaultIcon,
+        getString(R.string.nav_status_idle), "", null, null, defaultIcon,
     )
 
     private fun statusInfo(
@@ -274,7 +310,8 @@ class NavigationService : Service() {
         content: String,
         progressPercent: Int?,
         smallIcon: Int,
-    ) = NotificationInfo(title, content, progressPercent, smallIcon)
+        chipText: String? = null,
+    ) = NotificationInfo(title, content, progressPercent, chipText, smallIcon)
 
     private fun navigatingInfo(
         state: NavigationSessionManager.NavState.Navigating,
@@ -284,26 +321,28 @@ class NavigationService : Service() {
     ): NotificationInfo {
         val p = state.progress
         val percent = (p.fractionComplete * PERCENT_SCALE).roundToInt().coerceIn(0, FULL_PROGRESS_PERCENT)
+        // Status chip: the glanceable next-maneuver distance (e.g. "2 km").
+        val chip = formatDistance(p.distanceToNextManeuver)
         val distRemaining = formatDistance(p.distanceRemaining)
         val etaText = formatEta(p.etaEpochMs)
         val route = NavigationSessionManager.session.value.route
         val currentStep = route?.step?.getOrNull(p.currentStepIndex)
         return when (mode) {
-            TravelMode.DRIVE -> driveInfo(currentStep, destLabel, p, etaText, percent, defaultIcon)
+            TravelMode.DRIVE -> driveInfo(currentStep, destLabel, p, etaText, percent, chip, defaultIcon)
             TravelMode.WALK -> progressInfo(
                 getString(R.string.nav_walk_title_format, destLabel),
-                percent, distRemaining, etaText, defaultIcon,
+                percent, distRemaining, etaText, chip, defaultIcon,
             )
             TravelMode.BICYCLE -> progressInfo(
                 getString(R.string.nav_bike_title_format, destLabel),
-                percent, distRemaining, etaText, defaultIcon,
+                percent, distRemaining, etaText, chip, defaultIcon,
             )
             TravelMode.TRANSIT -> transitInfo(
-                currentStep, destLabel, percent, distRemaining, etaText, defaultIcon,
+                currentStep, destLabel, percent, distRemaining, etaText, chip, defaultIcon,
             )
             null -> progressInfo(
                 getString(R.string.nav_destination_format, destLabel),
-                percent, distRemaining, etaText, defaultIcon,
+                percent, distRemaining, etaText, chip, defaultIcon,
             )
         }
     }
@@ -314,6 +353,7 @@ class NavigationService : Service() {
         p: NavigationProgress,
         etaText: String,
         percent: Int,
+        chipText: String?,
         defaultIcon: Int,
     ): NotificationInfo {
         val title = currentStep?.navInstruction?.instructions?.takeIf { it.isNotBlank() }
@@ -323,7 +363,7 @@ class NavigationService : Service() {
             formatDistance(p.distanceToNextManeuver),
             etaText,
         )
-        return NotificationInfo(title, content, percent, defaultIcon)
+        return NotificationInfo(title, content, percent, chipText, defaultIcon)
     }
 
     private fun progressInfo(
@@ -331,11 +371,12 @@ class NavigationService : Service() {
         percent: Int,
         distRemaining: String,
         etaText: String,
+        chipText: String?,
         defaultIcon: Int,
     ): NotificationInfo = NotificationInfo(
         title,
         getString(R.string.nav_progress_content_format, percent, distRemaining, etaText),
-        percent, defaultIcon,
+        percent, chipText, defaultIcon,
     )
 
     private fun transitInfo(
@@ -344,6 +385,7 @@ class NavigationService : Service() {
         percent: Int,
         distRemaining: String,
         etaText: String,
+        chipText: String?,
         defaultIcon: Int,
     ): NotificationInfo {
         val transitTitle = currentStep?.transitDetails?.transitLine?.name
@@ -353,7 +395,7 @@ class NavigationService : Service() {
         return NotificationInfo(
             transitTitle,
             getString(R.string.nav_progress_content_format, percent, distRemaining, etaText),
-            percent, defaultIcon,
+            percent, chipText, defaultIcon,
         )
     }
 

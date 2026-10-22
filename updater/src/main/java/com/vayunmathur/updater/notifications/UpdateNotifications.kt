@@ -8,6 +8,7 @@ import android.content.Intent
 import com.vayunmathur.library.log.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import com.vayunmathur.library.util.LiveUpdateSupport
 import com.vayunmathur.library.util.ensureNotificationChannel
 import com.vayunmathur.updater.MainActivity
 import com.vayunmathur.updater.R
@@ -54,19 +55,52 @@ object UpdateNotifications {
      *
      * [percent] below zero renders as indeterminate, which is what a stage with no measurable
      * length should look like rather than a bar frozen at zero.
+     *
+     * On Android 16+ (API 36) it uses [NotificationCompat.ProgressStyle] with a status
+     * chip showing the percent, and requests promotion to a Live Update where the
+     * platform supports it (see [LiveUpdateSupport]: style is 36.0, the promotion
+     * request is 36.1). Below 36 it is the same determinate bar as before.
      */
-    fun progress(context: Context, title: String, percent: Int): Notification =
-        NotificationCompat.Builder(context, CHANNEL_PROGRESS)
+    fun progress(context: Context, title: String, percent: Int): Notification {
+        val indeterminate = percent < 0
+        val builder = NotificationCompat.Builder(context, CHANNEL_PROGRESS)
             .setContentTitle(title)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setProgress(MAX_PROGRESS, percent.coerceIn(0, MAX_PROGRESS), percent < 0)
+            // Promotion requires a colorized notification with a content title.
+            .setColorized(true)
             .setOngoing(true)
             // Without this every progress edit re-alerts, several times a second.
             .setOnlyAlertOnce(true)
             .setContentIntent(openApp(context))
             .setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
+
+        if (LiveUpdateSupport.isStyleSupported()) {
+            // Compat progress is in whole-percentage units (one segment of 100).
+            if (indeterminate) {
+                builder.setStyle(
+                    NotificationCompat.ProgressStyle().setProgressIndeterminate(true),
+                )
+            } else {
+                val clamped = percent.coerceIn(0, MAX_PROGRESS)
+                builder.setStyle(
+                    NotificationCompat.ProgressStyle()
+                        .setProgressSegments(
+                            listOf(NotificationCompat.ProgressStyle.Segment(MAX_PROGRESS)),
+                        )
+                        .setProgress(clamped),
+                )
+                builder.setShortCriticalText("$clamped%")
+            }
+            // 36.1+ only behind canPostPromoted — unguarded this crashes on 36.0.
+            if (LiveUpdateSupport.canPostPromoted(context)) {
+                builder.setRequestPromotedOngoing(true)
+            }
+        } else {
+            builder.setProgress(MAX_PROGRESS, percent.coerceIn(0, MAX_PROGRESS), indeterminate)
+        }
+        return builder.build()
+    }
 
     fun updateProgress(context: Context, title: String, percent: Int) {
         post(context, ID_PROGRESS, progress(context, title, percent))

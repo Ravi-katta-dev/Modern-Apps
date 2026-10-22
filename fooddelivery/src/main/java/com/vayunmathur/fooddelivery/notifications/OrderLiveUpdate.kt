@@ -5,32 +5,32 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.vayunmathur.fooddelivery.MainActivity
 import com.vayunmathur.fooddelivery.R
 import com.vayunmathur.fooddelivery.data.Order
 import com.vayunmathur.fooddelivery.data.OrderStage
+import com.vayunmathur.library.util.LiveUpdateSupport
 import com.vayunmathur.library.util.ensureNotificationChannel
 
 /**
  * Builds the ongoing "Live Update" order-tracking notification.
  *
  * On Android 16+ (API 36) it uses [NotificationCompat.ProgressStyle] with segmented
- * milestones and requests promotion to an ongoing Live Update. Below that it degrades to
- * a plain ongoing notification with a determinate progress bar showing the same fraction.
+ * milestones and a status chip, and requests promotion to a Live Update — but only
+ * where the platform supports it (see [LiveUpdateSupport]: the style is 36.0, the
+ * promotion request is 36.1). Below 36 it degrades to a plain ongoing notification
+ * with a determinate progress bar showing the same fraction.
  */
 object OrderLiveUpdate {
     const val CHANNEL_ID = "order_tracking"
     const val NOTIFICATION_ID = 4711
     const val EXTRA_TRACK_ORDER_ID = "com.vayunmathur.fooddelivery.EXTRA_TRACK_ORDER_ID"
 
-    // Android 16 Live Updates arrived in API 36; below this we fall back to a plain bar.
-    private const val LIVE_UPDATE_SDK = 36
-
-    // Ordered milestones the tracker advances through. PREPARING_SOON collapses onto
-    // PREPARING, and PICKED_UP maps onto DRIVING for delivery (it means "on the way").
+    // Stage labels double as the Live Update status chip. PREPARING_SOON collapses
+    // onto PREPARING, and PICKED_UP maps onto DRIVING for delivery (it means
+    // "on the way").
     private val DELIVERY_MILESTONES = listOf(
         OrderStage.PREPARING,
         OrderStage.READY,
@@ -69,9 +69,11 @@ object OrderLiveUpdate {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            // Promotion requires a colorized notification with a content title.
+            .setColorized(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
 
-        if (Build.VERSION.SDK_INT >= LIVE_UPDATE_SDK) {
+        if (LiveUpdateSupport.isStyleSupported()) {
             val progressStyle = NotificationCompat.ProgressStyle()
                 .setProgressSegments(
                     List(milestones.size - 1) { NotificationCompat.ProgressStyle.Segment(1) }
@@ -82,7 +84,11 @@ object OrderLiveUpdate {
                 .setProgress(index)
             builder.setStyle(progressStyle)
             builder.setShortCriticalText(order.stage.label)
-            builder.setRequestPromotedOngoing(true)
+            // 36.1+ only, and only when the system will actually promote —
+            // without this guard the platform call crashes on base 36.0.
+            if (LiveUpdateSupport.canPostPromoted(context)) {
+                builder.setRequestPromotedOngoing(true)
+            }
         } else {
             val max = (milestones.size - 1).coerceAtLeast(1)
             builder.setProgress(max, index, false)
