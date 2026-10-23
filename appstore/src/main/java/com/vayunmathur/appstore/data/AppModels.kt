@@ -29,6 +29,12 @@ enum class AppSource {
 
     companion object {
         /**
+         * Sources switched on for a fresh install. Only the two first-party
+         * repos — everything third-party is opt-in via Sources settings.
+         */
+        val DEFAULT_ENABLED: Set<AppSource> = setOf(MODERN_APPS, PROPRIETARY)
+
+        /**
          * Precedence when more than one source offers the same package, most preferred first.
          *
          * Below is a provenance preference rather than a security ranking (see

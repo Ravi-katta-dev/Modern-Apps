@@ -61,7 +61,7 @@ class TvStoreViewModel(
         ApkCertificates.selfSigners(context)
     }
 
-    val enabledSourcesFlow = MutableStateFlow(AppSource.TOGGLEABLE.toSet())
+    val enabledSourcesFlow = MutableStateFlow(AppSource.DEFAULT_ENABLED)
     internal val sectionsFlow = MutableStateFlow<List<TvSection>>(emptyList())
     internal val isLoadingFlow = MutableStateFlow(true)
     internal val statusMessageFlow = MutableStateFlow("")

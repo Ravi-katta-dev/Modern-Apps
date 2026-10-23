@@ -32,7 +32,7 @@ class SettingsRepository(
     scope: CoroutineScope,
 ) {
     private val _autoInstallUpdates = MutableStateFlow(DEFAULT_AUTO_INSTALL_UPDATES)
-    private val _enabledSources = MutableStateFlow(AppSource.entries.toSet())
+    private val _enabledSources = MutableStateFlow(AppSource.DEFAULT_ENABLED)
 
     /**
      * Whether the periodic update check may also download and install updates on its own,
@@ -44,11 +44,13 @@ class SettingsRepository(
     val autoInstallUpdates: StateFlow<Boolean> = _autoInstallUpdates.asStateFlow()
 
     /**
-     * The sources the store may talk to. Everything not in [AppSource.TOGGLEABLE] is always in
-     * here.
+     * The sources the store may talk to. First-party repos (MODERN_APPS,
+     * PROPRIETARY) are on for a fresh install; FDROID, PLAYSTORE and
+     * ACCRESCENT are third-party and start off until the user opts in.
      *
-     * What is persisted is the *disabled* set, so a source added in a later version starts out
-     * on rather than silently off for everyone who already had the app.
+     * What is persisted is the *disabled* set once the user edits anything;
+     * until then the read returns [AppSource.DEFAULT_ENABLED]. A source added
+     * in a later version starts out off for everyone who already had the app.
      */
     val enabledSources: StateFlow<Set<AppSource>> = _enabledSources.asStateFlow()
 
@@ -70,9 +72,13 @@ class SettingsRepository(
     suspend fun setSourceEnabled(source: AppSource, enabled: Boolean) {
         if (source !in AppSource.TOGGLEABLE) return
         context.settingsDataStore.edit { prefs ->
-            val disabled = prefs[KEY_DISABLED_SOURCES].orEmpty()
+            // Resolve against the effective set (fresh installs get DEFAULT_ENABLED),
+            // then store the full disabled complement so the read path stays explicit
+            // from the first user edit onward.
+            val current = prefs.enabledSources()
+            val next = if (enabled) current + source else current - source
             prefs[KEY_DISABLED_SOURCES] =
-                if (enabled) disabled - source.name else disabled + source.name
+                AppSource.entries.map { it.name }.toSet() - next.map { it.name }.toSet()
         }
     }
 
@@ -97,9 +103,15 @@ class SettingsRepository(
     private fun Preferences.enabledSources(): Set<AppSource> {
         // An unrecognised name is ignored rather than treated as a disabled source, so a
         // downgrade cannot leave the store permanently unable to re-enable something.
-        val disabled = this[KEY_DISABLED_SOURCES].orEmpty()
-            .mapNotNullTo(mutableSetOf()) { runCatching { AppSource.valueOf(it) }.getOrNull() }
-        return AppSource.entries.toSet() - disabled
+        // Sources added by later versions start out off for existing users (opt-in);
+        // first-party repos stay on. Only DEFAULT_ENABLED is on for a fresh install.
+        return if (this[KEY_DISABLED_SOURCES] == null) {
+            AppSource.DEFAULT_ENABLED
+        } else {
+            val disabled = this[KEY_DISABLED_SOURCES].orEmpty()
+                .mapNotNullTo(mutableSetOf()) { runCatching { AppSource.valueOf(it) }.getOrNull() }
+            AppSource.entries.toSet() - disabled
+        }
     }
 
     companion object {
