@@ -1,0 +1,538 @@
+package com.vayunmathur.securemail.platform
+
+import android.app.Application
+import android.util.Base64
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.vayunmathur.library.biometric.unlockDatabaseWithBiometrics
+import com.vayunmathur.library.log.Log
+import com.vayunmathur.securemail.data.CachedKey
+import com.vayunmathur.securemail.data.MailConfig
+import com.vayunmathur.securemail.data.MailRepository
+import com.vayunmathur.securemail.data.OutboxMessage
+import com.vayunmathur.securemail.data.StoredMessage
+import com.vayunmathur.securemail.domain.mail.AddressValidator
+import com.vayunmathur.securemail.domain.mail.KeyLookupPolicy
+import com.vayunmathur.securemail.domain.mail.MessageEnvelope
+import com.vayunmathur.securemail.domain.pgp.PgpCrypto
+import com.vayunmathur.securemail.network.KeyLookupHttp
+import com.vayunmathur.securemail.network.MailSocket
+import com.vayunmathur.securemail.platform.crypto.KeyManager
+import com.vayunmathur.securemail.service.MailSocketService
+import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/** Aggregate UI state for SecureMail. */
+data class MailUiState(
+    val onboarded: Boolean = false,
+    val locked: Boolean = true,
+    val address: String = "",
+    val fingerprintHex: String = "",
+    val socketConnected: Boolean = false,
+    val message: String? = null,
+    val error: String? = null,
+    val busy: Boolean = false,
+    /** Exported public key awaiting user copy/share (Settings). */
+    val exportArmor: String? = null,
+    /** True when the in-memory key passphrase was lost (process restart). */
+    val needsPassphrase: Boolean = false,
+)
+
+private const val TAG = "MailViewModel"
+
+/**
+ * Owns identity, decryption, send gating, and the socket lifecycle.
+ * Decrypt + private-key reads happen on Dispatchers.IO and only while unlocked.
+ */
+class MailViewModel(app: Application) : AndroidViewModel(app) {
+
+    private val config = MailConfig(app)
+    private val keyManager = KeyManager(app)
+    private val repo: MailRepository = MailRepository.get(app)
+
+    var state by mutableStateOf(
+        MailUiState(
+            onboarded = keyManager.hasIdentity(),
+            locked = keyManager.hasIdentity(),
+        ),
+    )
+        private set
+
+    val messages = repo.messageDao().observeAll()
+    val outboxCount = repo.outboxDao().observeCount()
+
+    /**
+     * In-memory S2K passphrase for the PGP secret ring. Set at claim time and
+     * re-entered on the Lock screen after process death; never persisted — the
+     * Keystore holds only the S2K-wrapped blob, so a DB dump alone is useless.
+     */
+    private var passphraseCache: String? = null
+
+    init {
+        config.settings
+            .onEach { s ->
+                state = state.copy(
+                    address = s.address,
+                    fingerprintHex = s.fingerprintHex,
+                    onboarded = s.isConfigured,
+                    locked = if (!s.isConfigured) false else state.locked,
+                )
+            }
+            .launchIn(viewModelScope)
+    }
+
+    // ------------------------------------------------------------------
+    // Identity: claim + unlock
+    // ------------------------------------------------------------------
+
+    /** Generates the PGP identity, claims the address over the socket, persists. */
+    fun claimAddress(localPart: String, passphrase: String) {
+        val address = AddressValidator.canonicalAddress(localPart)
+        if (address == null) {
+            state = state.copy(error = "Use 3–64 lowercase letters, digits, dots or dashes.")
+            return
+        }
+        if (passphrase.length < 8) {
+            state = state.copy(error = "Use a passphrase of at least 8 characters.")
+            return
+        }
+        state = state.copy(busy = true, error = null, message = "Generating your key…")
+        viewModelScope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching {
+                    val identity = PgpCrypto.generateIdentity(
+                        "$address <$address>",
+                        passphrase,
+                    )
+                    keyManager.storeSecretArmor(identity.armoredSecret)
+                    keyManager.storeOwnAddress(address)
+                    config.setIdentity(address, identity.armoredPublic, identity.fingerprintHex)
+                    passphraseCache = passphrase
+                    // Registration rides the first SUB; the service connects now.
+                    MailSocketService.start(getApplication())
+                    address
+                }
+            }
+            state = outcome.fold(
+                onSuccess = {
+                    state.copy(
+                        busy = false, locked = false, onboarded = true,
+                        message = "Address $it claimed. Share your public key from Settings.",
+                    )
+                },
+                onFailure = {
+                    Log.status(TAG, "claim failed", it)
+                    state.copy(busy = false, error = it.message ?: "Key generation failed.")
+                },
+            )
+        }
+    }
+
+    /**
+     * First unlock attempt from MainActivity: if no identity exists there is
+     * nothing to gate; otherwise prompt biometrics before composition starts.
+     */
+    fun unlockIfReady(
+        activity: FragmentActivity,
+        onUnlocked: () -> Unit,
+        onLocked: () -> Unit,
+    ) {
+        if (!keyManager.hasIdentity()) {
+            state = state.copy(locked = false, onboarded = false)
+            onUnlocked()
+            return
+        }
+        unlockDatabaseWithBiometrics(
+            activity,
+            onSuccess = {
+                state = state.copy(locked = false)
+                onUnlocked()
+            },
+            onFailure = { message ->
+                state = state.copy(
+                    locked = true,
+                    error = message ?: "Unlock to read your mail.",
+                )
+                onLocked()
+            },
+        )
+    }
+
+    /** Manual unlock from the Lock screen. */
+    fun unlock(activity: FragmentActivity) {
+        unlockDatabaseWithBiometrics(
+            activity,
+            onSuccess = { state = state.copy(locked = false, error = null) },
+            onFailure = { message ->
+                state = state.copy(error = message ?: "Unlock to read your mail.")
+            },
+        )
+    }
+
+    fun exportPublicKey() {
+        viewModelScope.launch {
+            // The public half was persisted in the clear at claim time (MailConfig) —
+            // it is public by design, so no key unwrapping needed.
+            val armor = withContext(Dispatchers.IO) {
+                runCatching {
+                    config.settings.first().publicArmor.ifBlank { null }
+                }.getOrNull()
+            }
+            state = state.copy(exportArmor = armor, error = armor?.let { null } ?: "Unlock first.")
+        }
+    }
+
+    fun forgetIdentity() {
+        viewModelScope.launch {
+            MailSocket.stop()
+            keyManager.clear()
+            config.clear()
+            state = MailUiState()
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Inbound: store + decrypt
+    // ------------------------------------------------------------------
+
+    /** Called by the socket layer for every MSG frame (already in Dispatchers.IO). */
+    suspend fun onInboundMessage(id: String, unencrypted: Boolean, raw: ByteArray) {
+        // Sender/from is inside the encrypted payload; store now, label on decrypt.
+        repo.messageDao().upsert(
+            StoredMessage(
+                id = id,
+                from = "",
+                toJson = "[\"${state.address}\"]",
+                dateMillis = System.currentTimeMillis(),
+                messageId = id,
+                blobBase64 = Base64.encodeToString(raw, Base64.NO_WRAP),
+                unencrypted = unencrypted,
+            ),
+        )
+        decryptStored(id)
+    }
+
+    /** Decrypts one stored message in memory; never writes plaintext to the server. */
+    fun decryptStored(id: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val stored = repo.messageDao().get(id) ?: return@runCatching
+                    if (stored.decryptedBody != null || stored.unencrypted) return@runCatching
+                    val passphrase = passphraseCache
+                    if (passphrase == null) {
+                        state = state.copy(needsPassphrase = true)
+                        Log.status(TAG, "decrypt deferred: passphrase cache empty")
+                        return@runCatching
+                    }
+                    val raw = Base64.decode(stored.blobBase64, Base64.NO_WRAP)
+                    val mime = PgpCrypto.decrypt(raw, keyManager.getSecretArmor(), passphrase)
+                        .toString(Charsets.UTF_8)
+                    val (subject, body, from) = parseMime(mime)
+                    repo.messageDao().storeDecrypted(id, body, subject, verified = null)
+                    if (from.isNotBlank()) {
+                        repo.messageDao().upsert(stored.copy(from = from))
+                    }
+                }.onFailure { Log.status(TAG, "decryptStored failed", it) }
+            }
+        }
+    }
+
+    /**
+     * Re-enters the S2K passphrase after process death (Lock screen). Verified
+     * by a trial decrypt of nothing — it is checked lazily on next decrypt,
+     * which fails closed and re-asks.
+     */
+    fun providePassphrase(passphrase: String) {
+        passphraseCache = passphrase
+        state = state.copy(needsPassphrase = false, error = null)
+    }
+
+    /** Plaintext fallback path: stores the body with the unencrypted flag set. */
+    suspend fun onInboundPlaintext(id: String, from: String, subject: String, body: String) {
+        repo.messageDao().upsert(
+            StoredMessage(
+                id = id,
+                from = from,
+                toJson = "[\"${state.address}\"]",
+                dateMillis = System.currentTimeMillis(),
+                messageId = id,
+                blobBase64 = "",
+                decryptedBody = body,
+                decryptedSubject = subject,
+                unencrypted = true,
+            ),
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // Outbound: trust gate + publish
+    // ------------------------------------------------------------------
+
+    /**
+     * Resolves trust for every recipient: vault cache → live socket directory
+     * (own domain) → WKD advanced/direct (external). No other discovery.
+     */
+    suspend fun resolveTrust(addresses: List<String>): List<KeyLookupPolicy.RecipientTrust> =
+        withContext(Dispatchers.IO) {
+            addresses.map { address ->
+                val clean = address.trim().lowercase()
+                val cached = repo.keyDao().get(clean)
+                if (cached != null) {
+                    return@map KeyLookupPolicy.RecipientTrust(
+                        address = clean,
+                        hasKey = true,
+                        source = KeyLookupPolicy.KeySource.Cached,
+                        fingerprintHex = cached.fingerprintHex,
+                    )
+                }
+                // Own-domain directory over the live socket (the server also
+                // serves this same key over WKD, so external clients agree).
+                if (AddressValidator.isOwnDomain(clean)) {
+                    val socketHit = runCatching { MailSocket.getKey(clean) }.getOrNull()
+                    if (socketHit?.armoredPublic != null) {
+                        cacheKey(clean, socketHit.armoredPublic, KeyLookupPolicy.KeySource.OwnDirectory)
+                        return@map KeyLookupPolicy.RecipientTrust(
+                            address = clean,
+                            hasKey = true,
+                            source = KeyLookupPolicy.KeySource.OwnDirectory,
+                            fingerprintHex = runCatching {
+                                PgpCrypto.fingerprintHex(socketHit.armoredPublic)
+                            }.getOrNull(),
+                        )
+                    }
+                }
+                // External: WKD advanced then direct, over HTTPS with system trust.
+                for (url in KeyLookupPolicy.wkdUrls(clean)) {
+                    val wkd = KeyLookupHttp.fetchWkdKey(url)
+                    if (wkd != null) {
+                        cacheKey(clean, wkd, KeyLookupPolicy.KeySource.Wkd)
+                        return@map KeyLookupPolicy.RecipientTrust(
+                            address = clean,
+                            hasKey = true,
+                            source = KeyLookupPolicy.KeySource.Wkd,
+                            fingerprintHex = runCatching { PgpCrypto.fingerprintHex(wkd) }.getOrNull(),
+                        )
+                    }
+                }
+                KeyLookupPolicy.RecipientTrust(clean, hasKey = false, source = KeyLookupPolicy.KeySource.None)
+            }
+        }
+
+    private suspend fun cacheKey(address: String, armor: String, source: KeyLookupPolicy.KeySource) {
+        val fingerprint = runCatching { PgpCrypto.fingerprintHex(armor) }.getOrNull() ?: return
+        repo.keyDao().upsert(
+            CachedKey(
+                address = address,
+                armoredPublic = armor,
+                fingerprintHex = fingerprint,
+                source = source.toString(),
+                updatedMillis = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    /**
+     * Sends a message: encrypts per-recipient on device, publishes over the live
+     * socket when up, else queues to the outbox worker. Unencrypted send requires
+     * [allowUnencrypted] (explicit per-message opt-in from Compose).
+     */
+    fun send(
+        to: List<String>,
+        subject: String,
+        body: String,
+        allowUnencrypted: Boolean,
+        inReplyTo: String? = null,
+    ) {
+        state = state.copy(busy = true, error = null)
+        viewModelScope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                runCatching {
+                    val trust = resolveTrust(to)
+                    when (val decision = KeyLookupPolicy.decide(trust)) {
+                        is KeyLookupPolicy.SendDecision.NeedsKeyChangeAck ->
+                            error("Key changed for ${decision.changed.first().address}. Review in Settings first.")
+                        is KeyLookupPolicy.SendDecision.NeedsUnencryptedOptIn ->
+                            if (!allowUnencrypted) {
+                                error("No key for ${decision.missing.first()}. Enable unencrypted to send anyway.")
+                            }
+                        KeyLookupPolicy.SendDecision.Encrypted -> Unit
+                    }
+                    val encryptedTo = trust.filter { it.hasKey }
+                    val plainTo = trust.filter { !it.hasKey }.map { it.address }
+                    val mime = buildMimeBody(subject, body)
+                    // Per-recipient encryption: each key-known recipient gets a blob.
+                    for (t in encryptedTo) {
+                        val cached = repo.keyDao().get(t.address) ?: continue
+                        val blob = PgpCrypto.encrypt(mime, cached.armoredPublic)
+                        val ok = MailSocket.publish(t.address, blob)
+                        if (!ok) queueOutbox(listOf(t.address), subject, body, inReplyTo, false)
+                    }
+                    // Keyless recipients: socket plaintext frame (opt-in) for own-domain,
+                    // SMTP federation queue for external (Phase 2 server path).
+                    for (address in plainTo) {
+                        if (AddressValidator.isOwnDomain(address)) {
+                            val ok = MailSocket.publish(address, mime, unencrypted = true)
+                            if (!ok) queueOutbox(listOf(address), subject, body, inReplyTo, true)
+                        } else {
+                            queueOutbox(listOf(address), subject, body, inReplyTo, true)
+                        }
+                    }
+                }
+            }
+            state = outcome.fold(
+                onSuccess = { state.copy(busy = false, message = "Sent.") },
+                onFailure = {
+                    Log.status(TAG, "send failed", it)
+                    state.copy(busy = false, error = it.message ?: "Send failed.")
+                },
+            )
+        }
+    }
+
+    private suspend fun queueOutbox(
+        to: List<String>,
+        subject: String,
+        body: String,
+        inReplyTo: String?,
+        sendUnencrypted: Boolean,
+    ) {
+        repo.outboxDao().insert(
+            OutboxMessage(
+                toJson = to.joinToString(","),
+                subject = subject,
+                body = body,
+                inReplyTo = inReplyTo,
+                sendUnencrypted = sendUnencrypted,
+                createdMillis = System.currentTimeMillis(),
+            ),
+        )
+    }
+
+    fun retryOutbox() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                val pending = repo.outboxDao().all()
+                for (entry in pending) {
+                    runCatching {
+                        val to = entry.toJson.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                        send(to, entry.subject, entry.body, entry.sendUnencrypted, entry.inReplyTo)
+                        repo.outboxDao().delete(entry.rowId)
+                    }.onFailure {
+                        repo.outboxDao().noteAttempt(entry.rowId, it.message ?: "retry failed")
+                    }
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Sync + misc
+    // ------------------------------------------------------------------
+
+    fun refresh() {
+        viewModelScope.launch {
+            state = state.copy(socketConnected = MailSocket.connected)
+        }
+    }
+
+    fun markRead(id: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repo.messageDao().markRead(id) }
+        }
+    }
+
+    fun messageFlow(id: String): StoredMessage? = null
+
+    fun envelopeOf(stored: StoredMessage): MessageEnvelope = MessageEnvelope(
+        id = stored.id,
+        from = stored.from,
+        to = runCatching {
+            stored.toJson.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        }.getOrDefault(listOf(state.address)),
+        dateMillis = stored.dateMillis,
+        messageId = stored.messageId,
+        unencrypted = stored.unencrypted,
+    )
+
+    fun dismissMessages() {
+        state = state.copy(message = null, error = null, exportArmor = null)
+    }
+
+    /**
+     * Minimal parser for the MIME skeleton [buildMimeBody] emits (headers +
+     * trailing `--boundary--`). Returns (subject, body, from). The payload is
+     * already authenticated PGP plaintext at this point; this only splits it.
+     */
+    private fun parseMime(mime: String): Triple<String, String, String> {
+        val lines = mime.lines()
+        var from = ""
+        var subject = ""
+        var i = 0
+        while (i < lines.size && lines[i].isNotBlank()) {
+            val line = lines[i]
+            when {
+                line.startsWith("From:", ignoreCase = true) ->
+                    from = line.substringAfter(':').trim()
+                line.startsWith("Subject:", ignoreCase = true) ->
+                    subject = line.substringAfter(':').trim()
+            }
+            i++
+        }
+        // Skip the blank line plus the multipart preamble (boundary markers and
+        // the Version part); the body is the last text block before --boundary--.
+        val body = StringBuilder()
+        var inBody = false
+        for (line in lines.drop(i)) {
+            if (line.startsWith("--maemail-")) {
+                inBody = false
+                continue
+            }
+            if (line.startsWith("Content-Type: text/plain", ignoreCase = true)) {
+                inBody = false // headers of the part follow; blank line starts text
+                continue
+            }
+            if (inBody) body.appendLine(line)
+            if (line.isBlank()) inBody = true
+        }
+        return Triple(subject, body.toString().trimEnd(), from)
+    }
+
+    private fun newMessageId(): String = "${UUID.randomUUID()}@maemail.org"
+
+    /**
+     * Minimal PGP/MIME body (RFC 3156 multipart/encrypted skeleton). The actual
+     * encryption envelopes this whole body; the server relays it opaquely.
+     */
+    private fun buildMimeBody(subject: String, body: String): ByteArray {
+        val boundary = "maemail-${UUID.randomUUID().toString().take(8)}"
+        val safeSubject = subject.replace(Regex("[\\r\\n]"), " ")
+        return (
+            "From: ${state.address}\r\n" +
+                "Subject: $safeSubject\r\n" +
+                "Message-ID: <${newMessageId()}>\r\n" +
+                "MIME-Version: 1.0\r\n" +
+                "Content-Type: multipart/encrypted; boundary=\"$boundary\"; protocol=\"application/pgp-encrypted\"\r\n" +
+                "\r\n" +
+                "--$boundary\r\n" +
+                "Content-Type: application/pgp-encrypted\r\n" +
+                "\r\n" +
+                "Version: 1\r\n" +
+                "\r\n" +
+                "--$boundary\r\n" +
+                "Content-Type: text/plain; charset=utf-8\r\n" +
+                "\r\n" +
+                "$body\r\n" +
+                "--$boundary--\r\n"
+            ).toByteArray(Charsets.UTF_8)
+    }
+}

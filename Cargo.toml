@@ -182,8 +182,14 @@ hmac = "0.13.0"
 subtle = "2.6.1"
 fips203 = "0.4.3"
 fips204 = "0.4.6"
+# OpenPGP (RFC 9580) for SecureMail via :library:e2ee-p2p — replaces BouncyCastle.
+# rPGP: pure-Rust packet armor/keyring/encrypt/decrypt. BouncyCastle stays removed.
+pgp = { version = "0.21.0" }
 rand_core = { version = "0.10.1" }
 rand = { version = "0.10.3", default-features = true }
+# rand 0.8 for rPGP (`pgp` 0.21 uses rand 0.8 / rand_core 0.6; workspace default
+# is rand 0.10). Same alias pattern as `aes09` for keepass.
+rand08 = { package = "rand", version = "=0.8.6" }
 getrandom = "0.4.3"
 # x509-cert / cms / spki / rsa removed with the PDF signature-creation feature.
 der = { version = "0.8.2", features = ["alloc", "oid"] }
