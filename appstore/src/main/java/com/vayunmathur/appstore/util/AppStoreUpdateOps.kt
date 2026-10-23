@@ -32,7 +32,11 @@ internal fun AppStoreViewModel.checkForUpdatesImpl() {
 
             // Only ask Play about packages neither offline source lists — for the rest the
             // catalogue already answered, and Play would just re-answer it over the network.
-            val index = catalog.packageIndex.value
+            // A direct DB read, not packageIndex.value: the flow's StateFlow cache starts
+            // empty until Room emits, so a cold-start check reading .value sees no packages
+            // and asks Play about every installed app — including ones the offline
+            // catalogue lists. Those phantom Play rows then vanish on the next refresh.
+            val index = catalog.indexSnapshot()
             val installed = installedRepo.updatable.value
             if (AppSource.PLAYSTORE in enabled) {
                 val playCandidates = installed

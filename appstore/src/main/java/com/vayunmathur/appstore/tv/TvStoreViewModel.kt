@@ -435,7 +435,10 @@ class TvStoreViewModel(
                 installedRepo.refresh()
                 catalogUpdatesFlow.value = catalog.updatesFor(installedRepo.updatable.value)
 
-                val index = catalog.packageIndex.value
+                // Direct DB read, not packageIndex.value: the flow's StateFlow cache starts
+                // empty until Room emits, so a cold-start check reading .value sees no
+                // packages and asks Play about every installed app.
+                val index = catalog.indexSnapshot()
                 val installed = installedRepo.updatable.value
                 if (AppSource.PLAYSTORE in enabled) {
                     val playCandidates = installed

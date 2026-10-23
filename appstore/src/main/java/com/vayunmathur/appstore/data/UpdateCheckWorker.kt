@@ -150,7 +150,10 @@ class UpdateCheckWorker(
     ): List<UnifiedApp> {
         // Only Play can answer for packages the offline catalogues have never heard of.
         if (AppSource.PLAYSTORE !in enabled) return emptyList()
-        val index = env.catalog.packageIndex.value
+        // Direct DB read, not packageIndex.value: the worker's flow has no collector yet
+        // on a cold start, so .value would be empty and Play would be asked about every
+        // installed app — including ones the offline catalogue lists.
+        val index = env.catalog.indexSnapshot()
         val unknown = installed
             .filter { it.packageName !in index }
             .map { it.packageName }

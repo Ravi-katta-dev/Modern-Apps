@@ -268,6 +268,18 @@ interface CachedAppDao {
     @Query("SELECT packageName, source, versionCode FROM CachedAppEntity")
     fun indexFlow(): Flow<List<PackageIndexRow>>
 
+    /**
+     * Same rows as [indexFlow] as a one-shot read.
+     *
+     * The flow's [StateFlow] cache starts as an empty map until Room emits, so a cold-start
+     * update check reading `.value` sees no packages and asks Play about every installed
+     * app — including ones the offline catalogue lists. Those phantom Play rows then
+     * vanish on the next refresh once the flow has populated. A direct query always
+     * reflects what is actually cached.
+     */
+    @Query("SELECT packageName, source, versionCode FROM CachedAppEntity")
+    suspend fun indexList(): List<PackageIndexRow>
+
     @Query("SELECT * FROM CachedAppEntity WHERE source = :source ORDER BY name ASC")
     fun bySourceFlow(source: String): Flow<List<CachedAppEntity>>
 
@@ -330,6 +342,18 @@ interface CachedAppDao {
 
     @Upsert
     suspend fun upsert(app: CachedAppEntity)
+
+    /**
+     * Replace one repo's rows atomically. Delete-then-upsert without a transaction
+     * leaves a window where the index is empty and a concurrent update check sees no
+     * packages — asking Play about every installed app, including ones this repo
+     * lists. Those phantom Play rows then vanish on the next refresh.
+     */
+    @androidx.room3.Transaction
+    suspend fun replaceByRepo(repoUrl: String, apps: List<CachedAppEntity>) {
+        deleteByRepo(repoUrl)
+        upsertAll(apps)
+    }
 
     @Query("DELETE FROM CachedAppEntity WHERE repoUrl = :repoUrl")
     suspend fun deleteByRepo(repoUrl: String)

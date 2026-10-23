@@ -46,8 +46,7 @@ class FDroidAppProvider(
             return@withContext 0
         }
         val repo = db.repoDao().all().find { it.url == descriptor.url }
-        db.cachedAppDao().deleteByRepo(descriptor.url)
-        db.cachedAppDao().upsertAll(result.apps.map { it.toEntity() })
+        db.cachedAppDao().replaceByRepo(descriptor.url, result.apps.map { it.toEntity() })
         db.repoDao().upsert(
             (repo ?: descriptor.toEntity()).copy(
                 fingerprint = result.signerSha256,

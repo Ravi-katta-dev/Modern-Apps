@@ -175,12 +175,26 @@ class CatalogRepository(
 
     /** Rows for packages that are installed but older than what the catalogue offers. */
     suspend fun updatesFor(installed: List<InstalledInfo>): List<UnifiedApp> {
-        val index = packageIndex.value
+        val index = indexSnapshot()
         val stale = installed.filter { inst ->
             val known = index[inst.packageName] ?: return@filter false
             known.versionCode > inst.versionCode
         }.map { it.packageName }
         return byPackages(stale).filterTv()
+    }
+
+    /**
+     * Package → what the catalogue knows about it, read straight from the DB.
+     *
+     * One-shot checks (update checks, Play candidate filtering) must use this, not
+     * [packageIndex].value: the flow's StateFlow cache starts empty until Room emits,
+     * so a cold-start check reading `.value` sees no packages and asks Play about
+     * every installed app — including ones the offline catalogue lists. Those phantom
+     * Play rows then vanish on the next refresh once the flow has populated.
+     */
+    suspend fun indexSnapshot(): Map<String, PackageIndexRow> = withContext(Dispatchers.IO) {
+        runCatching { db.cachedAppDao().indexList().associateBy { it.packageName } }
+            .getOrDefault(emptyMap())
     }
 
     /**

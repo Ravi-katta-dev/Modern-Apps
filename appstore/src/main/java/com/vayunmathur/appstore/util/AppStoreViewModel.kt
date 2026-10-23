@@ -458,7 +458,10 @@ class AppStoreViewModel(
             playInstalledPackagesFlow.value = emptySet()
             return
         }
-        val index = catalog.packageIndex.value
+        // Direct DB read, not packageIndex.value: the flow's StateFlow cache starts empty
+        // until Room emits, so a cold-start read of .value would ask Play about every
+        // installed package, including ones the offline catalogue already attributes.
+        val index = catalog.indexSnapshot()
         val candidates = installedRepo.apps.value
             .map { it.packageName }
             .filter { it !in index }
