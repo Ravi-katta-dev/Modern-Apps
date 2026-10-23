@@ -26,9 +26,10 @@ fun SettingsScreen(
     onExportPublicKey: () -> Unit,
     onForget: () -> Unit,
     onBack: () -> Unit,
+    onDismissMessages: () -> Unit = {},
 ) {
     val messenger = rememberMessenger()
-    state.message?.let { messenger.show(it) }
+    ConsumeMessage(state.message, messenger, onDismissMessages)
     AppScaffold(title = "Settings", scrollBehavior = appBarScrollBehavior()) { padding ->
         DesktopMaxWidthContainer(Modifier.padding(padding)) {
             Column(

@@ -42,9 +42,10 @@ fun ComposeScreen(
     initialBody: String,
     onSend: (List<String>, String, String, Boolean, String?) -> Unit,
     onBack: () -> Unit,
+    onConsumeMessage: () -> Unit = {},
 ) {
     val messenger = rememberMessenger()
-    state.message?.let { messenger.show(it) }
+    ConsumeMessage(state.message, messenger, onConsumeMessage)
     var to by remember { mutableStateOf(initialTo) }
     var subject by remember { mutableStateOf(initialSubject) }
     var body by remember { mutableStateOf(initialBody) }

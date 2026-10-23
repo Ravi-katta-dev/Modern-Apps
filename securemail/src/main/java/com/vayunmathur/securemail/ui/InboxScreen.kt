@@ -36,11 +36,12 @@ fun InboxScreen(
     onOutbox: () -> Unit,
     onSettings: () -> Unit,
     onRefresh: () -> Unit,
+    onConsumeMessage: () -> Unit,
     messages: List<StoredMessage> = emptyList(),
     outbox: Int = 0,
 ) {
     val messenger = rememberMessenger()
-    state.message?.let { messenger.show(it) }
+    ConsumeMessage(state.message, messenger, onConsumeMessage)
     AppScaffold(
         title = state.address.ifBlank { "SecureMail" },
         scrollBehavior = appBarScrollBehavior(),

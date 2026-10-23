@@ -88,6 +88,11 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             .launchIn(viewModelScope)
+        // Live relay status: the socket flips this directly, so the UI never
+        // polls a stale flag (which is why it used to say "offline" forever).
+        MailSocket.connectedFlow
+            .onEach { up -> state = state.copy(socketConnected = up) }
+            .launchIn(viewModelScope)
     }
 
     // ------------------------------------------------------------------

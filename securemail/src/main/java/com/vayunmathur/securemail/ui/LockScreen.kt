@@ -31,7 +31,7 @@ fun LockScreen(
     onPassphrase: (String) -> Unit = {},
 ) {
     val messenger = rememberMessenger()
-    state.message?.let { messenger.show(it); onDismissMessages() }
+    ConsumeMessage(state.message, messenger, onDismissMessages)
     var passphrase by remember { mutableStateOf("") }
     AppScaffold(title = "SecureMail locked", scrollBehavior = appBarScrollBehavior()) { padding ->
         DesktopMaxWidthContainer(Modifier.padding(padding)) {

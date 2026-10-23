@@ -81,6 +81,7 @@ fun Navigation(viewModel: MailViewModel, initialRoute: Route? = null) {
                 onOutbox = { backStack.add(Route.Outbox) },
                 onSettings = { backStack.add(Route.Settings) },
                 onRefresh = viewModel::refresh,
+                onConsumeMessage = viewModel::dismissMessages,
                 messages = messages,
                 outbox = outbox,
             )
@@ -93,6 +94,7 @@ fun Navigation(viewModel: MailViewModel, initialRoute: Route? = null) {
                 initialBody = route.body,
                 onSend = viewModel::send,
                 onBack = { backStack.pop() },
+                onConsumeMessage = viewModel::dismissMessages,
             )
         }
         entry<Route.Reader> { route ->
@@ -132,6 +134,7 @@ fun Navigation(viewModel: MailViewModel, initialRoute: Route? = null) {
                 onExportPublicKey = viewModel::exportPublicKey,
                 onForget = viewModel::forgetIdentity,
                 onBack = { backStack.pop() },
+                onDismissMessages = viewModel::dismissMessages,
             )
         }
     }

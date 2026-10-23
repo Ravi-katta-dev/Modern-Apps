@@ -78,7 +78,15 @@ object MailSocket {
     internal val pendingFetches = ConcurrentHashMap<String, CompletableDeferred<ByteArray?>>()
 
     @Volatile internal var session: WsSession? = null
+        private set(value) {
+            field = value
+            _connected.value = value != null
+        }
     private var loop: Job? = null
+
+    private val _connected = kotlinx.coroutines.flow.MutableStateFlow(false)
+    /** Live socket state for the UI to collect (replaces polling `connected`). */
+    val connectedFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _connected
 
     val connected: Boolean get() = session != null
 
