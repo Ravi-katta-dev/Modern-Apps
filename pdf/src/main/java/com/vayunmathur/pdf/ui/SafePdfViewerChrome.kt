@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -89,7 +88,8 @@ internal fun SafePdfEditToolbarPane(
 internal fun SafePdfViewerChrome(
     state: SafePdfViewerState,
     bundle: SafePdfDocumentBundle,
-    listState: LazyListState,
+    scroll: SafePdfScrollState,
+    zoom: SafePdfZoomState,
     drawerState: DrawerState,
     pageViewer: @Composable (Modifier) -> Unit,
     searchFocus: FocusRequester,
@@ -110,7 +110,7 @@ internal fun SafePdfViewerChrome(
         drawerState = drawerState,
         onSelectPage = { page ->
             scope.launch {
-                if (page >= 0) listState.animateScrollToItem(page)
+                if (page >= 0) scroll.scrollToPage(page, zoom.zoom)
                 drawerState.close()
             }
         },

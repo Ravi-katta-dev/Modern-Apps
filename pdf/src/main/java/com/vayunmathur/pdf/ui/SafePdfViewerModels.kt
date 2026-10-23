@@ -258,17 +258,12 @@ internal fun maxZoomFor(pageWidthPts: Float, viewportWidthPx: Int): Float {
 }
 
 /**
- * Clamp the zoom [pan] (screen-pixel translation) so the content, scaled by
- * [zoom] around its top edge, can't be dragged past the viewport ([size]) edges.
- * At zoom 1 the range is zero, so the page stays put. Because the pivot is the top
- * (not the centre), the vertical range runs from -(zoom-1)·height to 0 rather than
- * symmetrically about zero.
+ * Maximum horizontal zoom [pan] (screen-pixel translation) for a [viewportWidthPx]
+ * viewport at [zoom]. The layer pivots on its top-centre, so the range is
+ * symmetric about zero. Vertical has no pan: [SafePdfScrollState] owns it.
  */
-internal fun clampPan(pan: Offset, zoom: Float, size: IntSize): Offset {
-    val maxX = (size.width * (zoom - 1f) / 2f).coerceAtLeast(0f)
-    val maxY = (size.height * (zoom - 1f)).coerceAtLeast(0f)
-    return Offset(pan.x.coerceIn(-maxX, maxX), pan.y.coerceIn(-maxY, 0f))
-}
+internal fun maxPanX(viewportWidthPx: Int, zoom: Float): Float =
+    (viewportWidthPx * (zoom - 1f) / 2f).coerceAtLeast(0f)
 
 /**
  * An in-progress inline text edit. [origin] is the top of the text box in page

@@ -2,7 +2,6 @@ package com.vayunmathur.pdf.ui
 
 import android.content.Context
 import android.net.Uri
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -16,7 +15,6 @@ import com.vayunmathur.pdf.util.PdfStateStore
 import com.vayunmathur.pdf.util.SafeOutlineItem
 import com.vayunmathur.pdf.util.SafePdfDocument
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
 
 /** Document load outputs owned by the screen's load effect. */
 internal class SafePdfDocumentBundle(
@@ -96,15 +94,15 @@ internal fun rememberSafePdfDocument(
     return SafePdfDocumentBundle(loadState, document, outline, hasRedactions, ocrEngine)
 }
 
-/** Search debounce + last-read-page restore/persist + scroll indicator effects. */
+/** Search debounce + last-read-page restore/persist effects. */
 @Composable
 internal fun SafePdfScreenEffects(
     context: Context,
     uri: Uri,
     state: SafePdfViewerState,
     document: SafePdfDocument?,
-    listState: LazyListState,
-    onScrollingChanged: (Boolean) -> Unit,
+    scroll: SafePdfScrollState,
+    zoom: SafePdfZoomState,
 ) {
     LaunchedEffect(state.query, document, state.searching, state.caseSensitive) {
         val doc = document
@@ -120,31 +118,19 @@ internal fun SafePdfScreenEffects(
     }
 
     LaunchedEffect(state.matchIndex, state.matches) {
-        state.matches.getOrNull(state.matchIndex)?.let { listState.animateScrollToItem(it.first) }
+        state.matches.getOrNull(state.matchIndex)?.let { scroll.scrollToPage(it.first, zoom.zoom) }
     }
 
-    // Restore last-read page, then persist the first-visible page as it changes.
+    // Restore last-read page, then persist the current page as it changes.
     LaunchedEffect(document) {
         if (document != null) {
             val p = PdfStateStore.restoreSafePage(context, uri)
-            if (p > 0) runCatching { listState.scrollToItem(p) }
+            if (p > 0) runCatching { scroll.scrollToPage(p, zoom.zoom) }
         }
     }
     LaunchedEffect(document) {
         if (document == null) return@LaunchedEffect
-        androidx.compose.runtime.snapshotFlow { listState.firstVisibleItemIndex }
+        androidx.compose.runtime.snapshotFlow { scroll.currentPage() }
             .collect { PdfStateStore.saveSafePage(context, uri, it) }
-    }
-
-    // Right-side page-number indicator: visible while scrolling, hides shortly after.
-    LaunchedEffect(listState) {
-        androidx.compose.runtime.snapshotFlow { listState.isScrollInProgress }.collectLatest { scrolling ->
-            if (scrolling) {
-                onScrollingChanged(true)
-            } else {
-                delay(1000)
-                onScrollingChanged(false)
-            }
-        }
     }
 }

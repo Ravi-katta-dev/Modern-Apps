@@ -3,14 +3,10 @@ package com.vayunmathur.pdf.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -49,10 +45,9 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
     val bundle = rememberSafePdfDocument(context, uri, state, onBack)
     val document = bundle.document
 
-    val listState = rememberLazyListState()
+    val scroll = rememberSafePdfScrollState()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
-    val (zoom, transform) = rememberSafePdfZoomState()
-    var showPageIndicator by remember { mutableStateOf(false) }
+    val (zoom, transform) = rememberSafePdfZoomState(scroll)
 
     val launchers = rememberSafePdfLaunchers(
         onSaveCopyPicked = { outUri ->
@@ -87,8 +82,8 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
         uri = uri,
         state = state,
         document = document,
-        listState = listState,
-        onScrollingChanged = { showPageIndicator = it },
+        scroll = scroll,
+        zoom = zoom,
     )
 
     val searchFocus = remember { FocusRequester() }
@@ -131,7 +126,8 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
     SafePdfViewerChrome(
         state = state,
         bundle = bundle,
-        listState = listState,
+        scroll = scroll,
+        zoom = zoom,
         drawerState = drawerState,
         pageViewer = { modifier ->
             SafePdfPageViewer(
@@ -140,9 +136,8 @@ fun SafePdfViewerScreen(uri: Uri, onBack: () -> Unit) {
                 state = state,
                 zoom = zoom,
                 transform = transform,
-                listState = listState,
+                scroll = scroll,
                 launchers = launchers,
-                showPageIndicator = showPageIndicator,
             )
         },
         searchFocus = searchFocus,
