@@ -15,5 +15,4 @@ Apps that fetch from external servers (excluding vayunmathur.com, findfamily.cc,
 6. **communicate** — only after registering a line: `chat.signal.org` (WS + REST), `cdsi.signal.org`, `cdn.signal.org` / `cdn*.signal.org` + `storage.signal.org`, `sfu.voip.signal.org`, `signalcaptchas.org`; `clients6.google.com`, `voice.google.com`; `g.whatsapp.net`, `v.whatsapp.net`, `graph.whatsapp.com`, `mmg.whatsapp.net`
 7. **email** — only after adding an account: `imap.gmail.com` / `smtp.gmail.com`, `outlook.office365.com` / `smtp-mail.outlook.com`, `imap.mail.yahoo.com` / `smtp.mail.yahoo.com`, `imap.aol.com` / `smtp.aol.com`, `imap.mail.me.com` / `smtp.mail.me.com`, `imap.fastmail.com` / `smtp.fastmail.com`, `login.microsoftonline.com` + `outlook.office.com` (OAuth)
 8. **games/chess** — `lichess.org` (OAuth + Board API), only after sign-in
-9. **securemail** — `keys.openpgp.org`, only on compose-time lookup for unknown keys
-10. **web** — whichever search engine the user picks (WebView loads it; DuckDuckGo default), only on user navigation/search
+9. **web** — whichever search engine the user picks (WebView loads it; DuckDuckGo default), only on user navigation/search
