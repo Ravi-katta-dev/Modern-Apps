@@ -2,7 +2,7 @@
 
 Apps that fetch from external servers (excluding vayunmathur.com, findfamily.cc, maproj.org, maemail.org). Fetches only — no outbound intents, accepted-link hosts, comments, test fixtures, or parser identifiers.
 
-## Forced — connects during normal use, no per-service opt-in
+## Mandatory — connects during normal use, no per-service opt-in
 
 1. **maps** — `www.google.com` (ambient POI pins + traffic, traffic layer default-ON), `maps.googleapis.com` + `streetviewpixels-pa.googleapis.com` (Street View), `maps.google.com` (reviews scraper). No master toggle.
 2. **taxi** — `api.lyft.com`, `cn-geo1.uber.com` + `m.uber.com`, `api.stripe.com`, `payments.braintree-api.com`
