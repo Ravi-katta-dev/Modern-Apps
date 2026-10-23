@@ -178,10 +178,6 @@
     <string name="reminders">Meeldetuletused</string>
     <string name="reminder_custom">Sinu seadistatud</string>
     <string name="reminder_custom_title">Sinu koostatud meeldetuletus</string>
-    <string name="reminder_custom_amount">Kogus</string>
-    <string name="reminder_custom_unit">Ühik</string>
     <string name="reminder_unit_minutes">Minutid</string>
     <string name="reminder_unit_hours">Tunnid</string>
-    <string name="reminder_unit_days">Päevad</string>
-    <string name="reminder_unit_weeks">Nädalad</string>
 </resources>

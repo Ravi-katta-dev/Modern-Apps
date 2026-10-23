@@ -10,4 +10,16 @@
         <item name="android:windowSplashScreenIconBackgroundColor">@color/ic_launcher_background</item>
         <item name="android:windowSplashScreenBehavior">icon_preferred</item>
     </style>
+
+    <!-- Transparent host for headless prompt activities (passwords' CableActivity):
+         no content is ever set, only a system BiometricPrompt is shown, so the
+         window must not paint an opaque background over the calling app. -->
+    <style name="Theme.General.Translucent" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>

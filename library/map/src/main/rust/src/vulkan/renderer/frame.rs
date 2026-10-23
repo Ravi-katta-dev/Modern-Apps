@@ -291,6 +291,10 @@ impl Renderer {
         self.scratch_ordered.extend(self.tiles.keys().copied());
         self.scratch_ordered
             .sort_by_key(|k| self.tiles.get(k).map(|t| t.z).unwrap_or(0));
+        // Covered-stand-in suppression, before the early-out key: a fade
+        // completing newly suppresses a stand-in, so the map must be current
+        // for the version below to differ and this frame to actually submit.
+        self.refresh_suppression(camera.time_seconds);
         let extent = self.swapchain.extent;
         let accepted = self.place_symbols(camera, layers, &self.scratch_ordered, extent, filter);
         // The pick snapshot tracks the accept-set, not the submit: a reused placement keeps
@@ -309,6 +313,7 @@ impl Renderer {
             self.residency_epoch.get(),
             self.placement_version.get(),
             self.state_epoch.get(),
+            self.suppression_epoch.get(),
         );
         if !self.needs_frame() && self.last_frame_version == Some(version) {
             // A skip implies a placement reuse (a recompute would have bumped the version

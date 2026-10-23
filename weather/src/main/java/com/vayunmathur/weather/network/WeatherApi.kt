@@ -5,10 +5,10 @@ import com.vayunmathur.weather.data.GeoDatabase
 
 /**
  * Thin wrapper over the shared [NetworkClient] for the self-hosted `wx/v1`
- * bundle API on `api.maproj.org` (+ self-hosted geocoding on the same
- * host). One `bundle()` call carries everything the weather screen needs;
- * the mapper normalizes it into the existing DTOs so nothing downstream of
- * `network/` changes.
+ * bundle API on `api.maproj.org`. One `bundle()` call carries everything
+ * the weather screen needs; the mapper normalizes it into the existing
+ * DTOs so nothing downstream of `network/` changes. Place search is fully
+ * on-device ([GeoDatabase]) — no geocoding host remains.
  *
  * Everything is requested in metric units; the UI converts at display time so
  * toggling °C/°F doesn't trigger another HTTP call.
@@ -16,7 +16,6 @@ import com.vayunmathur.weather.data.GeoDatabase
 object WeatherApi {
 
     private const val BUNDLE_BASE = "https://api.maproj.org/wx/v1"
-    private const val GEOCODE_BASE = "https://api.maproj.org/wx/v1/search"
 
     /**
      * Fetch the full bundle (current + hourly + daily + 15-min + AQ) for a
@@ -47,24 +46,16 @@ object WeatherApi {
      * the in-app city search and by the OpenAssistant
      * `get_weather_by_name` intent.
      *
-     * On-device catalogue first (offline-capable, no network); the server
-     * endpoint is the fallback for checkouts without the generated asset.
+     * Fully on-device: the places catalogue (`places.db.br`) is a committed
+     * asset unpacked by [GeoDatabase], so search works on a clean checkout
+     * with no network. Empty when the catalogue is absent or nothing matches.
      */
     suspend fun geocode(query: String, limit: Int = 5): GeocodingResponse {
         if (query.isBlank()) return GeocodingResponse(emptyList())
         val local = runCatching {
             GeoDatabase.searchPlaces(query, limit)
         }.getOrDefault(emptyList())
-        if (local.isNotEmpty()) return GeocodingResponse(local)
-        // Catalogue absent (or genuinely no match): try the server index.
-        val url = buildString {
-            append(GEOCODE_BASE)
-            append("?name=").append(java.net.URLEncoder.encode(query, "UTF-8"))
-            append("&count=").append(limit)
-        }
-        return runCatching {
-            NetworkClient.getJson<GeocodingResponse>(url)
-        }.getOrDefault(GeocodingResponse(emptyList()))
+        return GeocodingResponse(local)
     }
 
     /**

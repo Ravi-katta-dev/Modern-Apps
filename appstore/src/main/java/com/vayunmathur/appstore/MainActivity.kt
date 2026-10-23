@@ -17,15 +17,18 @@ import com.vayunmathur.appstore.data.AppStoreDatabaseRepository
 import com.vayunmathur.appstore.data.UnifiedApp
 import com.vayunmathur.appstore.data.UpdateCheckWorker
 import com.vayunmathur.appstore.ui.AppDetailPage
+import com.vayunmathur.appstore.ui.BrowsePage
 import com.vayunmathur.appstore.ui.HomePage
 import com.vayunmathur.appstore.ui.LibraryPage
 import com.vayunmathur.appstore.ui.SearchPage
 import com.vayunmathur.appstore.ui.SourcesPage
 import com.vayunmathur.appstore.ui.TrustPage
 import com.vayunmathur.appstore.ui.UpdatesPage
+import com.vayunmathur.appstore.util.AppSection
 import com.vayunmathur.appstore.util.AppStoreViewModel
 import com.vayunmathur.appstore.util.AppStoreViewModelFactory
 import com.vayunmathur.appstore.util.clearSelection
+import com.vayunmathur.appstore.util.openBrowse
 import com.vayunmathur.appstore.util.selectApp
 import com.vayunmathur.appstore.util.selectPackage
 import com.vayunmathur.library.network.NetworkClient
@@ -113,6 +116,7 @@ sealed interface Route : NavKey {
     @Serializable data object Main : Route
     @Serializable data object Trust : Route
     @Serializable data object Detail : Route
+    @Serializable data class Browse(val sectionId: String) : Route
 }
 
 /**
@@ -143,12 +147,25 @@ private fun AppRoot(
         if (backStack.last() !is Route.Detail) backStack.add(Route.Detail)
     }
 
+    fun openBrowse(section: AppSection) {
+        viewModel.openBrowse(section)
+        backStack.add(Route.Browse(section.id))
+    }
+
     MainNavigation(backStack) {
         entry<Route.Main> {
             AppTabs(
                 viewModel = viewModel,
                 onAppClick = ::openDetail,
                 onOpenTrust = { backStack.add(Route.Trust) },
+                onOpenBrowse = ::openBrowse,
+            )
+        }
+        entry<Route.Browse> {
+            BrowsePage(
+                viewModel = viewModel,
+                onAppClick = ::openDetail,
+                onBack = { backStack.pop() },
             )
         }
         entry<Route.Trust> {
@@ -179,6 +196,7 @@ private fun AppTabs(
     viewModel: AppStoreViewModel,
     onAppClick: (UnifiedApp) -> Unit,
     onOpenTrust: () -> Unit,
+    onOpenBrowse: (AppSection) -> Unit,
 ) {
     val pagerState = rememberPagerState(pageCount = { 5 })
     val scope = rememberCoroutineScope()
@@ -188,6 +206,7 @@ private fun AppTabs(
                 viewModel = viewModel,
                 onAppClick = onAppClick,
                 onOpenUpdates = { scope.launch { pagerState.animateScrollToPage(PAGE_UPDATES) } },
+                onOpenBrowse = onOpenBrowse,
             )
         },
         PagerTab(stringResource(R.string.nav_search), { IconSearch() }) {

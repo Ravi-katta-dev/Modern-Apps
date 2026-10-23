@@ -115,7 +115,7 @@ fun CalendarScreen(viewModel: CalendarViewModel, backStack: NavBackStack<Route>)
             override fun createEventOn(date: LocalDate) {
                 viewModel.setLastViewedDate(dateViewing)
                 // Pre-fill the pressed date at the current hour so the editor opens on a sensible
-                // timed slot; the editor derives a default end an hour later.
+                // timed slot; the editor derives a default end half an hour later.
                 val tz = TimeZone.currentSystemDefault()
                 val nowTime = Clock.System.now().toLocalDateTime(tz).time
                 val begin = date.atTime(nowTime.hour, 0).toInstant(tz).toEpochMilliseconds()

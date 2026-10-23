@@ -49,6 +49,7 @@ import com.vayunmathur.camera.util.setBlurStrength
 import com.vayunmathur.camera.util.setExposureCompensation
 import com.vayunmathur.camera.util.setExposureTimeIndex
 import com.vayunmathur.camera.util.setManualIsoIndex
+import com.vayunmathur.camera.util.setQrResult
 import com.vayunmathur.camera.util.setShadows
 import com.vayunmathur.camera.util.setWarmth
 import com.vayunmathur.camera.util.setZoomRatio
@@ -281,6 +282,8 @@ internal fun BoxWithConstraintsScope.CameraPreviewBox(
         cameraMode = cameraMode,
         onSelectSetting = { state.activeSetting = it },
         modifier = Modifier.align(Alignment.BottomCenter),
+        qrResult = state.qrResult,
+        onDismissQr = { viewModel.setQrResult(null) },
     )
 
     if ((cameraMode == CameraMode.PANORAMA || cameraMode == CameraMode.PHOTOSPHERE) && (state.panoSweeping || state.panoStitching)) {

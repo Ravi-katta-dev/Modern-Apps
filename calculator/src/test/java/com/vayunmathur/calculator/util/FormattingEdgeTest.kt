@@ -52,7 +52,7 @@ class FormattingEdgeTest {
     @Test
     fun tokenFormUsesPlainSpaceForRoundTrips() {
         val q = Expression.parse("5m").evalQuantity()
-        XX(q, unit("m"), useToken = true))
+        assertEquals("5 m", formatQuantity(q, unit("m"), useToken = true))
     }
 
     @Test

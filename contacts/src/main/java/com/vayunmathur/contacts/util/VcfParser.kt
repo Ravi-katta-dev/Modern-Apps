@@ -2,10 +2,13 @@ package com.vayunmathur.contacts.util
 
 import android.provider.ContactsContract
 import com.vayunmathur.contacts.data.Address
+import com.vayunmathur.contacts.data.CommPlatform
+import com.vayunmathur.contacts.data.CommPref
 import com.vayunmathur.contacts.data.Contact
 import com.vayunmathur.contacts.data.ContactDetails
 import com.vayunmathur.contacts.data.Email
 import com.vayunmathur.contacts.data.Event
+import com.vayunmathur.contacts.data.Gender
 import com.vayunmathur.contacts.data.GroupMembership
 import com.vayunmathur.contacts.data.Name
 import com.vayunmathur.contacts.data.Nickname
@@ -95,7 +98,9 @@ private class VcfParser(
             orgs = builder.orgs.toList(),
             notes = builder.notes.toList(),
             nicknames = builder.nicknames.toList(),
-            groups = builder.groups.toList()
+            groups = builder.groups.toList(),
+            genders = builder.genders.toList(),
+            commPrefs = builder.commPrefs.toList()
         )
         val newContact = Contact(
             id = 0L,
@@ -145,7 +150,7 @@ private class VcfParser(
         return true
     }
 
-    /** Applies notes/nicknames/groups/photo/flag metadata fields. */
+    /** Applies notes/nicknames/gender/comm-pref/groups/photo/flag metadata fields. */
     private fun dispatchMetadataField(
         builder: ContactBuilder,
         propName: String,
@@ -154,6 +159,8 @@ private class VcfParser(
         when (propName) {
             "NOTE" -> applyNote(builder, decodedValue)
             "NICKNAME" -> applyNickname(builder, decodedValue)
+            "GENDER" -> applyGender(builder, decodedValue)
+            "X-COMM-PREF" -> applyCommPref(builder, decodedValue)
             "CATEGORIES" -> applyCategories(builder, decodedValue)
             "X-STARRED" -> applyStarred(builder, decodedValue)
             "PHOTO" -> builder.photos.add(Photo(0, decodedValue))
@@ -284,6 +291,28 @@ private class VcfParser(
                 Nickname(0, n, ContactsContract.CommonDataKinds.Nickname.TYPE_DEFAULT)
             )
         }
+    }
+
+    private fun applyGender(builder: ContactBuilder, decodedValue: String) {
+        // GENDER:letter[;free text] per RFC 6350 §6.2.7; singleton, last one wins.
+        // Split on unescaped semicolons first: a literal ";" inside free text
+        // arrives escaped ("\;") and must not split the components.
+        val comps = splitUnescaped(decodedValue, ';').map(::unescapeV)
+        val code = Gender.canonicalCode(comps.getOrNull(0).orEmpty()) ?: return
+        val text = comps.drop(1).joinToString(";").trim()
+            .takeIf { code == Gender.OTHER && it.isNotEmpty() }.orEmpty()
+        builder.genders.clear()
+        builder.genders.add(Gender(0, code, text))
+    }
+
+    private fun applyCommPref(builder: ContactBuilder, decodedValue: String) {
+        // X-COMM-PREF:platform;number; singleton, last one wins. Invalid lines dropped.
+        val comps = splitUnescaped(decodedValue, ';').map(::unescapeV)
+        val platform = CommPlatform.fromStorageKey(comps.getOrNull(0).orEmpty()) ?: return
+        val number = comps.drop(1).joinToString(";").trim()
+        if (number.isEmpty()) return
+        builder.commPrefs.clear()
+        builder.commPrefs.add(CommPref(0, number, platform))
     }
 
     // Broad catch is deliberate: group resolution runs caller-supplied code
@@ -417,6 +446,8 @@ private class ContactBuilder {
     val nicknames: MutableList<Nickname> = mutableListOf(
         Nickname(0, "", ContactsContract.CommonDataKinds.Nickname.TYPE_DEFAULT)
     )
+    val genders: MutableList<Gender> = mutableListOf()
+    val commPrefs: MutableList<CommPref> = mutableListOf()
     val groups: MutableList<GroupMembership> = mutableListOf()
     var isFavorite: Boolean = false
 }

@@ -18,6 +18,7 @@
 //!   driver is about to turn onto is.
 
 pub mod coverage;
+pub mod cover;
 pub mod fade;
 pub mod resident;
 pub mod tile_id;
@@ -25,11 +26,14 @@ pub mod tile_id;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_cover;
+#[cfg(test)]
 mod tests_part2;
 #[cfg(test)]
 mod tests_part3;
 
 pub use coverage::{bound, visible};
+pub use cover::{relevant_keys, redundant_tiles, COVER_MAX_DEPTH};
 pub use fade::{
     fade_in_progress, has_resident_ancestor, lod_fade_alpha, tile_lod_alpha, LOD_FADE_SECONDS,
 };

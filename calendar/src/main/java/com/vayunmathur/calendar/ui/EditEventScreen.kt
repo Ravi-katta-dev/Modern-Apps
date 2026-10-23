@@ -3,24 +3,17 @@ package com.vayunmathur.calendar.ui
 import com.vayunmathur.library.ui.R as UiR
 import android.text.format.DateFormat
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import com.vayunmathur.library.ui.ExperimentalMaterial3Api
 import com.vayunmathur.library.ui.DetailScaffold
 import com.vayunmathur.library.ui.HorizontalDivider
 import com.vayunmathur.library.ui.LabeledTextField
-import com.vayunmathur.library.ui.MaterialTheme
-import com.vayunmathur.library.ui.OutlinedTextField
 import com.vayunmathur.library.ui.ProvideTextStyle
 import com.vayunmathur.library.ui.Switch
 import com.vayunmathur.library.ui.Text
@@ -34,12 +27,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.calendar.data.Event
@@ -63,7 +54,7 @@ import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.minutes
 import com.vayunmathur.library.ui.DateString
 import com.vayunmathur.library.ui.appBarScrollBehavior
 
@@ -126,20 +117,27 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
     val initialEndLdt = editRoute.endTime?.let { Instant.fromEpochMilliseconds(it).toLocalDateTime(TimeZone.currentSystemDefault()) }
         ?: initialBeginLdt?.let {
             val tz = TimeZone.currentSystemDefault()
-            it.toInstant(tz).plus(1.hours).toLocalDateTime(tz)
+            it.toInstant(tz).plus(30.minutes).toLocalDateTime(tz)
         }
 
     var allDay by remember(event?.id) { mutableStateOf(event?.allDay ?: editRoute.allDay ?: false) }
     var startDate by remember(event?.id) { mutableStateOf(event?.startDateTimeDisplay?.date ?: initialBeginLdt?.date ?: today) }
+    var startTime by remember(event?.id) { mutableStateOf(event?.startDateTimeDisplay?.time ?: initialBeginLdt?.time ?: now) }
+    // A new event with no supplied end defaults to 30 minutes long (the old fallback reused
+    // startTime, producing a 0-minute event). Rolls to the next day when past midnight.
+    val defaultEndLdt = remember(event?.id) {
+        if (event != null || initialEndLdt != null) null
+        else (startDate.atTime(startTime).toInstant(TimeZone.currentSystemDefault()) + 30.minutes)
+            .toLocalDateTime(TimeZone.currentSystemDefault())
+    }
     // Stored all-day end is exclusive (midnight after the last day), so show the last covered day.
     var endDate by remember(event?.id) {
         mutableStateOf(
             event?.let { if (it.allDay) it.endDateTimeDisplay.date.minus(DatePeriod(days = 1)) else it.endDateTimeDisplay.date }
-                ?: initialEndLdt?.date ?: startDate
+                ?: initialEndLdt?.date ?: defaultEndLdt?.date ?: startDate
         )
     }
-    var startTime by remember(event?.id) { mutableStateOf(event?.startDateTimeDisplay?.time ?: initialBeginLdt?.time ?: now) }
-    var endTime by remember(event?.id) { mutableStateOf(event?.endDateTimeDisplay?.time ?: initialEndLdt?.time ?: startTime) }
+    var endTime by remember(event?.id) { mutableStateOf(event?.endDateTimeDisplay?.time ?: initialEndLdt?.time ?: defaultEndLdt?.time ?: startTime) }
     // All-day events are stored in UTC as a provider/RFC 5545 artifact, not a real user zone.
     // Seed the picker with the device zone so switching to a timed event doesn't reinterpret the
     // wall-clock time in UTC (which the day/week/month views would then shift by the local offset).
@@ -277,7 +275,7 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
                 value = title,
                 onValueChange = { title = it },
                 label = stringResource(R.string.label_title),
-                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                 sharedTextKey = editRoute.instanceId?.let { "calendar-event-title-$it" },
             )
 
@@ -290,22 +288,11 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
                 )
             }
 
-            Text(
-                text = stringResource(R.string.label_description),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            EditEventDescription(
+                descriptionText = descriptionText,
+                descriptionController = descriptionController,
             )
-            com.vayunmathur.library.ui.OdfMarkdownEditorField(
-                controller = descriptionController,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp)
-                    .heightIn(min = 96.dp)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                    .padding(12.dp),
-            )
-            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
             EditEventDateTimeSection(
                 allDay = allDay,
                 onAllDay = { allDay = it },
@@ -327,11 +314,11 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
                 timezoneKey = KEY_TIMEZONE,
             )
 
-            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
 
             EditEventReminders(reminders = reminders, onReminders = { reminders = it })
 
-            HorizontalDivider(Modifier.padding(vertical = 16.dp))
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
             // The location line on the detail screen morphs into this field. sharedTextKey, not a
             // modifier: the editable line fills the field's width, so keying the field itself would
             // balloon the arriving text out to that width and snap it back on landing. Null for a new
@@ -340,7 +327,7 @@ fun EditEventScreen(viewModel: CalendarViewModel, editRoute: Route.EditEvent, ba
                 value = location,
                 onValueChange = { location = it },
                 label = stringResource(R.string.label_location),
-                modifier = Modifier.fillMaxWidth().padding(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
                 singleLine = false,
                 sharedTextKey = editRoute.id?.let { "calendar-event-location-$it" },
             )

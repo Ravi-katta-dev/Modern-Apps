@@ -13,6 +13,7 @@ import com.vayunmathur.translate.data.TranslationRecord
 import com.vayunmathur.translate.platform.TranslateViewModel
 import com.vayunmathur.translate.ui.CameraTranslateScreen
 import com.vayunmathur.translate.ui.HistoryPage
+import com.vayunmathur.translate.ui.ImageTranslatePage
 import com.vayunmathur.translate.ui.LanguagePickerPage
 import com.vayunmathur.translate.ui.TextTranslatePage
 
@@ -30,6 +31,7 @@ fun Navigation(viewModel: TranslateViewModel, initialText: String) {
                 reuseRequest = reuseRequest,
                 onReuseConsumed = { reuseRequest = null },
                 onOpenCamera = { backStack.add(Route.Camera) },
+                onOpenImage = { uri -> backStack.add(Route.Image(uri)) },
                 onOpenHistory = { backStack.add(Route.History) },
                 onOpenLanguagePicker = { forSource ->
                     backStack.add(Route.LanguagePicker(forSource))
@@ -49,6 +51,17 @@ fun Navigation(viewModel: TranslateViewModel, initialText: String) {
         entry<Route.Camera>(metadata = FullscreenPage()) {
             CameraTranslateScreen(
                 viewModel = viewModel,
+                onBack = { backStack.pop() },
+                onOpenLanguagePicker = { forSource ->
+                    backStack.add(Route.LanguagePicker(forSource))
+                },
+            )
+        }
+        entry<Route.Image>(metadata = FullscreenPage()) { route ->
+            ImageTranslatePage(
+                viewModel = viewModel,
+                imageUri = route.imageUri,
+                onReplaceImage = { uri -> backStack.setLast(Route.Image(uri)) },
                 onBack = { backStack.pop() },
                 onOpenLanguagePicker = { forSource ->
                     backStack.add(Route.LanguagePicker(forSource))

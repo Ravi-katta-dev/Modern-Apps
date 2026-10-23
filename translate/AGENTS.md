@@ -40,7 +40,7 @@ _Install: ./install translate (dev by default)._
 - com/vayunmathur/translate/platform/NllbModel.kt
 - com/vayunmathur/translate/platform/SpeechRecognizerEngine.kt
 - com/vayunmathur/translate/platform/TtsSpeaker.kt
-### ui/ — text, camera, picker
+### ui/ — text, camera, image, picker
 - com/vayunmathur/translate/ui/TextTranslateScreen.kt
 - com/vayunmathur/translate/ui/TextTranslatePage.kt
 - com/vayunmathur/translate/ui/CameraTranslateScreen.kt
@@ -48,6 +48,9 @@ _Install: ./install translate (dev by default)._
 - com/vayunmathur/translate/ui/CameraOverlay.kt
 - com/vayunmathur/translate/ui/CameraBinding.kt
 - com/vayunmathur/translate/ui/CameraFrameUtils.kt
+- com/vayunmathur/translate/ui/ImageTranslateScreen.kt
+- com/vayunmathur/translate/ui/ImageTranslatePage.kt
+- com/vayunmathur/translate/ui/ImagePicker.kt
 - com/vayunmathur/translate/ui/LanguagePickerScreen.kt
 - com/vayunmathur/translate/ui/LanguagePickerPage.kt
 

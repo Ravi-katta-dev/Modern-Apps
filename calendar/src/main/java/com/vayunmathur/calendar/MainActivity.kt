@@ -1,6 +1,7 @@
 package com.vayunmathur.calendar
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.CalendarContract
@@ -17,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.lifecycleScope
@@ -44,6 +46,7 @@ import com.vayunmathur.calendar.ui.dialogs.SettingsRenameCalendarDialog
 import com.vayunmathur.calendar.ui.dialogs.TimezonePickerDialog
 import com.vayunmathur.calendar.util.CalendarViewModel
 import com.vayunmathur.calendar.util.RecurrenceParams
+import com.vayunmathur.calendar.util.ReminderScheduler
 import com.vayunmathur.library.ui.AppPermissionsGate
 import com.vayunmathur.library.ui.AppPermissionsSpec
 import com.vayunmathur.library.ui.DynamicTheme
@@ -76,6 +79,7 @@ import kotlinx.serialization.json.Json
 class MainActivity : MaActivity() {
     private val importUris = mutableStateOf<List<String>>(emptyList())
     private val pendingRoute = mutableStateOf<Route?>(null)
+    private val pendingReminderFallback = mutableStateOf<ReminderFallback?>(null)
     private val pendingDate = mutableStateOf<LocalDate?>(null)
 
     override fun onCreateBeforeContent() {
@@ -110,6 +114,7 @@ class MainActivity : MaActivity() {
             activityIntent = intent,
             importUris = importUris,
             pendingRoute = pendingRoute,
+            pendingReminderFallback = pendingReminderFallback,
             pendingDate = pendingDate,
         )
     }
@@ -152,12 +157,45 @@ class MainActivity : MaActivity() {
     /**
      * Handles an instance deep-link extra. Returns true when the intent carried no
      * stream data, so it must not fall into ICS handling.
+     *
+     * Notification taps arrive with the full Instance JSON when the provider
+     * was readable at fire time (same key the agenda widget uses); pre-unlock
+     * alarms only carry the lightweight event id + start/end extras (see
+     * ReminderReceiver), which are stashed as a [ReminderFallback] and resolved
+     * against the provider once the app is open.
      */
     private fun consumeInstanceLink(it: Intent): Boolean {
-        if (!it.hasExtra("instance")) return false
-        it.getStringExtra("instance")?.let { raw ->
+        it.getStringExtra(ReminderScheduler.EXTRA_INSTANCE)?.let { raw ->
             runCatching { Json.decodeFromString<Instance>(raw) }.getOrNull()
-        }?.let { instance -> pendingRoute.value = Route.Event(instance) }
+        }?.let { instance ->
+            pendingRoute.value = Route.Event(instance)
+            pendingReminderFallback.value = null
+            return finishInstanceLink(it)
+        }
+        if (it.hasExtra(ReminderScheduler.EXTRA_EVENT_ID) &&
+            it.hasExtra(ReminderScheduler.EXTRA_INSTANCE_START)
+        ) {
+            val eventId = it.getLongExtra(ReminderScheduler.EXTRA_EVENT_ID, -1L)
+            val start = it.getLongExtra(ReminderScheduler.EXTRA_INSTANCE_START, 0L)
+            val end = it.getLongExtra(ReminderScheduler.EXTRA_INSTANCE_END, 0L)
+            if (eventId != -1L && start != 0L) {
+                pendingRoute.value = null
+                pendingReminderFallback.value = ReminderFallback(eventId, start, end)
+                return finishInstanceLink(it)
+            }
+        }
+        if (!it.hasExtra(ReminderScheduler.EXTRA_INSTANCE) &&
+            !it.hasExtra(ReminderScheduler.EXTRA_EVENT_ID)
+        ) {
+            return false
+        }
+        // Malformed deep-link (exported activity): fall back to home, never crash.
+        pendingRoute.value = null
+        pendingReminderFallback.value = null
+        return finishInstanceLink(it)
+    }
+
+    private fun finishInstanceLink(it: Intent): Boolean {
         // Instance intents carry no stream data; avoid falling into ICS handling.
         return it.data == null && IntentHelper.getUrisFromIntent(it).isEmpty()
     }
@@ -170,6 +208,7 @@ class MainActivity : MaActivity() {
             return false
         }
         pendingRoute.value = editEventFromIntent(it)
+        pendingReminderFallback.value = null
         return true
     }
 
@@ -231,6 +270,12 @@ private fun editEventFromIntent(it: Intent): Route.EditEvent {
 private const val NO_TIME_MILLIS = -1L
 
 /**
+ * Lightweight deep-link for a reminder tap when the full Instance JSON was
+ * unavailable (pre-unlock alarm). Resolved against the provider once readable.
+ */
+data class ReminderFallback(val eventId: Long, val instanceStart: Long, val instanceEnd: Long)
+
+/**
  * The activity's content, extracted from [MainActivity.onCreate] so the activity
  * method stays under the LongMethod/CyclomaticComplexMethod limits.
  */
@@ -239,6 +284,7 @@ private fun MainActivity.CalendarAppContent(
     activityIntent: Intent?,
     importUris: MutableState<List<String>>,
     pendingRoute: MutableState<Route?>,
+    pendingReminderFallback: MutableState<ReminderFallback?>,
     pendingDate: MutableState<LocalDate?>,
 ) {
     AppPermissionsGate(
@@ -264,7 +310,23 @@ private fun MainActivity.CalendarAppContent(
 
             val uris by importUris
             val pending by pendingRoute
-            val initialRoute = resolveInitialRoute(activityIntent, uris, pending)
+            val fallback by pendingReminderFallback
+            val initialRoute = resolveInitialRoute(activityIntent, uris, pending, fallback)
+            val context = LocalContext.current
+            LaunchedEffect(fallback, pending) {
+                // Stashed fallback (no full Instance yet): resolve it against the
+                // provider now that permissions are granted and the app is open.
+                // Provider query goes on IO — never block composition.
+                val fb = fallback
+                if (pending == null && fb != null) {
+                    val appContext = context.applicationContext
+                    val instance = withContext(Dispatchers.IO) {
+                        resolveReminderFallback(appContext, fb)
+                    }
+                    instance?.let { pendingRoute.value = Route.Event(it) }
+                    pendingReminderFallback.value = null
+                }
+            }
             Box(
                 Modifier.fillMaxSize().onFileDrop { dropped ->
                     importUris.value = dropped.map { it.toString() }
@@ -325,20 +387,36 @@ private fun Long.toJumpDate(): LocalDate? {
 }
 
 /**
+ * Resolves a pre-unlock notification tap ([ReminderFallback]) against the
+ * calendar provider. Null when the event is gone or the provider is still
+ * unreadable — the caller then leaves the user on home (old behavior).
+ */
+private fun resolveReminderFallback(context: Context, fb: ReminderFallback): Instance? {
+    return Instance.findForReminder(context, fb.eventId, fb.instanceStart, fb.instanceEnd)
+}
+
+/**
  * Resolves which route the app opens on: an ICS import, a pending deep-link, an
- * instance extra, or an ACTION_INSERT — else the calendar home (null).
- * Exported activity: malformed "instance" extras fall back to no route instead
- * of crashing.
+ * instance extra (widget or notification tap), a lightweight reminder fallback,
+ * or an ACTION_INSERT — else the calendar home (null).
+ * Exported activity: malformed extras fall back to no route instead of crashing.
  */
 private fun resolveInitialRoute(
     activityIntent: Intent?,
     uris: List<String>,
     pending: Route?,
+    fallback: ReminderFallback? = null,
 ): Route? {
     if (uris.isNotEmpty()) return Route.Settings.ImportIcs(uris)
     if (pending != null) return pending
+    if (fallback != null) {
+        // Pre-unlock notification tap stashed before composition: resolved
+        // against the provider by the LaunchedEffect in CalendarAppContent.
+        // Return of null here is temporary until that resolution lands.
+        return null
+    }
     if (activityIntent == null) return null
-    activityIntent.getStringExtra("instance")?.let { raw ->
+    activityIntent.getStringExtra(ReminderScheduler.EXTRA_INSTANCE)?.let { raw ->
         runCatching { Json.decodeFromString<Instance>(raw) }.getOrNull()
     }?.let { return Route.Event(it) }
     if (activityIntent.action == Intent.ACTION_INSERT &&

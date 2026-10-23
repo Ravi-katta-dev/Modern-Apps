@@ -105,6 +105,27 @@ class CatalogRepository(
                 .getOrDefault(emptyList()).filterTv()
         }
 
+    /**
+     * Every cached row for one offline source, A→Z. Backs the Browse page, which
+     * lists the whole repo rather than the home carousel's recent slice.
+     */
+    suspend fun allBySource(source: AppSource): List<UnifiedApp> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                db.cachedAppDao().bySourceAll(source.name).map { it.toUnifiedApp() }
+            }.getOrDefault(emptyList()).filterTv()
+        }
+
+    /**
+     * Every cached row in a category, A→Z. The home row caps at 60; Browse does not.
+     */
+    suspend fun allByCategory(category: String): List<UnifiedApp> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                db.cachedAppDao().byCategoryAll(category).map { it.toUnifiedApp() }
+            }.getOrDefault(emptyList()).filterTv()
+        }
+
     /** Categories present in the catalogue, most-populated first. */
     suspend fun categories(): List<String> = withContext(Dispatchers.IO) {
         runCatching {

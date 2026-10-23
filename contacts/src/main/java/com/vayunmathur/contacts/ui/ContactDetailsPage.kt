@@ -214,7 +214,18 @@ fun ContactDetailsScreen(
                         details.phoneNumbers,
                         details.emails.firstOrNull()?.address,
                         platforms,
-                        state.isGoogleMeetInstalled
+                        state.isGoogleMeetInstalled,
+                        details.commPref,
+                        onSaveCommPref = { pref ->
+                            val existingId = contact.details.commPrefs.firstOrNull()?.id ?: 0L
+                            actions.saveContact(
+                                contact.copy(
+                                    details = contact.details.copy(
+                                        commPrefs = listOf(pref.copy(id = existingId))
+                                    )
+                                )
+                            )
+                        }
                     )
                 }
             }
@@ -238,6 +249,11 @@ fun ContactDetailsScreen(
             if (details.dates.isNotEmpty()) {
                 item {
                     DatesSection(contact, details)
+                }
+            }
+            if (details.genders.any { it.code.isNotBlank() }) {
+                item {
+                    GenderSection(contact, details)
                 }
             }
 

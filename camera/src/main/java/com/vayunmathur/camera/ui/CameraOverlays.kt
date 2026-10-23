@@ -32,11 +32,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.net.toUri
 import com.vayunmathur.camera.R
+import com.vayunmathur.camera.domain.FidoRequestType
+import com.vayunmathur.camera.domain.fidoRequestType
 import com.vayunmathur.library.intents.euicc.EsimLink
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.CircularProgressIndicator
 import com.vayunmathur.library.ui.FilledTonalButton
 import com.vayunmathur.library.ui.IconBedtime
+import com.vayunmathur.library.ui.IconClose
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.Motion
 import com.vayunmathur.library.ui.Text
@@ -143,11 +146,8 @@ internal fun QrResultOverlay(text: String, onDismiss: () -> Unit, context: Conte
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(vertical = 8.dp)
         )
-        // Passkey (FIDO hybrid/caBLE) QR codes decode to a "FIDO:/..." URI. Treat it as an
-        // openable URL alongside normal web links. Intent-filter scheme matching is case-SENSITIVE,
-        // so the "FIDO" scheme must be lowercased (normalizeScheme) or nothing will handle it.
-        // eSIM activation codes are neither: they go to the platform LPA, not a browser.
-        val isFidoUri = text.startsWith("FIDO:", ignoreCase = true)
+        // eSIM activation codes are neither URL nor FIDO: they go to the
+        // platform LPA, not a browser.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (isEsim) {
                 Button(onClick = {
@@ -174,10 +174,10 @@ internal fun QrResultOverlay(text: String, onDismiss: () -> Unit, context: Conte
                 }) {
                     Text(stringResource(R.string.add_esim))
                 }
-            } else if (isFidoUri || Patterns.WEB_URL.matcher(text).matches()) {
+            } else if (Patterns.WEB_URL.matcher(text).matches()) {
                 Button(onClick = {
-                    val url = if (!isFidoUri && !text.startsWith("http")) "https://$text" else text
-                    val uri = url.toUri().normalizeScheme()
+                    val url = if (!text.startsWith("http")) "https://$text" else text
+                    val uri = url.toUri()
                     try {
                         context.startActivity(Intent(Intent.ACTION_VIEW, uri))
                     } catch (e: ActivityNotFoundException) {
@@ -198,6 +198,48 @@ internal fun QrResultOverlay(text: String, onDismiss: () -> Unit, context: Conte
                 Text(stringResource(android.R.string.cancel))
             }
         }
+    }
+}
+
+/**
+ * Standalone action for FIDO hybrid/caBLE QR codes (desktop "use a passkey
+ * from another device"): a single passkey button with the dismiss X tucked
+ * inside it. The label reflects the QR's request-type hint — "Create a
+ * passkey" for registration (`mc`), "Sign in with a passkey" for assertion
+ * (`ga`). Rendered in [CameraSettingsColumn] directly above the zoom bar —
+ * not in the generic QR popup above, whose text preview and copy button are
+ * meaningless for the FIDO digit blob.
+ */
+@Composable
+internal fun FidoQrCard(text: String, onDismiss: () -> Unit, context: Context, modifier: Modifier = Modifier) {
+    val labelRes = when (fidoRequestType(text)) {
+        FidoRequestType.CREATE -> R.string.create_passkey
+        FidoRequestType.SIGN_IN -> R.string.sign_in_with_passkey
+        FidoRequestType.UNKNOWN -> R.string.use_passkey
+    }
+    Button(
+        onClick = {
+            // Intent-filter scheme matching is case-SENSITIVE, so the
+            // "FIDO" scheme must be lowercased or nothing will handle it.
+            val uri = text.toUri().normalizeScheme()
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                onDismiss()
+            } catch (e: ActivityNotFoundException) {
+                Log.status("CameraOverlays", "No app to open FIDO link", e)
+                AppMessages.show(context.getString(R.string.no_app_to_open_url))
+            }
+        },
+        modifier = modifier.padding(16.dp)
+    ) {
+        Text(stringResource(labelRes))
+        IconClose(
+            modifier = Modifier
+                .padding(start = 8.dp)
+                .size(18.dp)
+                .clickable(onClick = onDismiss),
+            tint = MaterialTheme.colorScheme.onPrimary
+        )
     }
 }
 

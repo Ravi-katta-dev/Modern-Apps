@@ -60,9 +60,16 @@ impl From<jni::errors::Error> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Cached JVM handle and bridge class, resolved once per process.
+///
+/// `batch_ok` records whether the `requestBatch` static method survived shrinking:
+/// it is only referenced from here over JNI, so a release build whose keep rule
+/// predates it strips the method while keeping the class (issue 792: every tile
+/// failing "Method not found: requestBatch" with a blank map). Resolved once in
+/// [`init`] so the failure is logged once at startup rather than per tile.
 struct Cached {
     vm: JavaVM,
     class: Global<JClass<'static>>,
+    batch_ok: bool,
 }
 
 static CACHED: OnceLock<Cached> = OnceLock::new();
@@ -72,6 +79,11 @@ static CACHED: OnceLock<Cached> = OnceLock::new();
 /// Call once from any JNI entry point before background threads need the bridge; calling it
 /// again is harmless. Returns false if the class could not be found, which means the calling
 /// module is missing a dependency on `library:network`.
+///
+/// Also probes the `requestBatch` batch method and caches the answer. The probe is a
+/// `GetStaticMethodID` with no call, so it is free at runtime and cannot throw into the
+/// caller: when the method was stripped, `request_batch` degrades to single `request`
+/// calls instead of failing every tile with "Method not found".
 pub fn init(env: &mut Env) -> bool {
     if CACHED.get().is_some() {
         return true;
@@ -86,7 +98,19 @@ pub fn init(env: &mut Env) -> bool {
     let Ok(class) = env.new_global_ref(class) else {
         return false;
     };
-    CACHED.set(Cached { vm, class }).is_ok() || CACHED.get().is_some()
+    // Probe the batch entry point while an `Env` is at hand: a stripped method answers
+    // with an error here, once, instead of per tile on the worker threads.
+    let batch_ok = env
+        .get_static_method_id(
+            &class,
+            jni_str!("requestBatch"),
+            jni_sig!("(Ljava/lang/String;[Ljava/lang/String;)[B"),
+        )
+        .is_ok();
+    let _ = env.exception_clear();
+    CACHED
+        .set(Cached { vm, class, batch_ok })
+        .is_ok() || CACHED.get().is_some()
 }
 
 fn cached() -> Result<&'static Cached> {
@@ -177,9 +201,18 @@ pub fn request(
 /// A failed slot decodes like any status-0 frame (see [`ResponseFrame::error`]); a batch
 /// that cannot be framed at all is an [`Error::Bridge`], and the caller fails every slot
 /// rather than hanging one.
+///
+/// When `init` found the batch method stripped (an old keep rule against a release
+/// build), this degrades to one single `request` per range over the attached thread
+/// instead of failing the wave: slower (N crossings, N attach-free calls on the
+/// already-attached thread), but the map draws. The degradation is logged once at
+/// `init`-adjacent volume by the caller, not per wave.
 pub fn request_batch(url: &str, ranges: &[String]) -> Result<Vec<ResponseFrame>> {
     let cached = cached()?;
-    cached.vm.attach_current_thread(|env| {
+    if !cached.batch_ok {
+        return Ok(request_batch_fallback(url, ranges));
+    }
+    let outcome: Result<Vec<ResponseFrame>> = cached.vm.attach_current_thread(|env| {
         let class = &cached.class;
         let jurl: JString = env
             .new_string(url)
@@ -219,7 +252,78 @@ pub fn request_batch(url: &str, ranges: &[String]) -> Result<Vec<ResponseFrame>>
             .convert_byte_array(env.cast_local::<JByteArray>(object)?)
             .map_err(|e| Error::Bridge(format!("reading batch frame: {e}")))?;
         decode_batch(&bytes).ok_or_else(|| Error::Bridge("malformed batch frame".into()))
-    })
+    });
+    match outcome {
+        // The method resolved at `init` but the call itself failed: treat a
+        // "Method not found" at call time the same as a stripped method (a build
+        // whose dex changed under a cached probe must still draw, just slower).
+        Err(Error::Bridge(message)) if message.contains("Method not found") => {
+            Ok(request_batch_fallback(url, ranges))
+        }
+        other => other,
+    }
+}
+
+/// Whether the batch entry point is available in this build.
+///
+/// False when `init` probed it missing (stripped by shrinking). The tile layer
+/// uses this to log the degradation once at surface creation instead of per wave.
+pub fn batch_available() -> bool {
+    cached().map(|cached| cached.batch_ok).unwrap_or(false)
+}
+
+/// One single `request` per range on the already-attached worker thread.
+///
+/// Same order and same per-slot error semantics as the batch path: a failed range
+/// becomes that slot's status-0 error, never a poisoned wave. Costs N JNI calls
+/// instead of one, which is what makes this a fallback rather than the default.
+fn request_batch_fallback(url: &str, ranges: &[String]) -> Vec<ResponseFrame> {
+    let cached = match cached() {
+        Ok(cached) => cached,
+        Err(_) => {
+            return ranges
+                .iter()
+                .map(|_| status_zero_frame(url, "bridge not initialised"))
+                .collect();
+        }
+    };
+    cached
+        .vm
+        .attach_current_thread(|env| {
+            let out: Vec<ResponseFrame> = ranges
+                .iter()
+                .map(|range| {
+                    let headers = [(String::from("Range"), range.clone())];
+                    match request_with_env(&mut *env, Method::Get, url, &headers, None) {
+                        Ok(frame) => frame,
+                        // `request_with_env` already reports transport failures as
+                        // status-0 frames; this arm is only for bridge-level errors,
+                        // which keep the same per-slot shape.
+                        Err(Error::Transport(_)) => {
+                            status_zero_frame(url, "transport failure")
+                        }
+                        Err(Error::Bridge(message)) => status_zero_frame(url, &message),
+                    }
+                })
+                .collect();
+            Ok::<Vec<ResponseFrame>, Error>(out)
+        })
+        .unwrap_or_else(|_| {
+            ranges
+                .iter()
+                .map(|_| status_zero_frame(url, "could not attach to the JVM"))
+                .collect()
+        })
+}
+
+/// A status-0 frame carrying `reason`, matching `NativeHttpBridge.packFailure`.
+fn status_zero_frame(url: &str, reason: &str) -> ResponseFrame {
+    ResponseFrame {
+        status: 0,
+        final_url: url.into(),
+        headers: Vec::new(),
+        body: reason.as_bytes().to_vec(),
+    }
 }
 
 /// Split a `requestBatch` reply: u32 count, then per-reply u32 length + reply frame.

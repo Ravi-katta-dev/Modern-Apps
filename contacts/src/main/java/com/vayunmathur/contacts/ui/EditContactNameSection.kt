@@ -26,11 +26,15 @@ import com.vayunmathur.library.util.expandFromLine
 import com.vayunmathur.library.util.sharedContainer
 
 /**
- * Name fields for the edit form: prefix/first/middle/last/suffix plus nickname and company.
+ * Name fields for the edit form.
+ *
+ * Non-SIM accounts get split prefix/first/middle/last/suffix plus nickname and company.
+ * SIM ADN rows store a single name, so SIM accounts get one joint name field instead.
  *
  * One key per name part, so each piece of the header lands in the field that owns it. These
  * go to sharedTextKey, not to a modifier: keyed on the field the header's text would grow
  * to the whole box and then snap: keyed on the inner text, text pairs with text.
+ * The SIM joint field reuses the firstname key so the header's single name part morphs into it.
  */
 @Composable
 fun EditContactNameSection(
@@ -43,6 +47,33 @@ fun EditContactNameSection(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
+        if (isSimAccount) {
+            val jointName = listOfNotNull(
+                draft.namePrefix.ifEmpty { null },
+                draft.firstName.ifEmpty { null },
+                draft.middleName.ifEmpty { null },
+                draft.lastName.ifEmpty { null },
+                draft.nameSuffix.ifEmpty { null },
+            ).joinToString(" ")
+            LabeledTextField(
+                value = jointName,
+                onValueChange = { v ->
+                    onUpdate(
+                        draft.copy(
+                            namePrefix = "",
+                            firstName = v,
+                            middleName = "",
+                            lastName = "",
+                            nameSuffix = "",
+                        )
+                    )
+                },
+                label = stringResource(R.string.name),
+                sharedTextKey = contactId?.let { "contact-firstname-$it" },
+                modifier = Modifier.fillMaxWidth().expandFromLine(),
+            )
+            return@Column
+        }
         LabeledTextField(
             value = draft.firstName,
             onValueChange = { v -> onUpdate(draft.copy(firstName = v)) },
@@ -74,22 +105,20 @@ fun EditContactNameSection(
                 }
             },
         )
-        if (!isSimAccount) {
-            LabeledTextField(
-                value = draft.nickname,
-                onValueChange = { v -> onUpdate(draft.copy(nickname = v)) },
-                label = stringResource(R.string.nickname),
-                sharedTextKey = contactId?.let { "contact-nickname-$it" },
-                modifier = Modifier.fillMaxWidth().expandFromLine(),
-            )
-            LabeledTextField(
-                value = draft.company,
-                onValueChange = { v -> onUpdate(draft.copy(company = v)) },
-                label = stringResource(R.string.company),
-                sharedTextKey = contactId?.let { "contact-company-$it" },
-                modifier = Modifier.fillMaxWidth().expandFromLine(),
-            )
-        }
+        LabeledTextField(
+            value = draft.nickname,
+            onValueChange = { v -> onUpdate(draft.copy(nickname = v)) },
+            label = stringResource(R.string.nickname),
+            sharedTextKey = contactId?.let { "contact-nickname-$it" },
+            modifier = Modifier.fillMaxWidth().expandFromLine(),
+        )
+        LabeledTextField(
+            value = draft.company,
+            onValueChange = { v -> onUpdate(draft.copy(company = v)) },
+            label = stringResource(R.string.company),
+            sharedTextKey = contactId?.let { "contact-company-$it" },
+            modifier = Modifier.fillMaxWidth().expandFromLine(),
+        )
     }
 }
 

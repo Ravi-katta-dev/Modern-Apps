@@ -32,8 +32,14 @@
 
 # library/jni-http/src/main/rust/src/lib.rs:78,121 — every .so reaches the network
 # through this one bridge, so this covers maps, youpipe, weather, ...
+# Both methods must be kept: `request` serves single range reads (archive header
+# open, sub-two-range batches) and `requestBatch` serves every tile wave of two
+# or more ranges. `requestBatch` is only referenced from Rust over JNI, so R8
+# sees no Java-side caller and strips it in release builds — which fails every
+# tile with "Method not found: requestBatch" and renders a blank map (issue 792).
 -keep class com.vayunmathur.library.network.NativeHttpBridge {
     public static byte[] request(int, java.lang.String, byte[], byte[]);
+    public static byte[] requestBatch(java.lang.String, java.lang.String[]);
 }
 
 # maps/src/main/rust/src/lib.rs:138 — call_method(thiz, "fetchTrafficData", ...).
@@ -111,3 +117,19 @@
 # rule is ever tightened.
 -keepclassmembers class * extends androidx.room3.RoomDatabase { *** Companion; }
 -keep class androidx.room3.migration.Migration { *; }
+
+# --- Glance widgets — keep classes instantiated reflectively ---
+# Glance instantiates ActionCallbacks via
+# Class.forName(name).getDeclaredConstructor().newInstance(), and GenericWidgetWorker
+# (library/widgets Widgets.kt) does the same for GlanceAppWidget subclasses. The
+# reified generics at the call sites (actionRunCallback<FooAction>()) keep the class
+# names, but R8 sees no direct constructor call and strips the no-arg <init> — every
+# tap then dies with "NoSuchMethodException: FooAction.<init> []" and Glance logs
+# "BroadcastReceiver execution failed". Calculator's keypad widget hit exactly this:
+# taps vibrated (launcher touch feedback) but onAction never ran, so nothing typed.
+-keep class * implements androidx.glance.appwidget.action.ActionCallback {
+    public <init>();
+}
+-keep class * extends androidx.glance.appwidget.GlanceAppWidget {
+    public <init>();
+}

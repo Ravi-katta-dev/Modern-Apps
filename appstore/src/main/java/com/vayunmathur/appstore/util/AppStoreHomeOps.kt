@@ -58,6 +58,10 @@ internal suspend fun AppStoreViewModel.loadHome(enabled: Set<AppSource> = enable
     }
 
     val clusters = play.homeClusters()
+    playFullClustersFlow.value = clusters
+        .filter { it.apps.isNotEmpty() }
+        .take(PLAY_CLUSTER_LIMIT)
+        .associate { "play-${it.title}" to it.apps }
     playSectionsFlow.value = clusters
         .filter { it.apps.isNotEmpty() }
         .take(PLAY_CLUSTER_LIMIT)
@@ -68,6 +72,9 @@ internal suspend fun AppStoreViewModel.loadHome(enabled: Set<AppSource> = enable
         // still gives the screen something beyond this repo's own dozen apps.
         val chart = play.topChart()
         if (chart.isNotEmpty()) {
+            playFullClustersFlow.value = mapOf(
+                "play-top" to chart,
+            )
             playSectionsFlow.value = listOf(
                 AppSection(
                     id = "play-top",
@@ -179,6 +186,42 @@ internal fun AppStoreViewModel.syncIfNeverSynced(enabled: Set<AppSource>) {
     )
     if (enabled.intersect(offlineSources).isEmpty()) return
     syncSources()
+}
+
+/**
+ * Fill the Browse page with one home section's full catalogue.
+ *
+ * Each home carousel is a capped slice — the 20 newest builds, the first 20 tiles.
+ * Browse lists literally every app behind that section, A–Z: the whole offline repo
+ * for an offline row, the whole paged catalogue for Accrescent, the uncapped cluster
+ * for a Play row. The rows use the same [AppRow] as search.
+ */
+fun AppStoreViewModel.openBrowse(section: AppSection) {
+    browseJob?.cancel()
+    browseSectionFlow.value = section.id
+    browseTitleFlow.value = section.title
+    browseAppsFlow.value = emptyList()
+    isLoadingBrowseFlow.value = true
+    browseJob = viewModelScope.launch {
+        val apps = when {
+            section.id == "category" ->
+                catalog.allByCategory(section.title)
+            section.id == "modern" || section.id == "modern-recent" ->
+                catalog.allBySource(AppSource.MODERN_APPS)
+            section.id == "proprietary-recent" ->
+                catalog.allBySource(AppSource.PROPRIETARY)
+            section.id == "fdroid-recent" ->
+                catalog.allBySource(AppSource.FDROID)
+            section.id == "accrescent" ->
+                accrescent.allListings()
+            else ->
+                playFullClustersFlow.value[section.id] ?: section.apps
+        }
+        // A section tapped twice in a row re-resolves: the visible row may predate a
+        // sync, and stale full lists are worse than a re-read.
+        browseAppsFlow.value = apps.sortedBy { it.name.lowercase() }
+        isLoadingBrowseFlow.value = false
+    }
 }
 
 /** Re-download both offline catalogues, then reload the home rows from them. */

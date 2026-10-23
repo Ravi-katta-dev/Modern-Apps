@@ -56,13 +56,19 @@ impl Renderer {
             if tile.traffic.is_empty() {
                 continue;
             }
+            // Covered-stand-in suppression, like the terrain pass: the overlay
+            // follows its road, so where the road is covered the overlay is
+            // redundant too.
+            if self
+                .suppressed_tile(tile.z, tile.x, tile.y)
+                .is_some_and(|suppressed| suppressed.traffic)
+            {
+                *culled += self.traffic_draws(tile);
+                continue;
+            }
             // Same off-screen cull as the flat layer loop (see `tile_offscreen`).
             if tile_offscreen(camera, tile.z, tile.x, tile.y) {
-                *culled += tile
-                    .traffic
-                    .iter()
-                    .filter(|s| self.traffic_colors.contains_key(&s.id))
-                    .count();
+                *culled += self.traffic_draws(tile);
                 continue;
             }
             // The line pool, bound at its offsets; each segment draws its slice by

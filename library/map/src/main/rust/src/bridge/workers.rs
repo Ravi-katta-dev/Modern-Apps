@@ -262,6 +262,49 @@ fn serve<R: RangeReader>(
         // just wrote while it is still hot, before tessellation takes the worker elsewhere.
         archive.reader().flush_pending();
         debug_assert_eq!(fetched.len(), batch.len());
+        // Wash overzoom, wave 1.5: collect the DISTINCT z13 parents needed by
+        // tiles whose bodies want underlay, and fetch them in one batch call.
+        // Siblings share parents (4:1), and the shared leaf/disk caches make
+        // repeats cheap — but one fetch per distinct parent is strictly fewer
+        // range reads, so dedupe here rather than per tile below.
+        let mut need_underlay: Vec<usize> = Vec::new();
+        for (i, (tile, body)) in batch.iter().zip(fetched.iter()).enumerate() {
+            if let Ok(Some(body)) = body {
+                if crate::tile::geometry::needs_wash_underlay(body, tile.z) {
+                    need_underlay.push(i);
+                }
+            }
+        }
+        let mut parent_bodies: std::collections::HashMap<(u8, u32, u32), Option<tilecodec::mamaps::body::Body>> =
+            std::collections::HashMap::new();
+        let mut parent_failed = false;
+        if !need_underlay.is_empty() {
+            use crate::tile::geometry::parent_of;
+            let mut distinct: Vec<(u8, u32, u32)> = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            for &i in &need_underlay {
+                let tile = batch[i];
+                let (px, py, _, _) = parent_of(tile.x, tile.y);
+                if seen.insert((tile.z - 1, px, py)) {
+                    distinct.push((tile.z - 1, px, py));
+                }
+            }
+            let fetched_parents = archive.tiles(&distinct);
+            for (coord, res) in distinct.iter().zip(fetched_parents) {
+                match res {
+                    Ok(body) => {
+                        parent_bodies.insert(*coord, body);
+                    }
+                    Err(e) => {
+                        log(&format!(
+                            "wash underlay parent {}/{}/{} failed: {e}",
+                            coord.0, coord.1, coord.2
+                        ));
+                        parent_failed = true;
+                    }
+                }
+            }
+        }
         for (tile, body) in batch.iter().zip(fetched) {
             // Read per tile, not once per batch: a toggle change has to reach the
             // very next tile built, and all three parts come from one snapshot so the
@@ -270,6 +313,30 @@ fn serve<R: RangeReader>(
             let tess_start = std::time::Instant::now();
             let result = match body {
                 Ok(Some(body)) => {
+                    // Wash overzoom, wave 2.5: stitch the (already fetched)
+                    // parent wash in, or fail the tile when its parent failed
+                    // so retry backoff picks it up.
+                    let body = if crate::tile::geometry::needs_wash_underlay(&body, tile.z) {
+                        use crate::tile::geometry::{parent_of, stitch_parent_wash};
+                        let (px, py, qx, qy) = parent_of(tile.x, tile.y);
+                        // Borrowed, not removed: siblings share one parent.
+                        match parent_bodies.get(&(tile.z - 1, px, py)) {
+                            Some(Some(parent)) => stitch_parent_wash(&body, parent, qx, qy),
+                            Some(None) => body,
+                            None => {
+                                // Its parent failed (parent_failed): fail the tile
+                                // so retry backoff picks it up rather than
+                                // rendering ocean for land.
+                                debug_assert!(parent_failed);
+                                if finished.send((tile.key(), TileResult::Failed)).is_err() {
+                                    return;
+                                }
+                                continue;
+                            }
+                        }
+                    } else {
+                        body
+                    };
                     let mesh = geometry::build_toggled(
                         &body,
                         layers,
@@ -307,6 +374,33 @@ fn serve<R: RangeReader>(
     }
 }
 
+/// Wash underlay for one fetched body: when a z14 tile's own landtype holds
+/// no wash (gated archive), fetch the z13 parent and stitch its wash areas in
+/// before tessellation. Returns the body to build (possibly augmented), or
+/// `None` when the parent fetch failed and the tile must report failure so the
+/// existing `RetryMap` backoff retries it.
+///
+/// Parent bodies flow through the same shared leaf cache and disk cache as any
+/// other fetch — no new cache kind, no new request kind. Siblings share the
+/// parent through those caches; the batch path below additionally dedupes
+/// parent fetches within one wave (see `underlay_parents_for_batch`).
+fn underlay_wash<R: RangeReader>(
+    archive: &MamapsArchive<R>,
+    tile: TileId,
+    body: tilecodec::mamaps::body::Body,
+) -> Result<tilecodec::mamaps::body::Body, String> {
+    use crate::tile::geometry::{needs_wash_underlay, parent_of, stitch_parent_wash};
+    if !needs_wash_underlay(&body, tile.z) {
+        return Ok(body);
+    }
+    let (px, py, qx, qy) = parent_of(tile.x, tile.y);
+    match archive.tile(tile.z - 1, px, py) {
+        Ok(Some(parent)) => Ok(stitch_parent_wash(&body, &parent, qx, qy)),
+        Ok(None) => Ok(body),
+        Err(e) => Err(e.0),
+    }
+}
+
 /// One tile through fetch + tessellation, off the batch path.
 ///
 /// What the worker did before batching, unchanged: the single-tile fallback above keeps it
@@ -329,6 +423,17 @@ fn build_one<R: RangeReader>(
     let fetch_ms = fetch_start.elapsed().as_millis();
     match fetched {
         Ok(Some(body)) => {
+            // Wash overzoom: a gated z14 tile underlays its z13 parent's wash
+            // before tessellation. A failed parent fetch fails the tile so the
+            // existing retry backoff picks it up (the tile would otherwise
+            // render ocean for land).
+            let body = match underlay_wash(archive, tile, body) {
+                Ok(body) => body,
+                Err(e) => {
+                    log(&format!("tile {}/{}/{} wash underlay failed: {e}", tile.z, tile.x, tile.y));
+                    return TileResult::Failed;
+                }
+            };
             let tess_start = std::time::Instant::now();
             let mesh = geometry::build_toggled(
                 &body,

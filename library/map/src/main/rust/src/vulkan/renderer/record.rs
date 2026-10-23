@@ -164,6 +164,10 @@ impl Renderer {
             &HashMap<u64, f32>,
         ) = unsafe { (&mut *draws, &*ordered, &*tile_alpha) };
 
+        // The suppression map is current by now: `render` refreshed it
+        // before the submit early-out, and a skipped frame reuses a map that
+        // can only be stale if residency moved — which the residency epoch in
+        // `FrameVersion` forbids. So every consult below is a plain read.
         // Symbol pre-pass: collision runs GLOBALLY across tiles and layers, but
         // draws stay per (tile, layer) below. Build one candidate per shaped
         // label with its screen box at this frame's text size, run the greedy
@@ -291,6 +295,24 @@ impl Renderer {
                         continue;
                     }
                     deferred_symbols.push((*key, index));
+                    continue;
+                }
+                // Covered-stand-in suppression: a settled finer set draws this
+                // layer over the whole tile, so this tile's own draws of it are
+                // the stacked-road copies. Counts into the same cull tally the
+                // off-screen cull feeds, for the debug overlay.
+                if self
+                    .suppression
+                    .get(key)
+                    .is_some_and(|suppressed| suppressed.layers.contains(&index))
+                {
+                    if let Some(tile) = self.tiles.get(key) {
+                        culled += tile
+                            .layers
+                            .iter()
+                            .filter(|mesh| mesh.layer_index == index)
+                            .count();
+                    }
                     continue;
                 }
                 // Off-screen cull (MapLibre's bucket cull equivalent): a resident tile the

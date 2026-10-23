@@ -431,4 +431,122 @@ mod tests_part10 {
         }
         assert!(saw_land, "the island's land base must survive Phase B");
     }
+
+    /// The wash-cap predicate, pinned without touching process-global state:
+    /// z14 landtype areas with `min_zoom != 14` drop; detail areas, all lines,
+    /// other layers and all other zooms survive.
+    #[test]
+    fn the_wash_cap_drops_only_z14_wash_areas() {
+        use tilecodec::mamaps::dict;
+        let lt = dict::LAYER_LANDTYPE;
+        // Wash areas drop at z14 whatever their min_zoom below the max.
+        for min_zoom in [0u8, 6, 8, 10, 13] {
+            assert!(super::wash_drops_kind(lt, true, min_zoom, 14), "min_zoom {min_zoom}");
+        }
+        // Detail areas (min_zoom == max) survive: overzoom cannot recover them.
+        assert!(!super::wash_drops_kind(lt, true, 14, 14));
+        // Lines survive at every zoom: cheap, high-salience, never wash.
+        assert!(!super::wash_drops_kind(lt, false, 0, 14));
+        assert!(!super::wash_drops_kind(lt, false, 8, 14));
+        // Other layers are untouched by the cap.
+        assert!(!super::wash_drops_kind(dict::LAYER_ROADS, true, 0, 14));
+        assert!(!super::wash_drops_kind(dict::LAYER_BUILDINGS, true, 0, 14));
+        // Every other zoom is untouched, including z13 (the overzoom source).
+        for z in [0u8, 6, 12, 13] {
+            assert!(!super::wash_drops_kind(lt, true, 0, z), "z{z}");
+        }
+    }
+
+    /// The wash/detail partition is a schema fact, pinned so drift is
+    /// deliberate: exactly the six street-level area kinds sit at min_zoom 14.
+    #[test]
+    fn the_detail_kinds_are_exactly_the_minzoom_14_areas() {
+        use crate::schema::landtype;
+        let detail = ["swimming_pool", "dog_park", "playground", "pitch", "kindergarten", "platform"];
+        for (key, value) in [
+            ("leisure", "swimming_pool"),
+            ("leisure", "dog_park"),
+            ("leisure", "playground"),
+            ("leisure", "pitch"),
+            ("amenity", "kindergarten"),
+            ("public_transport", "platform"),
+        ] {
+            let tags: &[(&str, &str)] = &[(key, value)];
+            let class = landtype::classify_late(tags).expect(value);
+            assert_eq!(class.min_zoom, 14, "{value} must be a detail kind");
+            assert!(class.area);
+        }
+        // And the wash representatives sit below it (`natural=water` is an
+        // early rule — water is classified before roads — so it goes through
+        // `classify_early`; the rest are late).
+        for (key, value) in [
+            ("natural", "wood"),
+            ("landuse", "farmland"),
+            ("leisure", "park"),
+            ("boundary", "national_park"),
+        ] {
+            let tags: &[(&str, &str)] = &[(key, value)];
+            let class = landtype::classify_late(tags).expect(value);
+            assert!(class.min_zoom < 14, "{value} must be wash, not detail");
+        }
+        {
+            let tags: &[(&str, &str)] = &[("natural", "water")];
+            let class = landtype::classify_early(tags, true).expect("water");
+            assert!(class.min_zoom < 14, "water must be wash, not detail");
+        }
+        assert_eq!(detail.len(), 6);
+    }
+
+    /// End to end: at z14 a wash lake is gone while a detail
+    /// pool and a river line survive; at z13 and below the lake is untouched.
+    #[test]
+    fn the_wash_cap_keeps_detail_and_lines_but_not_wash_at_z14() {
+        let pool = Feature {
+            class: Class::area(dict::LAYER_LANDTYPE, crate::schema::kind("swimming_pool"), 14),
+            geometry: square(-122.0, 37.0, 0.005),
+            name: None, id: tilecodec::mamaps::body::ID_NONE, transit_color: 0, transit_ordinal: 0, transit_lanes: 0, transit_taper: 0, lane_count: 0,
+            turn_fwd: Vec::new(),
+            turn_bwd: Vec::new(),
+            building: None,
+            carriageway: tilecodec::mamaps::body::Carriageway::default(),
+        };
+        let river = Feature {
+            class: Class::line(dict::LAYER_LANDTYPE, crate::schema::kind("river"), 8),
+            geometry: Geometry::Lines(vec![vec![
+                (-122.0, 37.0),
+                (-121.9, 37.1),
+            ]]),
+            name: None, id: tilecodec::mamaps::body::ID_NONE, transit_color: 0, transit_ordinal: 0, transit_lanes: 0, transit_taper: 0, lane_count: 0,
+            turn_fwd: Vec::new(),
+            turn_bwd: Vec::new(),
+            building: None,
+            carriageway: tilecodec::mamaps::body::Carriageway::default(),
+        };
+        let features = vec![lake(-122.0, 37.0, 0.5, 0), pool, river];
+        let (bytes, _) = build(&spilled(&features), &settings(0, 14)).expect("build");
+        let entries = tilecodec::mamaps::read::read_all(&bytes).expect("read");
+        let kinds_at = |want_z: u8| {
+            let mut kinds = std::collections::BTreeSet::new();
+            for (id, _, body) in &entries {
+                let (z, _, _) = tilecodec::pmtiles::tile_zxy(*id);
+                if z != want_z {
+                    continue;
+                }
+                let body = Body::parse(body).expect("parse");
+                if let Some(layer) = body.layer(dict::LAYER_LANDTYPE) {
+                    kinds.extend(layer.features.iter().map(|f| f.kind));
+                }
+            }
+            kinds
+        };
+        let z14 = kinds_at(14);
+        let pool_id = crate::schema::kind("swimming_pool");
+        let river_id = crate::schema::kind("river");
+        let lake_id = crate::schema::kind("lake");
+        assert!(z14.contains(&pool_id), "detail pool survives at z14");
+        assert!(z14.contains(&river_id), "river line survives at z14");
+        assert!(!z14.contains(&lake_id), "wash lake is gone at z14");
+        let z13 = kinds_at(13);
+        assert!(z13.contains(&lake_id), "wash lake survives at z13");
+    }
 }

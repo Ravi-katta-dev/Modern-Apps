@@ -52,9 +52,16 @@ private suspend fun MedicalViewModel.importVaccinesAndMeds() {
         FhirRecords.parseMedicationRequest(resource.data, resource.dataSourceId)
     }
     if (meds.isNotEmpty()) {
-        repository.upsertMedications(meds.map { it.first })
-        // An imported schedule arrives disabled, so this cannot start alarms on its own.
-        meds.mapNotNull { it.second }.forEach { repository.upsertSchedule(it) }
+        meds.forEach { (entry, schedule) ->
+            // Room is the source of truth: a row this app wrote (same id already stored) is
+            // left alone, so reading back its own Health Connect mirror cannot clobber local
+            // state — including flipping an enabled reminder schedule back to disabled, which
+            // would otherwise happen on every import since parsed schedules arrive disabled.
+            if (repository.getMedication(entry.id) != null) return@forEach
+            repository.upsertMedication(entry)
+            // An imported schedule arrives disabled, so this cannot start alarms on its own.
+            schedule?.let { repository.upsertSchedule(it) }
+        }
     }
 
     val doses = medResources.mapNotNull { resource ->

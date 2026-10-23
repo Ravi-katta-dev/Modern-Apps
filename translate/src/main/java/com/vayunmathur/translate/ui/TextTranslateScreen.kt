@@ -30,6 +30,7 @@ import com.vayunmathur.library.ui.IconCopy
 import com.vayunmathur.library.ui.IconFavorite
 import com.vayunmathur.library.ui.IconHistory
 import com.vayunmathur.library.ui.IconMic
+import com.vayunmathur.library.ui.IconPhotoLibrary
 import com.vayunmathur.library.ui.IconSpeak
 import com.vayunmathur.library.ui.IconStop
 import com.vayunmathur.library.ui.IconSwapLanguages
@@ -56,6 +57,9 @@ fun TextTranslateScreen(state: TextTranslateUiState, actions: TextTranslateActio
         actions = {
             IconButton(onClick = actions::openHistory) {
                 IconHistory()
+            }
+            IconButton(onClick = actions::openImage) {
+                IconPhotoLibrary()
             }
             IconButton(onClick = actions::openCamera) {
                 IconCamera()

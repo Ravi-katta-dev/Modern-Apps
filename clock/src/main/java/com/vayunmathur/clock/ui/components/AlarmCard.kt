@@ -11,13 +11,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.clock.R
@@ -111,10 +115,26 @@ fun AlarmCard(
             }
             if (expanded) {
                 Spacer(Modifier.height(12.dp))
+                // Local editing state keyed on the alarm: the field used to bind
+                // straight to the Room-backed alarm.name, so every keystroke
+                // round-tripped through the DB and the recomposed field reset
+                // the cursor. Editing locally preserves cursor/selection; the
+                // DB is still updated on each change.
+                var labelState by remember(alarm.id) { mutableStateOf(TextFieldValue(alarm.name)) }
+                var labelFocused by remember(alarm.id) { mutableStateOf(false) }
+                // Adopt external changes (e.g. assistant intent) when not editing.
+                LaunchedEffect(alarm.name, labelFocused) {
+                    if (!labelFocused && labelState.text != alarm.name) {
+                        labelState = TextFieldValue(alarm.name, TextRange(alarm.name.length))
+                    }
+                }
                 OutlinedTextField(
-                    value = alarm.name,
-                    onValueChange = { actions.setName(alarm, it) },
-                    modifier = Modifier.fillMaxWidth(),
+                    value = labelState,
+                    onValueChange = {
+                        labelState = it
+                        if (it.text != alarm.name) actions.setName(alarm, it.text)
+                    },
+                    modifier = Modifier.fillMaxWidth().onFocusChanged { labelFocused = it.isFocused },
                     label = { Text(stringResource(R.string.field_label)) },
                     placeholder = { Text(stringResource(R.string.alarm_label_hint)) },
                     singleLine = true,

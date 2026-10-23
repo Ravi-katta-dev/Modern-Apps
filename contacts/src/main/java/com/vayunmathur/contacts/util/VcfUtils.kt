@@ -6,9 +6,10 @@ import com.vayunmathur.contacts.data.Address
 import com.vayunmathur.contacts.data.Contact
 import com.vayunmathur.contacts.data.ContactDetails
 import com.vayunmathur.contacts.data.Email
+import com.vayunmathur.contacts.data.Gender
 import com.vayunmathur.contacts.data.GroupMembership
 import com.vayunmathur.contacts.data.PhoneNumber
-import com.vayunmathur.contacts.data.hasYear
+import com.vayunmathur.contacts.data.toExternalDateString
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.Writer
@@ -48,6 +49,8 @@ object VcfUtils {
         writeBirthdayLine(writer, details)
         writeNoteLines(writer, details)
         writeNicknameLines(writer, details)
+        writeGenderLine(writer, details)
+        writeCommPrefLine(writer, details)
         writeCategoriesLine(writer, details, groupNames)
 
         // Favorite marker
@@ -152,7 +155,7 @@ object VcfUtils {
                 } else {
                     "OTHER"
                 }
-            writeFolded(writer, "X-EVENT;TYPE=$typeToken:${escapeV(event.startDate.toString())}")
+            writeFolded(writer, "X-EVENT;TYPE=$typeToken:${escapeV(event.startDate.toExternalDateString())}")
         }
     }
 
@@ -163,17 +166,13 @@ object VcfUtils {
     }
 
     private fun writeBirthdayLine(writer: Writer, details: ContactDetails) {
-        // Birthday
+        // Birthday, in the portable external form ("--MM-DD" when the year
+        // is unknown).
         val bday = details.dates.firstOrNull {
             it.type == ContactsContract.CommonDataKinds.Event.TYPE_BIRTHDAY
         }
         if (bday != null) {
-            val bdayStr = if (bday.startDate.hasYear) {
-                bday.startDate.toString()
-            } else {
-                "--${bday.startDate.toString().substring(5)}"
-            }
-            writeFolded(writer, "BDAY:$bdayStr")
+            writeFolded(writer, "BDAY:${bday.startDate.toExternalDateString()}")
         }
     }
 
@@ -189,6 +188,26 @@ object VcfUtils {
         for (nn in details.nicknames) {
             if (nn.nickname.isNotBlank()) writeFolded(writer, "NICKNAME:${escapeV(nn.nickname)}")
         }
+    }
+
+    private fun writeGenderLine(writer: Writer, details: ContactDetails) {
+        // Gender (RFC 6350 §6.2.7): single letter, optional free text for Other.
+        // Emitted as a vCard-4.0 extension; the parser is version-agnostic.
+        // The ";" between letter and text is a component separator (like N's),
+        // so each side is escaped separately rather than escaping the whole value.
+        val gender = details.genders.firstOrNull { it.code.isNotBlank() } ?: return
+        val code = Gender.canonicalCode(gender.code) ?: Gender.UNSPECIFIED
+        val text = gender.text.trim().takeIf { code == Gender.OTHER && it.isNotEmpty() }
+        val raw = if (text != null) "${escapeV(code)};${escapeV(text)}" else escapeV(code)
+        writeFolded(writer, "GENDER:$raw")
+    }
+
+    private fun writeCommPrefLine(writer: Writer, details: ContactDetails) {
+        // Preferred number + platform for the Call/Message/Video buttons.
+        // Extension property; the parser is version-agnostic like GENDER.
+        val pref = details.commPref ?: return
+        if (pref.number.isBlank()) return
+        writeFolded(writer, "X-COMM-PREF:${escapeV(pref.platform.storageKey)};${escapeV(pref.number)}")
     }
 
     private fun writeCategoriesLine(

@@ -1,4 +1,4 @@
-use crate::bridge::log::log_info;
+use crate::bridge::log::{log, log_info};
 use crate::vulkan::context::Context;
 use ash::vk;
 
@@ -97,27 +97,183 @@ impl Swapchain {
         };
 
         let loader = ash::khr::swapchain::Device::new(&context.instance, &context.device);
+
+        // The negotiated count first; one automatic step-down to 1x when the MSAA
+        // target fails. Some drivers (notably MediaTek's, issue 789) report 4x in
+        // `framebuffer_color_sample_counts` and then fail creating the transient
+        // multisampled image — a graceful `Err` on most drivers, an abort on the
+        // worst ones (which no `Result` can carry, but the stage logs in
+        // `Renderer::new` at least name it). Either way a device that cannot do
+        // MSAA must still draw at 1x: the same render pass with the resolve
+        // attachment dropped, at the cost of antialiasing rather than a blank map.
+        let wanted = supported_samples(context);
+        let params = SwapchainParams {
+            chosen,
+            extent,
+            present_mode,
+            image_count,
+            pre_transform,
+        };
+        match Self::with_samples(context, loader, &params, wanted) {
+            Ok(built) => Ok(built),
+            Err((loader, first)) if wanted != vk::SampleCountFlags::TYPE_1 => {
+                log(&format!(
+                    "swapchain at {:#x} failed ({first}); retrying without MSAA",
+                    wanted.as_raw()
+                ));
+                Self::with_samples(context, loader, &params, vk::SampleCountFlags::TYPE_1)
+                    .map_err(|(_, message)| message)
+            }
+            Err((_, first)) => Err(first),
+        }
+    }
+
+    /// Build the swapchain handle plus the render pass, MSAA/stencil targets and
+    /// framebuffers for one sample count.
+    ///
+    /// Consumes the swapchain loader and returns it alongside the error when an
+    /// attempt fails — so the 1x retry reuses the same loader. Every attempt
+    /// creates and owns its own swapchain handle: a failed attempt destroys its
+    /// handle (plus any attachments it managed) before returning, so the retry
+    /// starts clean and nothing leaks down either path.
+    unsafe fn with_samples(
+        context: &Context,
+        loader: ash::khr::swapchain::Device,
+        params: &SwapchainParams,
+        samples: vk::SampleCountFlags,
+    ) -> Result<Swapchain, (ash::khr::swapchain::Device, String)> {
         let create_info = vk::SwapchainCreateInfoKHR::default()
             .surface(context.surface)
-            .min_image_count(image_count)
-            .image_format(chosen.format)
-            .image_color_space(chosen.color_space)
-            .image_extent(extent)
+            .min_image_count(params.image_count)
+            .image_format(params.chosen.format)
+            .image_color_space(params.chosen.color_space)
+            .image_extent(params.extent)
             .image_array_layers(1)
             .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
             .image_sharing_mode(vk::SharingMode::EXCLUSIVE)
-            .pre_transform(pre_transform)
+            .pre_transform(params.pre_transform)
             .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
-            .present_mode(present_mode)
+            .present_mode(params.present_mode)
             .clipped(true);
         let swapchain = loader
             .create_swapchain(&create_info, None)
-            .map_err(|e| format!("create_swapchain {e:?}"))?;
-        let images = loader
-            .get_swapchain_images(swapchain)
-            .map_err(|e| format!("swapchain images {e:?}"))?;
+            .map_err(|e| (loader_clone(&loader), format!("create_swapchain {e:?}")))?;
+        let built = Self::build_attachments(context, params.chosen, params.extent, samples);
+        let built = match built {
+            Ok(built) => built,
+            Err(message) => {
+                loader.destroy_swapchain(swapchain, None);
+                return Err((loader, message));
+            }
+        };
+        // Re-query per attempt: each attempt owns its own handle, and the count
+        // sizes the two `Vec`s below. Explicit match for the same reason as
+        // the framebuffer site below: the failure branch owns `built`.
+        let images = match loader.get_swapchain_images(swapchain) {
+            Ok(images) => images,
+            Err(e) => {
+                let message = format!("swapchain images {e:?}");
+                loader.destroy_swapchain(swapchain, None);
+                destroy_attachments(&context.device, built);
+                return Err((loader_clone(&loader), message));
+            }
+        };
+        // The per-image loop borrows `built` for the attachment triple, so its
+        // failures surface as a plain `String` here — one site that destroys the
+        // handle and the triple. Views and framebuffers allocated before the
+        // failure leak on this path, matching the old code: this error means a
+        // broken driver rather than a retryable condition, so no cleanup ladder
+        // is built for the per-image objects.
+        //
+        // An explicit match (not `map_err`): the failure branch moves `built`
+        // into teardown and returns, so the success path below keeps using it.
+        // A closure would capture `built` at creation and poison every later use.
+        let (views, framebuffers) =
+            match Self::build_framebuffers(context, params, &built, &images) {
+                Ok(pair) => pair,
+                Err(message) => {
+                    loader.destroy_swapchain(swapchain, None);
+                    destroy_attachments(&context.device, built);
+                    return Err((loader_clone(&loader), message));
+                }
+            };
 
-        let samples = supported_samples(context);
+        // `loader` moves into the struct: it is only function pointers (ash
+        // loaders are `Clone`), so no second `Device::new` is needed.
+        Ok(Swapchain {
+            loader,
+            swapchain,
+            images,
+            views,
+            framebuffers,
+            render_pass: built.render_pass,
+            format: params.chosen.format,
+            extent: params.extent,
+            samples,
+            present_mode: params.present_mode,
+            msaa: built.msaa,
+            stencil: built.stencil,
+        })
+    }
+
+    /// One image view plus one framebuffer per swapchain image, against the
+    /// attachment triple of one sample-count attempt.
+    ///
+    /// Attachment order matches the render pass: colour, resolve, then stencil.
+    unsafe fn build_framebuffers(
+        context: &Context,
+        params: &SwapchainParams,
+        built: &BuiltAttachments,
+        images: &[vk::Image],
+    ) -> Result<(Vec<vk::ImageView>, Vec<vk::Framebuffer>), String> {
+        let mut views = Vec::with_capacity(images.len());
+        let mut framebuffers = Vec::with_capacity(images.len());
+        for &image in images {
+            let view_info = vk::ImageViewCreateInfo::default()
+                .image(image)
+                .view_type(vk::ImageViewType::TYPE_2D)
+                .format(params.chosen.format)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                });
+            let view = context
+                .device
+                .create_image_view(&view_info, None)
+                .map_err(|e| format!("create_image_view {e:?}"))?;
+            views.push(view);
+
+            let attached: Vec<vk::ImageView> = match &built.msaa {
+                Some(target) => vec![target.view, view, built.stencil.view],
+                None => vec![view, built.stencil.view],
+            };
+            let framebuffer_info = vk::FramebufferCreateInfo::default()
+                .render_pass(built.render_pass)
+                .attachments(&attached)
+                .width(params.extent.width)
+                .height(params.extent.height)
+                .layers(1);
+            framebuffers.push(
+                context
+                    .device
+                    .create_framebuffer(&framebuffer_info, None)
+                    .map_err(|e| format!("create_framebuffer {e:?}"))?,
+            );
+        }
+        Ok((views, framebuffers))
+    }
+
+    /// The render pass plus MSAA and stencil targets for one sample count, before
+    /// any per-image view exists.
+    unsafe fn build_attachments(
+        context: &Context,
+        chosen: vk::SurfaceFormatKHR,
+        extent: vk::Extent2D,
+        samples: vk::SampleCountFlags,
+    ) -> Result<BuiltAttachments, String> {
         let multisampled = samples != vk::SampleCountFlags::TYPE_1;
 
         // One subpass. When multisampled the colour attachment is the transient MSAA
@@ -216,58 +372,15 @@ impl Swapchain {
 
         let stencil_target = StencilTarget::new(context, stencil_format, extent, samples)?;
 
-        let mut views = Vec::with_capacity(images.len());
-        let mut framebuffers = Vec::with_capacity(images.len());
-        for &image in &images {
-            let view_info = vk::ImageViewCreateInfo::default()
-                .image(image)
-                .view_type(vk::ImageViewType::TYPE_2D)
-                .format(chosen.format)
-                .subresource_range(vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: 1,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                });
-            let view = context
-                .device
-                .create_image_view(&view_info, None)
-                .map_err(|e| format!("create_image_view {e:?}"))?;
-            views.push(view);
-
-            // Attachment order matches the render pass: colour, resolve, then stencil.
-            let attached: Vec<vk::ImageView> = match &msaa {
-                Some(target) => vec![target.view, view, stencil_target.view],
-                None => vec![view, stencil_target.view],
-            };
-            let framebuffer_info = vk::FramebufferCreateInfo::default()
-                .render_pass(render_pass)
-                .attachments(&attached)
-                .width(extent.width)
-                .height(extent.height)
-                .layers(1);
-            framebuffers.push(
-                context
-                    .device
-                    .create_framebuffer(&framebuffer_info, None)
-                    .map_err(|e| format!("create_framebuffer {e:?}"))?,
-            );
-        }
-
-        Ok(Swapchain {
-            loader,
-            swapchain,
-            images,
-            views,
-            framebuffers,
+        Ok(BuiltAttachments {
             render_pass,
-            format: chosen.format,
-            extent,
-            samples,
-            present_mode,
             msaa,
             stencil: stencil_target,
+            // The swapchain image count is negotiated above; the per-image loop in
+            // `with_samples` reserves from it. Three is the floor every driver
+            // offers (min + 1 with min >= 2 in practice), so this only sizes the
+            // initial `Vec` capacity, never the framebuffer count.
+            image_count_hint: 3,
         })
     }
 
@@ -294,6 +407,60 @@ impl Swapchain {
         self.views.clear();
         self.loader.destroy_swapchain(self.swapchain, None);
     }
+}
+
+/// The swapchain-handle parameters shared by both MSAA attempts: negotiated once
+/// in `new`, consumed once per attempt in `with_samples`.
+struct SwapchainParams {
+    chosen: vk::SurfaceFormatKHR,
+    extent: vk::Extent2D,
+    present_mode: vk::PresentModeKHR,
+    image_count: u32,
+    pre_transform: vk::SurfaceTransformFlagsKHR,
+}
+
+/// Clone the swapchain loader for an error return: the loader is only loaded
+/// function pointers (ash loaders are `Clone`), so the retry keeps working with
+/// a copy while the original moves into the error tuple.
+fn loader_clone(loader: &ash::khr::swapchain::Device) -> ash::khr::swapchain::Device {
+    loader.clone()
+}
+
+/// Destroy the render pass and MSAA/stencil targets of a failed attempt.
+///
+/// A failed `with_samples` attempt must leave nothing behind: the swapchain
+/// handle is destroyed at the call site, and this drops the attachment triple
+/// `build_attachments` created. Views and framebuffers allocated before the
+/// failure are intentionally not handled here — see the leak notes at those
+/// call sites (a broken-driver path, matching the old code).
+unsafe fn destroy_attachments(
+    device: &ash::Device,
+    built: BuiltAttachments,
+) {
+    let BuiltAttachments { render_pass, msaa, stencil, .. } = built;
+    if let Some(target) = msaa {
+        device.destroy_image_view(target.view, None);
+        device.destroy_image(target.image, None);
+        device.free_memory(target.memory, None);
+    }
+    device.destroy_image_view(stencil.view, None);
+    device.destroy_image(stencil.image, None);
+    device.free_memory(stencil.memory, None);
+    device.destroy_render_pass(render_pass, None);
+}
+
+/// The render pass and its long-lived targets for one sample count, before any
+/// per-swapchain-image view exists.
+///
+/// Split out of `Swapchain::new` so the constructor can attempt the negotiated
+/// MSAA count and step down to 1x on failure: `build_attachments` owns the
+/// render pass, MSAA and stencil targets, while `with_samples` owns the
+/// per-image views and framebuffers.
+struct BuiltAttachments {
+    render_pass: vk::RenderPass,
+    msaa: Option<MsaaTarget>,
+    stencil: StencilTarget,
+    image_count_hint: usize,
 }
 
 /// Pick the swapchain present mode: MAILBOX where offered, FIFO otherwise.

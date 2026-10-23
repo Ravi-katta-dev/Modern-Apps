@@ -178,10 +178,6 @@
     <string name="reminders">Påminnelser</string>
     <string name="reminder_custom">Anpassad</string>
     <string name="reminder_custom_title">Anpassad påminnelse</string>
-    <string name="reminder_custom_amount">Antal</string>
-    <string name="reminder_custom_unit">Enhet</string>
     <string name="reminder_unit_minutes">Minuter</string>
     <string name="reminder_unit_hours">Timmar</string>
-    <string name="reminder_unit_days">Dagar</string>
-    <string name="reminder_unit_weeks">Veckor</string>
 </resources>

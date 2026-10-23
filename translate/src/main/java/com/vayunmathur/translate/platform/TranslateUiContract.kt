@@ -63,6 +63,7 @@ interface TextTranslateActions {
     fun speakOutput() {}
     fun toggleFavorite() {}
     fun openCamera() {}
+    fun openImage() {}
     fun openHistory() {}
     fun openLanguagePicker(forSource: Boolean) {}
 

@@ -24,6 +24,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntSize
@@ -244,12 +245,16 @@ internal fun TranslationLoop(
     // memo per source line: repeat lines are free, and OCR keeps redrawing boxes at full
     // rate. Keyed on the source too: switching it must drop the memo, or lines keep
     // showing translations made from the previous source language.
+    // The overlay list arrives new on every OCR pass, but this loop must not
+    // restart for that (it would drop the memo and re-translate everything).
+    // rememberUpdatedState keeps the polling loop reading the latest snapshot.
+    val latestOverlays = rememberUpdatedState(overlays)
     LaunchedEffect(sourceLang, targetLang, translationAvailable) {
         onTranslations(emptyMap())
         if (!translationAvailable) return@LaunchedEffect
         var memo = emptyMap<String, String>()
         while (isActive) {
-            val next = overlays.firstOrNull { it.text !in memo }
+            val next = latestOverlays.value.firstOrNull { it.text !in memo }
             if (next == null) {
                 delay(TRANSLATE_IDLE_POLL_MS)
                 continue

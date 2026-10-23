@@ -13,11 +13,13 @@ enum class CameraMode { PHOTO, PORTRAIT, PANORAMA, PHOTOSPHERE, VIDEO, SLOW_MO, 
 enum class FlashMode { ON, OFF, AUTO }
 
 /** Shutter-timer durations (seconds). */
+private const val TIMER_ONE_SECOND = 1
 private const val TIMER_THREE_SECONDS = 3
 private const val TIMER_FIVE_SECONDS = 5
 private const val TIMER_TEN_SECONDS = 10
 enum class TimerDuration(val seconds: Int) {
     NONE(0),
+    ONE(TIMER_ONE_SECOND),
     THREE(TIMER_THREE_SECONDS),
     FIVE(TIMER_FIVE_SECONDS),
     TEN(TIMER_TEN_SECONDS)

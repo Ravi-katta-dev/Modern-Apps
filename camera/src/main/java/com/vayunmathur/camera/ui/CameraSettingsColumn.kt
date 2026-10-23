@@ -7,9 +7,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.camera.R
+import com.vayunmathur.camera.domain.isFidoDeepLink
 import com.vayunmathur.camera.util.CameraMode
 import com.vayunmathur.library.ui.IconBlur
 import com.vayunmathur.library.ui.IconContrast
@@ -42,6 +44,8 @@ internal fun CameraSettingsColumn(
     cameraMode: CameraMode,
     onSelectSetting: (CameraSetting?) -> Unit,
     modifier: Modifier = Modifier,
+    qrResult: String? = null,
+    onDismissQr: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier
@@ -50,6 +54,16 @@ internal fun CameraSettingsColumn(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // FIDO hybrid/caBLE QR codes sit directly above the zoom bar: a single
+        // "Create a passkey" button with the dismiss X inside it.
+        val fidoQr = qrResult?.takeIf { isFidoDeepLink(it) }
+        if (fidoQr != null && onDismissQr != null) {
+            FidoQrCard(
+                text = fidoQr,
+                onDismiss = onDismissQr,
+                context = LocalContext.current,
+            )
+        }
         when (activeSetting) {
             null -> {
                 LensBar(

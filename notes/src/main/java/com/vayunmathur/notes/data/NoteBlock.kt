@@ -85,7 +85,10 @@ fun Note.body(): NoteBody {
  */
 fun Note.withBody(newBody: NoteBody): Note = copy(
     blocks = blockJson.encodeToString(newBody),
+    // Trim each block, not just the whole: trailing spaces at a block edge
+    // are invisible in the editor but would otherwise leak into the search
+    // index and list previews.
     content = newBody.blocks.filterIsInstance<NoteBlock.Text>()
-        .joinToString("\n\n") { it.markdown }
+        .joinToString("\n\n") { it.markdown.trim() }
         .trim(),
 )

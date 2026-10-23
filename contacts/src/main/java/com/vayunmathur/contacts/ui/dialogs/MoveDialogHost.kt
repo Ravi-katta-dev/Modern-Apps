@@ -93,6 +93,8 @@ private fun SimDroppedField.localized(): String = stringResource(
         SimDroppedField.ORGANIZATION -> R.string.move_dropped_organization
         SimDroppedField.NOTE -> R.string.move_dropped_note
         SimDroppedField.NICKNAME -> R.string.move_dropped_nickname
+        SimDroppedField.GENDER -> R.string.move_dropped_gender
+        SimDroppedField.COMM_PREF -> R.string.move_dropped_comm_pref
         SimDroppedField.GROUPS -> R.string.move_dropped_groups
         SimDroppedField.RINGTONE -> R.string.move_dropped_ringtone
         SimDroppedField.FAVORITE -> R.string.move_dropped_favorite

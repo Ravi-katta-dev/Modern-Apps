@@ -36,6 +36,20 @@ object UnitRegistry {
     private const val METRES_PER_FOOT = 0.3048
     private const val METRES_PER_INCH = 0.0254
     private const val METRES_PER_NAUTICAL_MILE = 1852.0
+    private const val METRES_PER_LIGHT_NANOSECOND = 0.299792458
+    private const val METRES_PER_LIGHT_MICROSECOND = 299.792458
+    private const val METRES_PER_LIGHT_MILLISECOND = 299792.458
+    private const val METRES_PER_LIGHT_SECOND = 299792458.0
+    private const val METRES_PER_LIGHT_MINUTE = 17987547480.0
+    private const val METRES_PER_LIGHT_HOUR = 1079252848800.0
+    private const val METRES_PER_LIGHT_DAY = 25902068371200.0
+    private const val METRES_PER_LIGHT_WEEK = 181314478598400.0
+    private const val METRES_PER_LIGHT_YEAR = 9.4607304725808e15
+    private const val METRES_PER_AU = 1.495978707e11
+    private const val METRES_PER_PARSEC = 3.08567758149137e16
+    private const val METRES_PER_KILOPARSEC = 3.08567758149137e19
+    private const val METRES_PER_MEGAPARSEC = 3.08567758149137e22
+    private const val METRES_PER_GIGAPARSEC = 3.08567758149137e25
 
     // Mass (kilograms).
     private const val KG_PER_TONNE = 1000.0
@@ -337,6 +351,127 @@ object UnitRegistry {
                 UnitDef("ft", "ft", "Foot", d.LENGTH, METRES_PER_FOOT),
                 UnitDef("in", "in", "Inch", d.LENGTH, METRES_PER_INCH),
                 UnitDef("nmi", "nmi", "Nautical mile", d.LENGTH, METRES_PER_NAUTICAL_MILE),
+                UnitDef(
+                    "Gpc",
+                    "Gpc",
+                    "Gigaparsec",
+                    d.LENGTH,
+                    METRES_PER_GIGAPARSEC,
+                    aliases = listOf("gpc", "gigaparsec", "gigaparsecs"),
+                ),
+                UnitDef(
+                    "Mpc",
+                    "Mpc",
+                    "Megaparsec",
+                    d.LENGTH,
+                    METRES_PER_MEGAPARSEC,
+                    aliases = listOf("mpc", "megaparsec", "megaparsecs"),
+                ),
+                UnitDef(
+                    "kpc",
+                    "kpc",
+                    "Kiloparsec",
+                    d.LENGTH,
+                    METRES_PER_KILOPARSEC,
+                    aliases = listOf("kiloparsec", "kiloparsecs"),
+                ),
+                UnitDef(
+                    "pc",
+                    "pc",
+                    "Parsec",
+                    d.LENGTH,
+                    METRES_PER_PARSEC,
+                    aliases = listOf("parsec", "parsecs"),
+                ),
+                UnitDef(
+                    "ly",
+                    "ly",
+                    "Light-year",
+                    d.LENGTH,
+                    METRES_PER_LIGHT_YEAR,
+                    aliases = listOf("lightyear", "lightyears"),
+                ),
+                UnitDef(
+                    "lw",
+                    "lw",
+                    "Light-week",
+                    d.LENGTH,
+                    METRES_PER_LIGHT_WEEK,
+                    aliases = listOf("lwk", "lightweek", "lightweeks"),
+                ),
+                UnitDef(
+                    "ld",
+                    "ld",
+                    "Light-day",
+                    d.LENGTH,
+                    METRES_PER_LIGHT_DAY,
+                    aliases = listOf("lday", "lightday", "lightdays"),
+                ),
+                UnitDef(
+                    "lh",
+                    "lh",
+                    "Light-hour",
+                    d.LENGTH,
+                    METRES_PER_LIGHT_HOUR,
+                    aliases = listOf("lighthour", "lighthours"),
+                ),
+                UnitDef(
+                    "lmin",
+                    "lmin",
+                    "Light-minute",
+                    d.LENGTH,
+                    METRES_PER_LIGHT_MINUTE,
+                    aliases = listOf("lightminute", "lightminutes"),
+                ),
+                UnitDef(
+                    "ls",
+                    "ls",
+                    "Light-second",
+                    d.LENGTH,
+                    METRES_PER_LIGHT_SECOND,
+                    aliases = listOf("lightsecond", "lightseconds"),
+                ),
+                UnitDef(
+                    "lms",
+                    "lms",
+                    "Light-millisecond",
+                    d.LENGTH,
+                    METRES_PER_LIGHT_MILLISECOND,
+                    aliases = listOf(
+                        "lightmillisecond",
+                        "lightmilliseconds",
+                    ),
+                ),
+                UnitDef(
+                    "lus",
+                    "lµs",
+                    "Light-microsecond",
+                    d.LENGTH,
+                    METRES_PER_LIGHT_MICROSECOND,
+                    aliases = listOf(
+                        "lightmicrosecond",
+                        "lightmicroseconds",
+                    ),
+                ),
+                UnitDef(
+                    "lns",
+                    "lns",
+                    "Light-nanosecond",
+                    d.LENGTH,
+                    METRES_PER_LIGHT_NANOSECOND,
+                    aliases = listOf(
+                        "lightnanosecond",
+                        "lightnanoseconds",
+                    ),
+                ),
+                UnitDef(
+                    "AU",
+                    "AU",
+                    "Astronomical unit",
+                    d.LENGTH,
+                    METRES_PER_AU,
+                    aliases = listOf("au", "astronomicalunit", "astronomicalunits"),
+                ),
             ),
         )
     }

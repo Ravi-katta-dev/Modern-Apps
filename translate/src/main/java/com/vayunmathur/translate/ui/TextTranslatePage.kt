@@ -52,6 +52,7 @@ fun TextTranslatePage(
     reuseRequest: TranslationRecord?,
     onReuseConsumed: () -> Unit,
     onOpenCamera: () -> Unit,
+    onOpenImage: (String) -> Unit,
     onOpenHistory: () -> Unit,
     onOpenLanguagePicker: (Boolean) -> Unit,
 ) {
@@ -144,6 +145,10 @@ fun TextTranslatePage(
     )
     val installLabel = stringResource(R.string.install_voice)
 
+    // Gallery entry: the picker launcher lives here (the page owns activity results),
+    // the gallery-image route opens once an image is chosen.
+    val pickImage = rememberImagePickerLauncher(onPicked = onOpenImage)
+
     TextTranslateScreen(
         state = TextTranslateUiState(
             sourceLang = sourceLang,
@@ -207,6 +212,8 @@ fun TextTranslatePage(
             }
 
             override fun openCamera() = onOpenCamera()
+
+            override fun openImage() = pickImage()
 
             override fun openHistory() = onOpenHistory()
 

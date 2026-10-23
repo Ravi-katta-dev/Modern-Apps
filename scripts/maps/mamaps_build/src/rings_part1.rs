@@ -433,7 +433,11 @@ mod tests {
         }
         assert!(saw[0], " Superior water reaches z0");
         assert!(saw[1], "Superior water reaches z5");
-        assert!(saw[2], "Superior water reaches z14");
+        if crate::tiler::wash_cap_enabled() {
+            assert!(!saw[2], "wash cap drops lake water at z14 (overzoomed from z13)");
+        } else {
+            assert!(saw[2], "Superior water reaches z14");
+        }
     }
 
     /// **Country label gating, end to end.** Two `country` places through the real

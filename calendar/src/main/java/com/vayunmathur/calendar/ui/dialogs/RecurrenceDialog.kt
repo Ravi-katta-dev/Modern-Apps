@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import com.vayunmathur.library.ui.AlertDialog
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.DropdownMenu
@@ -35,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.calendar.util.MAX_RRULE_COUNT
@@ -158,7 +160,7 @@ fun RecurrenceDialog(
             Button(onClick = { backStack.pop() }) { Text(stringResource(UiR.string.cancel)) }
         },
         text = {
-            Column(Modifier.padding(8.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(8.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 
                 SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                     SegmentedButton(!onDates, { onDates = false }, shape = SegmentedButtonDefaults.itemShape(0, 2)) {
@@ -187,28 +189,45 @@ fun RecurrenceDialog(
                     return@Column
                 }
 
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(stringResource(R.string.repeat))
                     var openDropdown by remember { mutableStateOf(false) }
 
-                    OutlinedTextField(
-                        intervalStr,
-                        { intervalStr = it },
-                        leadingIcon = {Text(stringResource(R.string.every))},
-                        trailingIcon = {
-                            Text(stringResource(R.string.dropdown_freq_format, freq), Modifier.clickable{
-                                openDropdown = true
-                            })
-                            DropdownMenu(openDropdown, onDismissRequest = { openDropdown = false }) {
-                                listOf("days", "weeks", "months", "years").forEach { f ->
-                                    DropdownMenuItem({ Text(f) }, onClick = {
-                                        freq = f
-                                        openDropdown = false
-                                    })
-                                }
+                    Box(Modifier.weight(1f)) {
+                        OutlinedTextField(
+                            intervalStr,
+                            { intervalStr = it.filter { c -> c.isDigit() } },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            prefix = {
+                                Text(
+                                    stringResource(R.string.every),
+                                    Modifier.padding(end = 8.dp)
+                                )
+                            },
+                            suffix = {
+                                Text(
+                                    stringResource(R.string.dropdown_freq_format, freq),
+                                    Modifier.padding(start = 8.dp).clickable {
+                                        openDropdown = true
+                                    }
+                                )
+                            }
+                        )
+                        DropdownMenu(openDropdown, onDismissRequest = { openDropdown = false }) {
+                            listOf("days", "weeks", "months", "years").forEach { f ->
+                                DropdownMenuItem({ Text(f) }, onClick = {
+                                    freq = f
+                                    openDropdown = false
+                                })
                             }
                         }
-                    )
+                    }
                 }
 
                 if (freq == "weeks") {

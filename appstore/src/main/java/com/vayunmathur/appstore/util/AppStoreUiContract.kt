@@ -54,8 +54,6 @@ data class HomeUiState(
     val sections: List<AppSection> = emptyList(),
     val categories: List<String> = emptyList(),
     val selectedCategory: String? = null,
-    /** Section id expanded into a full list via its Browse button, or null for carousels. */
-    val expandedSectionId: String? = null,
     val updateCount: Int = 0,
     val installedPackages: Set<String> = emptySet(),
     val installedIcons: Map<String, Drawable> = emptyMap(),
@@ -64,6 +62,17 @@ data class HomeUiState(
     val isSyncing: Boolean = false,
     /** Transient status line, e.g. what the sync is currently fetching. */
     val statusMessage: String = "",
+)
+
+/** Everything the browse screen draws: one home section's full catalogue. */
+data class BrowseUiState(
+    val sectionId: String = "",
+    val title: String = "",
+    val apps: List<UnifiedApp> = emptyList(),
+    val isLoading: Boolean = false,
+    val installedPackages: Set<String> = emptySet(),
+    val installedIcons: Map<String, Drawable> = emptyMap(),
+    val stages: Map<String, InstallStage> = emptyMap(),
 )
 
 /** Everything the search screen draws. */
@@ -142,12 +151,6 @@ interface AppActions {
 interface HomeActions : AppActions {
     fun selectCategory(category: String?) {}
     fun refresh() {}
-
-    /**
-     * Expand a carousel section into its full vertical list, or collapse it back.
-     * One section at a time — an expanded section owns the screen below its header.
-     */
-    fun toggleSection(sectionId: String) {}
 
     companion object {
         val Noop: HomeActions = object : HomeActions {}

@@ -51,6 +51,7 @@ fun HomePage(
     viewModel: AppStoreViewModel,
     onAppClick: (UnifiedApp) -> Unit,
     onOpenUpdates: () -> Unit,
+    onOpenBrowse: (AppSection) -> Unit,
 ) {
     val state by viewModel.home.collectAsState()
     // The updates banner counts every source, but the Play half of the update check only
@@ -64,6 +65,7 @@ fun HomePage(
         actions = viewModel,
         onAppClick = onAppClick,
         onOpenUpdates = onOpenUpdates,
+        onOpenBrowse = onOpenBrowse,
     )
 }
 
@@ -84,6 +86,7 @@ fun HomeScreen(
     actions: HomeActions,
     onAppClick: (UnifiedApp) -> Unit = {},
     onOpenUpdates: () -> Unit = {},
+    onOpenBrowse: (AppSection) -> Unit = {},
 ) {
     Scaffold { padding ->
         AppPullToRefreshBox(
@@ -152,28 +155,12 @@ fun HomeScreen(
                         SectionHeader(
                             title = section.title,
                             subtitle = section.subtitle,
-                            actionLabel = browseLabel(section.id == state.expandedSectionId),
-                            onAction = { actions.toggleSection(section.id) },
+                            actionLabel = stringResource(R.string.action_browse),
+                            onAction = { onOpenBrowse(section) },
                         )
                     }
-                    val expanded = section.id == state.expandedSectionId
-                    when {
-                        // Browse (issue #669): the carousel's apps as a full vertical list of
-                        // the same search-style rows, replacing the carousel while expanded.
-                        expanded -> items(
-                            section.apps,
-                            key = { "${section.id}-${it.packageName}" },
-                        ) { app ->
-                            AppRow(
-                                app = app,
-                                isInstalled = app.packageName in state.installedPackages,
-                                stage = state.stages[app.packageName],
-                                installedIcon = state.installedIcons[app.packageName],
-                                onClick = { onAppClick(app) },
-                                sharedKey = sharedKeyFor(section, app),
-                            )
-                        }
-                        section.layout == SectionLayout.CAROUSEL -> item("${section.id}-body") {
+                    if (section.layout == SectionLayout.CAROUSEL) {
+                        item("${section.id}-body") {
                             AppCarousel(
                                 apps = section.apps,
                                 installedPackages = state.installedPackages,
@@ -183,7 +170,8 @@ fun HomeScreen(
                                 sharedKey = { sharedKeyFor(section, it) },
                             )
                         }
-                        else -> items(
+                    } else {
+                        items(
                             section.apps,
                             key = { "${section.id}-${it.packageName}" },
                         ) { app ->
@@ -252,12 +240,6 @@ private fun UpdatesBanner(count: Int, onClick: () -> Unit) {
         }
     }
 }
-
-/** Browse/Show-less label for a section header, resolved here so previews stay literal. */
-@Composable
-private fun browseLabel(expanded: Boolean): String = stringResource(
-    if (expanded) R.string.action_show_less else R.string.action_browse
-)
 
 @Composable
 private fun CategoryRow(

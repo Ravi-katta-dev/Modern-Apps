@@ -53,6 +53,15 @@ impl Renderer {
             if tile.arrows.is_empty() {
                 continue;
             }
+            // Covered-stand-in suppression, like the traffic pass: arrows sit
+            // on the suppressed carriageway's lanes, so they suppress with it.
+            if self
+                .suppressed_tile(tile.z, tile.x, tile.y)
+                .is_some_and(|suppressed| suppressed.arrows)
+            {
+                *culled += tile.arrows.len();
+                continue;
+            }
             // Same off-screen cull as the flat layer loop (see `tile_offscreen`).
             if tile_offscreen(camera, tile.z, tile.x, tile.y) {
                 *culled += tile.arrows.len();

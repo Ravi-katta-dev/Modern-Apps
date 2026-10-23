@@ -21,7 +21,7 @@ class MainActivity : MaActivity() {
 
     override fun onCreateBeforeContent() {
         // FIRST_PARTY covers api.maproj.org (self-hosted weather bundle
-        // and tiles proxy — place search is on-device, no hosts remain).
+        // and tiles proxy — place search is a committed on-device asset).
         NetworkClient.init(this, TrustBundle.FIRST_PARTY)
         GeoDatabase.init(this)
         // Unpacking is a ~13 MB brotli decompression and disk write. Do it now,

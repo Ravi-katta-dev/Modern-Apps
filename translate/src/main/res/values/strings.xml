@@ -34,4 +34,8 @@
     <string name="save">Save</string>
     <!-- Saved-state label on the translation output card (already a favorite). -->
     <string name="saved">Saved</string>
+    <!-- Image translate: shown when a picked image cannot be decoded. -->
+    <string name="could_not_read_image">Couldn’t read that image</string>
+    <!-- Image translate: retry action after a failed image load. -->
+    <string name="pick_another_image">Pick another image</string>
 </resources>

@@ -46,9 +46,8 @@ import java.io.IOException
  * documented ORDER BY (exact, then prefix, then population, then bm25) so a
  * rebuild never silently reshuffles results.
  *
- * When the asset is absent — a clean checkout where the generator has not
- * been run — [status] stays [Status.Absent] and search falls back to the
- * server geocoding endpoint rather than failing.
+ * When the asset is absent — e.g. a corrupt install — [status] stays
+ * [Status.Absent] and search returns no results rather than failing.
  */
 object GeoDatabase {
 
@@ -82,7 +81,7 @@ object GeoDatabase {
     sealed interface Status {
         val installed: Meta? get() = null
 
-        /** Not unpacked yet; search falls back to the server endpoint. */
+        /** Not unpacked yet; search returns no results. */
         data object Absent : Status
 
         data object Preparing : Status
@@ -138,8 +137,8 @@ object GeoDatabase {
      *
      * Ranking (same ORDER BY as the generator documents): exact canonical or
      * ASCII name, then prefix matches, then population (famous cities win
-     * ties), then bm25. Empty when the catalogue is absent — the caller falls
-     * back to the server endpoint — or when nothing matches.
+     * ties), then bm25. Empty when the catalogue is absent or when nothing
+     * matches.
      */
     suspend fun searchPlaces(query: String, limit: Int = 5): List<GeocodingResult> =
         withContext(Dispatchers.IO) {

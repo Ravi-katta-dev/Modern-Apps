@@ -102,6 +102,18 @@ class AccrescentRepository(
     }
 
     /**
+     * The whole listing catalogue, A–Z. Backs the Browse page, which lists every
+     * Accrescent app rather than the home carousel's first page.
+     *
+     * Fail-soft like everything else here: an interrupted pagination returns whatever
+     * listings are cached rather than an error.
+     */
+    suspend fun allListings(): List<UnifiedApp> {
+        runCatching { ensureAllListingsLoaded() }
+        return listingsCache.values.sortedBy { it.name.lowercase() }
+    }
+
+    /**
      * Client-side search over the full catalogue. Accrescent's API has no search RPC, so this
      * pages every listing into memory once (mirroring Accrescent's own client) and then matches
      * app id, name and summary. The full load is cached for the session.

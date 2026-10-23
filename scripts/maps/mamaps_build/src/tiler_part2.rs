@@ -296,6 +296,44 @@ fn tile_chunks(
 /// `country_zooms` (place id → label start zoom, probe-only) drops a `country` label
 /// below its start zoom before any geometry work: the label is a point, so nothing
 /// downstream would remove it, and carrying it would defeat the gating.
+/// Whether the z14 wash cap is active for this build.
+///
+/// Unconditional: the renderer overzooms wash from z13 (shipped together with
+/// this gate), so gated archives are always safe to publish. (Previously
+/// opt-in via `MAMAPS_WASH_CAP=1` during the renderer-first rollout; the flag
+/// is retired now that both halves ship.)
+///
+/// `pub(crate)` so tests asserting flag-dependent behavior (e.g. the rings
+/// lake test) can branch rather than baking one flag state in.
+pub(crate) fn wash_cap_enabled() -> bool {
+    true
+}
+
+/// Whether a feature is wash dropped at this zoom: z14 landtype areas whose
+/// class is carried at shallower zooms (`min_zoom != max`) are redundant with
+/// the z13 parent tile, which the renderer overzooms. Detail areas
+/// (`min_zoom == 14`: pools, pitches, playgrounds — kinds absent at z13 so
+/// overzoom cannot recover them) and all lines (cheap, high-salience relief
+/// and hydrography cues) survive.
+///
+/// Pure function of (kind, zoom, geometry-type): no geometry work, no shared
+/// state, so chunk/thread boundaries cannot change the answer — the property
+/// `tile_chunk`'s doc comment defends.
+fn is_wash_dropped(feature: &Feature, z: u8) -> bool {
+    wash_cap_enabled() && wash_drops_kind(feature.class.layer, feature.class.area, feature.class.min_zoom, z)
+}
+
+/// The wash-cap predicate without the env gate, so unit tests can pin the
+/// rule without touching process-global state (the `OnceLock` in
+/// `wash_cap_enabled` is set once per test process).
+fn wash_drops_kind(layer: u8, area: bool, min_zoom: u8, z: u8) -> bool {
+    use tilecodec::mamaps::dict;
+    z == crate::DEFAULT_MAX_ZOOM
+        && layer == dict::LAYER_LANDTYPE
+        && area
+        && min_zoom != crate::DEFAULT_MAX_ZOOM
+}
+
 fn tile_chunk(
     features: &[Feature],
     z: u8,
@@ -318,6 +356,12 @@ fn tile_chunk(
                     continue;
                 }
             }
+        }
+        // z14 wash cap: wash areas are redundant with the z13 parent (see
+        // `is_wash_dropped`). Before any geometry work, like the gate above.
+        if is_wash_dropped(feature, z) {
+            tally.dropped += 1;
+            continue;
         }
         let mut projected = geom::project_geometry(&feature.geometry, z, EXTENT);
         // Significance first, then filter: computed on the whole geometry so a vertex's fate

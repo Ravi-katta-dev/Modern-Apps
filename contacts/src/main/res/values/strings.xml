@@ -29,6 +29,8 @@
     <string name="add_contact">Add contact</string>
     <!-- TopAppBar title for editing existing contact -->
     <string name="edit_contact">Edit contact</string>
+    <!-- Text field label for the single joint name on SIM contacts -->
+    <string name="name">Name</string>
     <!-- Text field label for first/given name -->
     <string name="first_name">First name</string>
     <!-- Text field label for middle name -->
@@ -58,6 +60,16 @@
     </string-array>
     <!-- Text field label for nickname -->
     <string name="nickname">Nickname</string>
+    <!-- Text field label and picker for contact gender (Female/Male/Other + custom text) -->
+    <string name="gender">Gender</string>
+    <!-- Gender options offered in the picker. Keep in the same order as Gender codes F/M/O. -->
+    <string-array name="genders">
+        <item>Female</item>
+        <item>Male</item>
+        <item>Other</item>
+    </string-array>
+    <!-- Placeholder inside the gender custom-text field shown when Other is picked -->
+    <string name="gender_custom_hint">Describe (optional)</string>
     <!-- Text field label for company/organization name -->
     <string name="company">Company</string>
     <!-- Field label and picker for contacts account (e.g. Google, Local) -->
@@ -167,6 +179,10 @@
     <string name="telegram">Telegram</string>
     <!-- App label: Google Meet video calling -->
     <string name="google_meet">Google Meet</string>
+    <!-- Edit contact: header for the preferred number + method section -->
+    <string name="preferred_contact_method">Preferred contact method</string>
+    <!-- Edit contact: label for the preferred platform dropdown -->
+    <string name="preferred_method">Preferred method</string>
 
     <!-- Bottom navigation -->
     <!-- Bottom nav label: groups tab -->
@@ -270,6 +286,10 @@
     <string name="move_dropped_organization">organization</string>
     <string name="move_dropped_note">note</string>
     <string name="move_dropped_nickname">nickname</string>
+    <!-- Dropped-field label for gender in the SIM warning list -->
+    <string name="move_dropped_gender">gender</string>
+    <!-- Dropped-field label for preferred contact method in the SIM warning list -->
+    <string name="move_dropped_comm_pref">preferred contact method</string>
     <string name="move_dropped_groups">groups</string>
     <string name="move_dropped_ringtone">ringtone</string>
     <string name="move_dropped_favorite">favorite</string>

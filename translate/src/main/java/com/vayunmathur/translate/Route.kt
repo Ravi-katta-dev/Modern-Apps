@@ -12,6 +12,9 @@ sealed interface Route : NavKey {
     data object Camera : Route
 
     @Serializable
+    data class Image(val imageUri: String) : Route
+
+    @Serializable
     data class LanguagePicker(val forSource: Boolean) : Route
 
     @Serializable

@@ -200,10 +200,6 @@
     <string name="reminders">Przypomnienia</string>
     <string name="reminder_custom">Niestandardowy</string>
     <string name="reminder_custom_title">Niestandardowe przypomnienie</string>
-    <string name="reminder_custom_amount">Wartość</string>
-    <string name="reminder_custom_unit">Jednostka</string>
     <string name="reminder_unit_minutes">Minuty</string>
     <string name="reminder_unit_hours">Godziny</string>
-    <string name="reminder_unit_days">Dni</string>
-    <string name="reminder_unit_weeks">Tygodnie</string>
 </resources>

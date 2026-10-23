@@ -85,6 +85,8 @@ private class DetailsAccumulator {
     val notesMap = mutableMapOf<Long, MutableList<Note>>()
     val nicknamesMap = mutableMapOf<Long, MutableList<Nickname>>()
     val groupsMap = mutableMapOf<Long, MutableList<GroupMembership>>()
+    val gendersMap = mutableMapOf<Long, MutableList<Gender>>()
+    val commPrefsMap = mutableMapOf<Long, MutableList<CommPref>>()
     val rawContactIds = mutableSetOf<Long>()
 
     fun toDetails(): Map<Long, ContactDetails> =
@@ -99,7 +101,11 @@ private class DetailsAccumulator {
                 orgsMap[rawId]?.distinct().orEmpty(),
                 notesMap[rawId]?.distinct().orEmpty(),
                 nicknamesMap[rawId]?.distinct().orEmpty(),
-                groupsMap[rawId]?.distinct().orEmpty()
+                groupsMap[rawId]?.distinct().orEmpty(),
+                gendersMap[rawId]?.distinct().orEmpty(),
+                // Singleton in practice (one pref row per raw contact); last-wins
+                // on duplicates from aggregated raws, matching gender handling.
+                commPrefsMap[rawId]?.distinct().orEmpty()
             )
         }
 }
@@ -189,6 +195,8 @@ private fun accumulateDetailsRow(
         CDKNote.CONTENT_ITEM_TYPE -> accumulator.addNote(cursor, cols, rawId, dataId)
         CDKNickname.CONTENT_ITEM_TYPE -> accumulator.addNickname(cursor, cols, rawId, dataId)
         CDKGroupMembership.CONTENT_ITEM_TYPE -> accumulator.addGroup(cursor, cols, rawId, dataId)
+        Gender.MIME_TYPE -> accumulator.addGender(cursor, cols, rawId, dataId)
+        CommPref.MIME_TYPE -> accumulator.addCommPref(cursor, cols, rawId, dataId)
     }
 }
 
@@ -338,4 +346,28 @@ private fun DetailsAccumulator.addGroup(
 ) {
     val groupId = cursor.getLong(cols.d1Idx)
     groupsMap.getOrPut(rawId) { mutableListOf() }.add(GroupMembership(dataId, groupId))
+}
+
+private fun DetailsAccumulator.addGender(
+    cursor: android.database.Cursor,
+    cols: DetailsColumnIndexes,
+    rawId: Long,
+    dataId: Long,
+) {
+    val code = cursor.getStringOrNull(cols.d1Idx).orEmpty()
+    val text = cursor.getStringOrNull(cols.d2Idx).orEmpty()
+    gendersMap.getOrPut(rawId) { mutableListOf() }.add(Gender(dataId, code, text))
+}
+
+private fun DetailsAccumulator.addCommPref(
+    cursor: android.database.Cursor,
+    cols: DetailsColumnIndexes,
+    rawId: Long,
+    dataId: Long,
+) {
+    val number = cursor.getStringOrNull(cols.d1Idx).orEmpty()
+    val platform = CommPlatform.fromStorageKey(cursor.getStringOrNull(cols.d2Idx).orEmpty())
+        ?: return
+    if (number.isBlank()) return
+    commPrefsMap.getOrPut(rawId) { mutableListOf() }.add(CommPref(dataId, number, platform))
 }

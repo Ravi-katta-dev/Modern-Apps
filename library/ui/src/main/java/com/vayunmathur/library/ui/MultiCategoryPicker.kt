@@ -47,18 +47,8 @@ fun <T> MultiCategoryPicker(
     val interactionSource = remember { MutableInteractionSource() }
 
     Box(modifier.fillMaxWidth()) {
-        CategoryChipField(
-            label = label,
-            selected = selected,
-            itemLabel = itemLabel,
-            onRemove = onRemove,
-            interactionSource = interactionSource,
-            trailingIcon = { IconArrowDropDown() },
-            chipModifier = chipModifier,
-        )
-
-        // Above the chips so the whole field opens the menu, but the chips' own remove taps still win
-        // because they are drawn later in the same Box.
+        // Below the chips so chip remove taps (drawn later, hit-tested first) win,
+        // while taps on empty field area fall through to this overlay and open the menu.
         if (available.isNotEmpty()) {
             Box(
                 Modifier
@@ -71,6 +61,15 @@ fun <T> MultiCategoryPicker(
                     )
             )
         }
+        CategoryChipField(
+            label = label,
+            selected = selected,
+            itemLabel = itemLabel,
+            onRemove = onRemove,
+            interactionSource = interactionSource,
+            trailingIcon = { IconArrowDropDown() },
+            chipModifier = chipModifier,
+        )
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             available.forEach { item ->
                 DropdownMenuItem(
@@ -107,15 +106,8 @@ fun <T> MultiCategoryPicker(
     val interactionSource = remember { MutableInteractionSource() }
 
     Box(modifier.fillMaxWidth()) {
-        CategoryChipField(
-            label = label,
-            selected = selected,
-            itemLabel = itemLabel,
-            onRemove = onRemove,
-            interactionSource = interactionSource,
-            trailingIcon = trailingIcon,
-            chipModifier = chipModifier,
-        )
+        // Below the chips so chip remove taps (drawn later, hit-tested first) win,
+        // while taps on empty field area fall through to this overlay and open the picker.
         Box(
             Modifier
                 .matchParentSize()
@@ -124,6 +116,15 @@ fun <T> MultiCategoryPicker(
                     indication = null,
                     onClick = onAddClick,
                 )
+        )
+        CategoryChipField(
+            label = label,
+            selected = selected,
+            itemLabel = itemLabel,
+            onRemove = onRemove,
+            interactionSource = interactionSource,
+            trailingIcon = trailingIcon,
+            chipModifier = chipModifier,
         )
     }
 }

@@ -100,6 +100,12 @@
     <!-- QR code detection overlay -->
     <!-- QrResultOverlay: header title when QR code detected -->
     <string name="qr_result">QR Code</string>
+    <!-- FidoQrCard: button to hand a FIDO registration QR to the passwords app. Verb. -->
+    <string name="create_passkey">Create a passkey</string>
+    <!-- FidoQrCard: button to hand a FIDO sign-in QR to the passwords app. Verb. -->
+    <string name="sign_in_with_passkey">Sign in with a passkey</string>
+    <!-- FidoQrCard: button when the FIDO QR carries no request-type hint. Verb. -->
+    <string name="use_passkey">Use a passkey</string>
     <!-- QrResultOverlay: header title when an eSIM activation code QR is detected -->
     <string name="esim_qr_result">eSIM QR Code</string>
     <!-- QrResultOverlay: button to hand an eSIM activation code to the system LPA. Verb. -->

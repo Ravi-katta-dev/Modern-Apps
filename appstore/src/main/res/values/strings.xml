@@ -32,6 +32,9 @@
 
     <!-- Home. -->
     <string name="action_browse">Browse</string>
+    <!-- Browse page: the section's full catalogue came back empty. -->
+    <string name="browse_empty_title">Nothing here yet</string>
+    <string name="browse_empty_message">Sync your sources to fill this up, or search for an app by name.</string>
     <string name="section_modern_apps">From Modern Apps</string>
     <string name="section_modern_apps_subtitle">Built in this repo and signed with the same key as this store</string>
     <string name="section_play_top_charts">Top on the Play Store</string>

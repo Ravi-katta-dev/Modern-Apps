@@ -23,6 +23,7 @@ dependencies {
     implementation(project(":library:downloadservice"))
     implementation(project(":library:ocr"))
     implementation(project(":library:network"))
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)

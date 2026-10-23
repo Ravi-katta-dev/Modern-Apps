@@ -87,6 +87,8 @@ class AppStoreViewModel(
     internal val lastUpdateCheckFlow = MutableStateFlow(0L)
 
     internal val playSectionsFlow = MutableStateFlow<List<AppSection>>(emptyList())
+    /** Uncapped Play cluster apps per section id — Browse shows the whole cluster. */
+    internal val playFullClustersFlow = MutableStateFlow<Map<String, List<UnifiedApp>>>(emptyMap())
     internal val recentlyUpdatedFlow = MutableStateFlow<List<UnifiedApp>>(emptyList())
 
     /** Newest builds per offline repo: each one gets its own home row. */
@@ -106,8 +108,10 @@ class AppStoreViewModel(
     internal val categoriesFlow = MutableStateFlow<List<String>>(emptyList())
     internal val selectedCategoryFlow = MutableStateFlow<String?>(null)
     internal val categoryAppsFlow = MutableStateFlow<List<UnifiedApp>>(emptyList())
-    /** Section id expanded via its Browse button (issue #669), or null for carousels. */
-    internal val expandedSectionFlow = MutableStateFlow<String?>(null)
+    internal val browseSectionFlow = MutableStateFlow<String?>(null)
+    internal val browseTitleFlow = MutableStateFlow("")
+    internal val browseAppsFlow = MutableStateFlow<List<UnifiedApp>>(emptyList())
+    internal val isLoadingBrowseFlow = MutableStateFlow(false)
 
     internal val queryFlow = MutableStateFlow("")
     internal val searchResultsFlow = MutableStateFlow<List<UnifiedApp>>(emptyList())
@@ -139,6 +143,7 @@ class AppStoreViewModel(
     internal var searchJob: Job? = null
     internal var detailJob: Job? = null
     internal var updateAllJob: Job? = null
+    internal var browseJob: Job? = null
 
     // --- Derived state ----------------------------------------------------------------
 
@@ -223,9 +228,7 @@ class AppStoreViewModel(
     val home: StateFlow<HomeUiState> = combine(
         sections,
         categoriesFlow,
-        combine(selectedCategoryFlow, expandedSectionFlow) { category, expanded ->
-            category to expanded
-        },
+        selectedCategoryFlow,
         chrome,
         combine(
             updates,
@@ -236,12 +239,11 @@ class AppStoreViewModel(
         ) { u, syncing, loading, msg, playError ->
             HomeChrome(u.size, syncing, loading, msg.ifBlank { playError })
         },
-    ) { built, categories, (category, expandedSectionId), rows, homeChrome ->
+    ) { built, categories, category, rows, homeChrome ->
         HomeUiState(
             sections = built,
             categories = categories,
             selectedCategory = category,
-            expandedSectionId = expandedSectionId,
             updateCount = homeChrome.updateCount,
             installedPackages = rows.installedPackages,
             installedIcons = rows.icons,
@@ -251,6 +253,24 @@ class AppStoreViewModel(
             statusMessage = homeChrome.message,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, HomeUiState())
+
+    val browse: StateFlow<BrowseUiState> = combine(
+        browseSectionFlow,
+        browseTitleFlow,
+        browseAppsFlow,
+        isLoadingBrowseFlow,
+        chrome,
+    ) { sectionId, title, apps, loading, rows ->
+        BrowseUiState(
+            sectionId = sectionId.orEmpty(),
+            title = title,
+            apps = apps,
+            isLoading = loading,
+            installedPackages = rows.installedPackages,
+            installedIcons = rows.icons,
+            stages = rows.stages,
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, BrowseUiState())
 
     val search: StateFlow<SearchUiState> = combine(
         queryFlow,
@@ -462,15 +482,6 @@ class AppStoreViewModel(
         }
     }
 
-    /**
-     * Expand a carousel section into its full vertical list, or collapse it.
-     * One section at a time (issue #669); expanding another moves, not stacks.
-     */
-    override fun toggleSection(sectionId: String) {
-        expandedSectionFlow.value =
-            if (expandedSectionFlow.value == sectionId) null else sectionId
-    }
-
     override fun refresh() = syncSources()
 
     /** Re-download both offline catalogues, then reload the home rows from them. */
@@ -505,6 +516,7 @@ class AppStoreViewModel(
         when (source) {
             AppSource.PLAYSTORE -> {
                 playSectionsFlow.value = emptyList()
+                playFullClustersFlow.value = emptyMap()
                 playUpdatesFlow.value = emptyList()
                 playInstalledPackagesFlow.value = emptySet()
             }

@@ -43,6 +43,11 @@ object ReminderScheduler {
     const val EXTRA_INSTANCE_START = "instance_start"
     const val EXTRA_INSTANCE_END = "instance_end"
     const val EXTRA_TITLE = "title"
+    /**
+     * Full Instance JSON for the notification tap deep-link. Same key the
+     * agenda widget uses, read by MainActivity.consumeInstanceLink.
+     */
+    const val EXTRA_INSTANCE = "instance"
 
     private const val PREFS = "calendar_reminders"
     private const val KEY_SCHEDULED = "scheduled_request_codes"

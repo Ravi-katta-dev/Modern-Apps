@@ -199,6 +199,51 @@ pub struct Renderer {
     /// Tile-upload staging arenas (see `upload_pool`): bump-allocated once, never freed
     /// until the renderer dies, so a tile upload costs copies but no `vkAllocateMemory`.
     pub(crate) upload_pool: UploadPool,
+    /// Which resident tiles are fully covered by settled finer tiles
+    /// ([`cover`](crate::tile::select::cover)), per draw group: the
+    /// covered-stand-in suppression map, refreshed by
+    /// [`refresh_suppression`](Renderer::refresh_suppression) before each
+    /// record. A tile absent from the map draws everything; a tile present
+    /// skips the listed groups.
+    pub(crate) suppression: HashMap<u64, SuppressedDraws>,
+    /// The residency epoch the suppression map was computed against. Together
+    /// with [`suppression_had_unsettled`](Self::suppression_had_unsettled),
+    /// this is what lets a steady frame skip the recompute: nothing can have
+    /// changed while no upload/eviction landed and no fade was in flight.
+    pub(crate) suppression_residency: u64,
+    /// Whether the last refresh saw a fade still in flight. A fade completing
+    /// changes who covers and who is suppressible, so a frame that had an
+    /// unsettled tile always recomputes next frame.
+    pub(crate) suppression_had_unsettled: bool,
+    /// Version of the suppression map: bumped whenever it changes. Part of the
+    /// submit early-out key in [`render`](Self::render) (see `FrameVersion`),
+    /// so the fade-completion frame that newly suppresses a stand-in actually
+    /// submits instead of skipping as "identical".
+    pub(crate) suppression_epoch: Cell<u64>,
+}
+
+/// A resident tile's suppressed draw groups: which of its passes are redundant
+/// because settled finer residents cover the whole tile with the same content.
+///
+/// Flat layers suppress individually (`layers` holds style layer indices), so
+/// the z14 `landtype` wash survives where z15 tiles carry roads but no earth.
+/// The mesh passes suppress as whole groups: each is one content kind per
+/// tile. Empty means nothing is suppressed — the tile is absent from the map
+/// rather than stored empty.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub(crate) struct SuppressedDraws {
+    /// Style layer indices whose flat draws this tile skips, sorted.
+    pub layers: Vec<usize>,
+    /// Skip the carriageway (ribbon) pass.
+    pub carriageways: bool,
+    /// Skip the DEM terrain pass.
+    pub terrain: bool,
+    /// Skip the building pass.
+    pub buildings: bool,
+    /// Skip the traffic overlay pass.
+    pub traffic: bool,
+    /// Skip the turn-arrow pass.
+    pub arrows: bool,
 }
 
 /// What one submitted frame drew, for the submit early-out.
@@ -228,6 +273,7 @@ pub(crate) struct FrameVersion {
     residency: u64,
     placement: u64,
     state: u64,
+    suppression: u64,
 }
 
 impl FrameVersion {
@@ -239,6 +285,7 @@ impl FrameVersion {
         residency: u64,
         placement: u64,
         state: u64,
+        suppression: u64,
     ) -> FrameVersion {
         FrameVersion {
             cam_lon: camera.center_lon.to_bits(),
@@ -257,6 +304,7 @@ impl FrameVersion {
             residency,
             placement,
             state,
+            suppression,
         }
     }
 }

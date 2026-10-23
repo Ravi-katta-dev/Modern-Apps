@@ -21,6 +21,8 @@ enum class SimDroppedField {
     ORGANIZATION,
     NOTE,
     NICKNAME,
+    GENDER,
+    COMM_PREF,
     GROUPS,
     RINGTONE,
     FAVORITE,
@@ -42,6 +44,8 @@ fun computeSimLoss(contact: Contact): List<SimDroppedField> {
     if (contact.details.orgs.any { it.company.isNotBlank() }) dropped += SimDroppedField.ORGANIZATION
     if (contact.details.notes.any { it.content.isNotBlank() }) dropped += SimDroppedField.NOTE
     if (contact.details.nicknames.any { it.nickname.isNotBlank() }) dropped += SimDroppedField.NICKNAME
+    if (contact.details.genders.any { it.code.isNotBlank() }) dropped += SimDroppedField.GENDER
+    if (contact.details.commPrefs.isNotEmpty()) dropped += SimDroppedField.COMM_PREF
     if (contact.details.groups.isNotEmpty()) dropped += SimDroppedField.GROUPS
     if (contact.customRingtone != null) dropped += SimDroppedField.RINGTONE
     if (contact.isFavorite) dropped += SimDroppedField.FAVORITE
@@ -226,4 +230,6 @@ private fun ContactDetails.zeroed(): ContactDetails = copy(
     notes = notes.map { it.copy(id = 0) },
     nicknames = nicknames.map { it.copy(id = 0) },
     groups = groups.map { it.copy(id = 0) },
+    genders = genders.map { it.copy(id = 0) },
+    commPrefs = commPrefs.map { it.copy(id = 0) },
 )

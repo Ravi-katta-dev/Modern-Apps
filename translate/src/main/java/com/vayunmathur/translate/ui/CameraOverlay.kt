@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -63,6 +64,8 @@ internal fun CameraOverlay(
     onToggleTorch: () -> Unit,
     onBack: () -> Unit,
     onOpenLanguagePicker: (Boolean) -> Unit,
+    // False on the gallery-image screen, which has no live capture to pause or torch.
+    showCaptureControls: Boolean = true,
 ) {
     val density = LocalDensity.current
     // Back button (top-left). The preview runs edge-to-edge behind the system bars,
@@ -154,33 +157,42 @@ internal fun CameraOverlay(
 
     // Bottom controls: language pickers + pause/resume + torch. Inset above the
     // gesture bar — sitting in it meant a tap on pause was liable to be swallowed by
-    // system navigation instead.
-    Row(
-        modifier = Modifier
-            .navigationBarsPadding()
-            .fillMaxWidth()
-            .padding(12.dp)
-            .background(Color(0xB3000000), RoundedCornerShape(24.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+    // system navigation instead. The fillMaxSize + BottomCenter wrapper pins the bar
+    // to the bottom of whatever box hosts this overlay: without it the row lands at
+    // the top, under the status bar and camera cutout, where it can't be tapped.
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.BottomCenter,
     ) {
-        LanguageFieldButton(
-            label = Languages.displayName(sourceLang),
-            onClick = { onOpenLanguagePicker(true) },
-            modifier = Modifier.width(120.dp),
-        )
-        IconButton(onClick = onTogglePaused) {
-            if (paused) IconPlay(tint = Color.White) else IconPause(tint = Color.White)
+        Row(
+            modifier = Modifier
+                .navigationBarsPadding()
+                .fillMaxWidth()
+                .padding(12.dp)
+                .background(Color(0xB3000000), RoundedCornerShape(24.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            LanguageFieldButton(
+                label = Languages.displayName(sourceLang),
+                onClick = { onOpenLanguagePicker(true) },
+                modifier = Modifier.width(120.dp),
+            )
+            if (showCaptureControls) {
+                IconButton(onClick = onTogglePaused) {
+                    if (paused) IconPlay(tint = Color.White) else IconPause(tint = Color.White)
+                }
+                IconButton(onClick = onToggleTorch) {
+                    if (torchOn) IconFlashOn(tint = Color.White) else IconFlashOff(tint = Color.White)
+                }
+            }
+            LanguageFieldButton(
+                label = Languages.displayName(targetLang),
+                onClick = { onOpenLanguagePicker(false) },
+                modifier = Modifier.width(120.dp),
+            )
         }
-        IconButton(onClick = onToggleTorch) {
-            if (torchOn) IconFlashOn(tint = Color.White) else IconFlashOff(tint = Color.White)
-        }
-        LanguageFieldButton(
-            label = Languages.displayName(targetLang),
-            onClick = { onOpenLanguagePicker(false) },
-            modifier = Modifier.width(120.dp),
-        )
     }
 }
 

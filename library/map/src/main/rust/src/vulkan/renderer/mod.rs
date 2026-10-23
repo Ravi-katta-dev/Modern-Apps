@@ -28,6 +28,7 @@ mod record_extra4;
 mod record_markers;
 mod record_moon;
 mod record_symbol;
+mod suppression;
 mod upload;
 mod upload_extra;
 pub(super) mod upload_moon;
@@ -35,7 +36,7 @@ mod upload_pool;
 mod upload_tail;
 
 pub use mod_extra::Renderer;
-pub(crate) use placement::globe_screen_quad;
+pub(crate) use {mod_extra::SuppressedDraws, placement::globe_screen_quad};
 pub(crate) use quad::{Quad, QUAD_INDICES, QUAD_VERTICES};
 
 /// How many frames may be in flight. Two is enough to keep the GPU fed behind vsync

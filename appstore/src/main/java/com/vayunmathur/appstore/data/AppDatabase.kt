@@ -271,6 +271,15 @@ interface CachedAppDao {
     @Query("SELECT * FROM CachedAppEntity WHERE source = :source ORDER BY name ASC")
     fun bySourceFlow(source: String): Flow<List<CachedAppEntity>>
 
+    @Query("SELECT * FROM CachedAppEntity WHERE source = :source ORDER BY name ASC")
+    suspend fun bySourceAll(source: String): List<CachedAppEntity>
+
+    @Query(
+        "SELECT * FROM CachedAppEntity WHERE ',' || categories || ',' LIKE '%,' || :category || ',%' " +
+            "ORDER BY name ASC"
+    )
+    suspend fun byCategoryAll(category: String): List<CachedAppEntity>
+
     /**
      * Newest builds from one offline source only. Each repo gets its own home
      * row, so the catalogue is never asked for a cross-source "recent" mix.

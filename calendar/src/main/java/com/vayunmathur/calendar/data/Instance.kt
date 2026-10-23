@@ -55,6 +55,23 @@ data class Instance(
 
 
     companion object {
+        /**
+         * Best-match [Instance] for a reminder tap: exact begin match first, then
+         * any instance of the event in a tight window around it (covers a
+         * recurrence shift or clock skew). Null when the provider is unreadable
+         * (locked boot, missing permission) or the event is gone.
+         */
+        fun findForReminder(context: Context, eventId: Long, begin: Long, end: Long): Instance? {
+            return runCatching {
+                val start = Instant.fromEpochMilliseconds((begin - 60_000L).coerceAtLeast(0L))
+                val finish = Instant.fromEpochMilliseconds(
+                    if (end > begin) end + 60_000L else begin + 3_600_000L,
+                )
+                val window = getInstances(context, start, finish)
+                window.firstOrNull { it.eventID == eventId && it.begin == begin }
+                    ?: window.firstOrNull { it.eventID == eventId }
+            }.getOrNull()
+        }
         /** Zone an instance's wall time displays in: UTC for all-day, system default otherwise. */
         private fun displayZone(allDay: Boolean): TimeZone =
             if (allDay) TimeZone.UTC else TimeZone.currentSystemDefault()

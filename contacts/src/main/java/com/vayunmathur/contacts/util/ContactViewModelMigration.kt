@@ -1,6 +1,9 @@
 package com.vayunmathur.contacts.util
 
 import android.app.Application
+import android.content.ContentProviderOperation
+import android.provider.ContactsContract
+import com.vayunmathur.contacts.data.rewriteNoYearSentinel
 import com.vayunmathur.library.log.Log
 import com.vayunmathur.contacts.util.ContactAccount
 import com.vayunmathur.contacts.data.LOCAL_ACCOUNT_TYPE
@@ -109,5 +112,54 @@ private suspend fun ContactViewModel.migrateHiddenAccountKey(hiddenEntry: String
 private fun shouldKeepHiddenKey(hiddenEntry: String): Boolean {
     if (!hiddenEntry.contains("|")) return true
     return decodeHiddenKeyClean(hiddenEntry) != null
+}
+
+/**
+ * One-time rewrite of Event rows stored with the internal "1604-MM-DD"
+ * no-year sentinel to the "--MM-DD" provider form, so year-less birthdays
+ * saved before the write-path fix become visible to Google Contacts and
+ * third-party readers (e.g. KashCal). Guarded by a DataStore flag so it
+ * runs once; rows already carrying a real year or "--MM-DD" are untouched.
+ *
+ * Broad catch is deliberate: provider writes fail with OEM-specific
+ * RuntimeExceptions and a best-effort migration must not break contact load.
+ */
+@Suppress("TooGenericExceptionCaught")
+internal suspend fun ContactViewModel.migrateNoYearEventDates() {
+    try {
+        if (dataStore.getBoolean("no_year_event_dates_migrated", false)) return
+        migrateNoYearEventDatesInternal()
+        dataStore.setBoolean("no_year_event_dates_migrated", true)
+    } catch (e: Exception) {
+        Log.status("ContactViewModel", "Error migrating no-year event dates", e)
+    }
+}
+
+private suspend fun ContactViewModel.migrateNoYearEventDatesInternal() {
+    val app = getApplication<Application>()
+    val ops = ArrayList<ContentProviderOperation>()
+    app.contentResolver.query(
+        ContactsContract.Data.CONTENT_URI,
+        arrayOf(ContactsContract.Data._ID, ContactsContract.Data.DATA1),
+        "${ContactsContract.Data.MIMETYPE} = ? AND ${ContactsContract.Data.DATA1} LIKE ?",
+        arrayOf(
+            ContactsContract.CommonDataKinds.Event.CONTENT_ITEM_TYPE,
+            "1604-%",
+        ),
+        null,
+    )?.use { cursor ->
+        val idIdx = cursor.getColumnIndexOrThrow(ContactsContract.Data._ID)
+        val dateIdx = cursor.getColumnIndexOrThrow(ContactsContract.Data.DATA1)
+        while (cursor.moveToNext()) {
+            val rewritten = rewriteNoYearSentinel(cursor.getString(dateIdx) ?: "")
+                ?: continue
+            ops += ContentProviderOperation.newUpdate(ContactsContract.Data.CONTENT_URI)
+                .withSelection("${ContactsContract.Data._ID} = ?", arrayOf(cursor.getLong(idIdx).toString()))
+                .withValue(ContactsContract.Data.DATA1, rewritten)
+                .build()
+        }
+    }
+    if (ops.isEmpty()) return
+    app.contentResolver.applyBatch(ContactsContract.AUTHORITY, ops)
 }
 

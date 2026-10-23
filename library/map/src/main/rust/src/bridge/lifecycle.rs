@@ -45,6 +45,12 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_create<'l>(
         log("library:network is missing, so remote tiles cannot be fetched");
         return 0;
     }
+    // One line per surface creation, not per tile: when the batch entry point was
+    // stripped from this build (issue 792), every tile wave falls back to single
+    // requests — slower but drawing — and this is where that is announced.
+    if !jni_http::batch_available() {
+        log("NativeHttpBridge.requestBatch is missing in this build; tile waves fall back to single requests");
+    }
 
     let cache_dir: String = match env.with_env(|env| cache_dir.try_to_string(env)).into_outcome() {
         jni::Outcome::Ok(s) => s,

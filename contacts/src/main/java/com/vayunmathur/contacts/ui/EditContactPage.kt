@@ -5,12 +5,10 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.vayunmathur.library.ui.R as UiR
@@ -108,11 +106,9 @@ fun EditContactPage(backStack: NavBackStack<Route>, viewModel: ContactViewModel,
         },
         bottomBar = {
             if (noteController.focused) {
-                // Anchored above the IME: without imePadding the bar either floats with
-                // a gap (keyboard not yet measured) or sits under the keyboard.
-                Box(Modifier.imePadding()) {
-                    com.vayunmathur.library.ui.OdfMarkdownEditorToolbar(noteController)
-                }
+                // EditorBottomBar already claims navigationBars ∪ ime itself —
+                // no extra imePadding here or the bar floats 2x above the keys.
+                com.vayunmathur.library.ui.OdfMarkdownEditorToolbar(noteController)
             }
         },
         scrollBehavior = appBarScrollBehavior(),
@@ -214,6 +210,16 @@ fun EditContactPage(backStack: NavBackStack<Route>, viewModel: ContactViewModel,
             )
             Spacer(Modifier.height(8.dp))
 
+            // Preferred call/message method: SIM ADN rows have no Data rows to keep it.
+            if (!isSimAccount) {
+                EditContactCommPrefSection(
+                    draft = currentDraft,
+                    contactId = editRoute.contactId,
+                    onUpdate = { viewModel.updateEditDraft { _ -> it } },
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+
             if (!isSimAccount) {
                 Spacer(Modifier.height(16.dp))
                 EditContactBirthday(backStack, currentDraft.birthday) { v ->
@@ -225,6 +231,12 @@ fun EditContactPage(backStack: NavBackStack<Route>, viewModel: ContactViewModel,
                     onDetailsChange = { list -> viewModel.updateEditDraft { it.copy(dates = list) } },
                     icon = { DateDetailsAddIcon() },
                     options = listOf(CDKEvent.TYPE_ANNIVERSARY, CDKEvent.TYPE_OTHER, CDKEvent.TYPE_CUSTOM)
+                )
+                Spacer(Modifier.height(16.dp))
+                EditContactGenderSection(
+                    draft = currentDraft,
+                    contactId = editRoute.contactId,
+                    onUpdate = { viewModel.updateEditDraft { _ -> it } },
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(

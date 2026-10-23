@@ -1,0 +1,11 @@
+{
+ "schemaVersion": 1,
+ "places": 171161,
+ "bytes": 33796096,
+ "compressedBytes": 12987492,
+ "sources": {
+  "cities": "https://download.geonames.org/export/dump/cities1000.zip",
+  "admin1": "https://download.geonames.org/export/dump/admin1CodesASCII.txt",
+  "country": "https://download.geonames.org/export/dump/countryInfo.txt"
+ }
+}

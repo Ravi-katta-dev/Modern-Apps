@@ -176,7 +176,12 @@ class MainActivity : MaActivity() {
                 title = stringResource(R.string.grant_permissions),
                 subtitle = stringResource(R.string.grant_permissions_rationale),
                 icon = { IconFavorite() },
-                requirements = listOf(PermissionRequirement.HealthConnect(PERMISSIONS))
+                requirements = listOf(
+                    // Dose reminders post notifications; without this grant they would silently
+                    // never appear. No-op pre-Tiramisu, where notifications are not runtime-gated.
+                    PermissionRequirement.notifications(),
+                    PermissionRequirement.HealthConnect(PERMISSIONS),
+                )
             )
         ) {
             LaunchedEffect(Unit) {

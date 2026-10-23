@@ -22,12 +22,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.vayunmathur.contacts.R
+import com.vayunmathur.contacts.data.CommAction
+import com.vayunmathur.contacts.data.CommPlatform
+import com.vayunmathur.contacts.data.CommPref
+import com.vayunmathur.contacts.data.CommPrefResolver
 import com.vayunmathur.contacts.data.Contact
 import com.vayunmathur.contacts.data.PhoneNumber
 import com.vayunmathur.contacts.util.ContactPlatforms
 import com.vayunmathur.contacts.util.PackageUtils
-import com.vayunmathur.library.ui.DropdownMenu
-import com.vayunmathur.library.ui.DropdownMenuItem
 import com.vayunmathur.library.ui.ExternalIntents
 import com.vayunmathur.library.ui.IconCall
 import com.vayunmathur.library.ui.IconMail
@@ -84,9 +86,9 @@ fun ProfileHeader(contact: Contact, decodePhoto: ((String) -> android.graphics.B
             ),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            parts.forEach { (slot, text) ->
+            parts.forEach { (slot, label) ->
                 Text(
-                    text = text,
+                    text = label,
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.SemiBold,
                     textAlign = TextAlign.Center,
@@ -117,7 +119,9 @@ fun ActionButtonsRow(
     phoneNumbers: List<PhoneNumber>,
     email: String?,
     platforms: ContactPlatforms,
-    isGoogleMeetInstalled: Boolean
+    isGoogleMeetInstalled: Boolean,
+    commPref: CommPref? = null,
+    onSaveCommPref: ((CommPref) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     Row(
@@ -127,200 +131,37 @@ fun ActionButtonsRow(
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
         if (phoneNumbers.isNotEmpty()) {
-            var callNumber by remember(phoneNumbers) { mutableStateOf(phoneNumbers.first().number) }
-            var smsNumber by remember(phoneNumbers) { mutableStateOf(phoneNumbers.first().number) }
-            var videoNumber by remember(phoneNumbers) { mutableStateOf(phoneNumbers.first().number) }
-            var showCallNumberPicker by remember { mutableStateOf(false) }
-            var showSmsNumberPicker by remember { mutableStateOf(false) }
-            var showVideoNumberPicker by remember { mutableStateOf(false) }
-            var showCallDropdown by remember { mutableStateOf(false) }
-            var showSmsDropdown by remember { mutableStateOf(false) }
-            var showVideoDropdown by remember { mutableStateOf(false) }
-
-            ActionButton(
+            CommActionButton(
+                action = CommAction.CALL,
                 icon = { IconCall() },
                 label = stringResource(UiR.string.call),
-                action = {
-                    if (phoneNumbers.size == 1 && !platforms.hasAnyPlatform) {
-                        placeCall(context, phoneNumbers.first().number)
-                    } else if (phoneNumbers.size == 1) {
-                        callNumber = phoneNumbers.first().number
-                        showCallDropdown = true
-                    } else {
-                        showCallNumberPicker = true
-                    }
-                },
-                dropdownContent = {
-                    NumberPickerDropdown(
-                        expanded = showCallNumberPicker,
-                        onDismiss = { showCallNumberPicker = false },
-                        phoneNumbers = phoneNumbers,
-                        onPick = { picked ->
-                            showCallNumberPicker = false
-                            if (platforms.hasAnyPlatform) {
-                                callNumber = picked
-                                showCallDropdown = true
-                            } else {
-                                placeCall(context, picked)
-                            }
-                        }
-                    )
-                    DropdownMenu(expanded = showCallDropdown, onDismissRequest = { showCallDropdown = false }) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.system_default)) },
-                            onClick = {
-                                placeCall(context, callNumber)
-                                showCallDropdown = false
-                            }
-                        )
-                        platforms.signalCallId?.let { id ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.signal)) },
-                                onClick = { placePlatformCall(context, callNumber, PackageUtils.SIGNAL_PACKAGE, fallbackDataRowId = id); showCallDropdown = false }
-                            )
-                        }
-                        platforms.whatsAppCallId?.let { id ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.whatsapp)) },
-                                onClick = { placePlatformCall(context, callNumber, PackageUtils.WHATSAPP_PACKAGE, fallbackDataRowId = id); showCallDropdown = false }
-                            )
-                        }
-                        platforms.telegramCallId?.let { id ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.telegram)) },
-                                onClick = { placePlatformCall(context, callNumber, PackageUtils.TELEGRAM_PACKAGE, fallbackDataRowId = id); showCallDropdown = false }
-                            )
-                        }
-                    }
-                }
+                phoneNumbers = phoneNumbers,
+                platforms = platforms,
+                isGoogleMeetInstalled = isGoogleMeetInstalled,
+                commPref = commPref,
+                onSaveCommPref = onSaveCommPref,
             )
-            ActionButton(
+            CommActionButton(
+                action = CommAction.MESSAGE,
                 icon = { IconSms() },
                 label = stringResource(R.string.action_message),
-                action = {
-                    if (phoneNumbers.size == 1 && !platforms.hasAnyPlatform) {
-                        ExternalIntents.sendSms(context, phoneNumbers.first().number)
-                    } else if (phoneNumbers.size == 1) {
-                        smsNumber = phoneNumbers.first().number
-                        showSmsDropdown = true
-                    } else {
-                        showSmsNumberPicker = true
-                    }
-                },
-                dropdownContent = {
-                    NumberPickerDropdown(
-                        expanded = showSmsNumberPicker,
-                        onDismiss = { showSmsNumberPicker = false },
-                        phoneNumbers = phoneNumbers,
-                        onPick = { picked ->
-                            showSmsNumberPicker = false
-                            if (platforms.hasAnyPlatform) {
-                                smsNumber = picked
-                                showSmsDropdown = true
-                            } else {
-                                ExternalIntents.sendSms(context, picked)
-                            }
-                        }
-                    )
-                    DropdownMenu(expanded = showSmsDropdown, onDismissRequest = { showSmsDropdown = false }) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.system_default)) },
-                            onClick = {
-                                ExternalIntents.sendSms(context, smsNumber)
-                                showSmsDropdown = false
-                            }
-                        )
-                        platforms.signalMessageId?.let { id ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.signal)) },
-                                onClick = { launchPlatformAction(context, id); showSmsDropdown = false }
-                            )
-                        }
-                        platforms.whatsAppMessageId?.let { id ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.whatsapp)) },
-                                onClick = { launchPlatformAction(context, id); showSmsDropdown = false }
-                            )
-                        }
-                        platforms.telegramMessageId?.let { id ->
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.telegram)) },
-                                onClick = { launchPlatformAction(context, id); showSmsDropdown = false }
-                            )
-                        }
-                    }
-                }
+                phoneNumbers = phoneNumbers,
+                platforms = platforms,
+                isGoogleMeetInstalled = isGoogleMeetInstalled,
+                commPref = commPref,
+                onSaveCommPref = onSaveCommPref,
             )
 
-            val hasVideoOptions = platforms.whatsAppVideoId != null ||
-                    platforms.signalVideoId != null ||
-                    platforms.telegramVideoId != null ||
-                    isGoogleMeetInstalled
-            if (hasVideoOptions) {
-                val videoOptionCount = listOf(
-                    isGoogleMeetInstalled,
-                    platforms.whatsAppVideoId != null,
-                    platforms.signalVideoId != null,
-                    platforms.telegramVideoId != null
-                ).count { it }
-
-                ActionButton(
+            if (hasVideoOptions(platforms, isGoogleMeetInstalled)) {
+                CommActionButton(
+                    action = CommAction.VIDEO,
                     icon = { IconVideoCamera() },
                     label = stringResource(R.string.action_video),
-                    action = {
-                        if (phoneNumbers.size > 1) {
-                            showVideoNumberPicker = true
-                        } else {
-                            videoNumber = phoneNumbers.first().number
-                            if (videoOptionCount == 1) {
-                                launchSingleVideoOption(context, videoNumber, platforms, isGoogleMeetInstalled)
-                            } else {
-                                showVideoDropdown = true
-                            }
-                        }
-                    },
-                    dropdownContent = {
-                        NumberPickerDropdown(
-                            expanded = showVideoNumberPicker,
-                            onDismiss = { showVideoNumberPicker = false },
-                            phoneNumbers = phoneNumbers,
-                            onPick = { picked ->
-                                showVideoNumberPicker = false
-                                videoNumber = picked
-                                if (videoOptionCount == 1) {
-                                    launchSingleVideoOption(context, picked, platforms, isGoogleMeetInstalled)
-                                } else {
-                                    showVideoDropdown = true
-                                }
-                            }
-                        )
-                        DropdownMenu(expanded = showVideoDropdown, onDismissRequest = { showVideoDropdown = false }) {
-                            if (isGoogleMeetInstalled) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.google_meet)) },
-                                    onClick = { launchGoogleMeet(context, videoNumber); showVideoDropdown = false }
-                                )
-                            }
-                            platforms.whatsAppVideoId?.let { id ->
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.whatsapp)) },
-                                    onClick = { placePlatformCall(context, videoNumber, PackageUtils.WHATSAPP_PACKAGE, isVideo = true, fallbackDataRowId = id); showVideoDropdown = false }
-                                )
-                            }
-                            platforms.signalVideoId?.let { id ->
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.signal)) },
-                                    onClick = { placePlatformCall(context, videoNumber, PackageUtils.SIGNAL_PACKAGE, isVideo = true, fallbackDataRowId = id); showVideoDropdown = false }
-                                )
-                            }
-                            platforms.telegramVideoId?.let { id ->
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.telegram)) },
-                                    onClick = { placePlatformCall(context, videoNumber, PackageUtils.TELEGRAM_PACKAGE, isVideo = true, fallbackDataRowId = id); showVideoDropdown = false }
-                                )
-                            }
-                        }
-                    }
+                    phoneNumbers = phoneNumbers,
+                    platforms = platforms,
+                    isGoogleMeetInstalled = isGoogleMeetInstalled,
+                    commPref = commPref,
+                    onSaveCommPref = onSaveCommPref,
                 )
             }
         }
@@ -330,6 +171,146 @@ fun ActionButtonsRow(
                 intent.data = "mailto:$email".toUri()
                 ExternalIntents.launch(context, intent)
             }
+        }
+    }
+}
+
+private fun hasVideoOptions(platforms: ContactPlatforms, isGoogleMeetInstalled: Boolean) =
+    CommPrefResolver.availablePlatformsFor(
+        CommAction.VIDEO, platforms, isGoogleMeetInstalled
+    ).isNotEmpty()
+
+/**
+ * One Call/Message/Video header button. Uses the shared [commPref] when it is
+ * still valid for this action; otherwise walks number picker (skipped for a
+ * single number) then platform picker (skipped when only SIM is available),
+ * saving the pick before launching.
+ */
+@Composable
+private fun CommActionButton(
+    action: CommAction,
+    icon: @Composable () -> Unit,
+    label: String,
+    phoneNumbers: List<PhoneNumber>,
+    platforms: ContactPlatforms,
+    isGoogleMeetInstalled: Boolean,
+    commPref: CommPref?,
+    onSaveCommPref: ((CommPref) -> Unit)?,
+) {
+    val context = LocalContext.current
+    var pickedNumber by remember(phoneNumbers) { mutableStateOf(phoneNumbers.first().number) }
+    var showNumberPicker by remember { mutableStateOf(false) }
+    var showPlatformPicker by remember { mutableStateOf(false) }
+
+    fun launch(number: String, platform: CommPlatform, save: Boolean = true) {
+        if (save) onSaveCommPref?.invoke(CommPref(0, number, platform))
+        launchCommAction(context, number, platform, action, platforms, isGoogleMeetInstalled)
+    }
+
+    fun launchWithNumber(number: String) {
+        val options = CommPrefResolver.availablePlatformsFor(action, platforms, isGoogleMeetInstalled)
+        when {
+            options.isEmpty() -> Unit
+            options.size == 1 -> launch(number, options.first())
+            else -> {
+                pickedNumber = number
+                showPlatformPicker = true
+            }
+        }
+    }
+
+    fun press() {
+        if (CommPrefResolver.isPrefValidFor(
+                commPref, action, phoneNumbers, platforms, isGoogleMeetInstalled
+            )
+        ) {
+            launch(commPref!!.number, commPref.platform, save = false)
+            return
+        }
+        if (phoneNumbers.size == 1) {
+            launchWithNumber(phoneNumbers.first().number)
+        } else {
+            showNumberPicker = true
+        }
+    }
+
+    ActionButton(
+        icon = icon,
+        label = label,
+        action = ::press,
+        dropdownContent = {
+            NumberPickerDropdown(
+                expanded = showNumberPicker,
+                onDismiss = { showNumberPicker = false },
+                phoneNumbers = phoneNumbers,
+                onPick = { picked ->
+                    showNumberPicker = false
+                    launchWithNumber(picked)
+                }
+            )
+            CommPlatformDropdown(
+                expanded = showPlatformPicker,
+                onDismiss = { showPlatformPicker = false },
+                action = action,
+                platforms = platforms,
+                isGoogleMeetInstalled = isGoogleMeetInstalled,
+                onPick = { platform ->
+                    showPlatformPicker = false
+                    launch(pickedNumber, platform)
+                }
+            )
+        }
+    )
+}
+
+/** Launches [number] via [platform] for [action], reusing the comms launch paths. */
+private fun launchCommAction(
+    context: android.content.Context,
+    number: String,
+    platform: CommPlatform,
+    action: CommAction,
+    platforms: ContactPlatforms,
+    isGoogleMeetInstalled: Boolean,
+) {
+    when (action) {
+        CommAction.CALL -> when (platform) {
+            CommPlatform.SIM -> placeCall(context, number)
+            CommPlatform.SIGNAL -> placePlatformCall(
+                context, number, PackageUtils.SIGNAL_PACKAGE,
+                fallbackDataRowId = platforms.signalCallId
+            )
+            CommPlatform.WHATSAPP -> placePlatformCall(
+                context, number, PackageUtils.WHATSAPP_PACKAGE,
+                fallbackDataRowId = platforms.whatsAppCallId
+            )
+            CommPlatform.TELEGRAM -> placePlatformCall(
+                context, number, PackageUtils.TELEGRAM_PACKAGE,
+                fallbackDataRowId = platforms.telegramCallId
+            )
+            CommPlatform.MEET -> placeCall(context, number)
+        }
+        CommAction.MESSAGE -> when (platform) {
+            CommPlatform.SIM -> ExternalIntents.sendSms(context, number)
+            CommPlatform.SIGNAL -> platforms.signalMessageId?.let { launchPlatformAction(context, it) }
+            CommPlatform.WHATSAPP -> platforms.whatsAppMessageId?.let { launchPlatformAction(context, it) }
+            CommPlatform.TELEGRAM -> platforms.telegramMessageId?.let { launchPlatformAction(context, it) }
+            CommPlatform.MEET -> ExternalIntents.sendSms(context, number)
+        }
+        CommAction.VIDEO -> when (platform) {
+            CommPlatform.MEET -> launchGoogleMeet(context, number)
+            CommPlatform.SIGNAL -> placePlatformCall(
+                context, number, PackageUtils.SIGNAL_PACKAGE, isVideo = true,
+                fallbackDataRowId = platforms.signalVideoId
+            )
+            CommPlatform.WHATSAPP -> placePlatformCall(
+                context, number, PackageUtils.WHATSAPP_PACKAGE, isVideo = true,
+                fallbackDataRowId = platforms.whatsAppVideoId
+            )
+            CommPlatform.TELEGRAM -> placePlatformCall(
+                context, number, PackageUtils.TELEGRAM_PACKAGE, isVideo = true,
+                fallbackDataRowId = platforms.telegramVideoId
+            )
+            CommPlatform.SIM -> launchSingleVideoOption(context, number, platforms, isGoogleMeetInstalled)
         }
     }
 }

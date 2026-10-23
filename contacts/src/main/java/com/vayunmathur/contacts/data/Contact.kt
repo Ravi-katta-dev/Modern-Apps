@@ -38,11 +38,17 @@ data class ContactDetails(
     val orgs: List<Organization>,
     val notes: List<Note>,
     val nicknames: List<Nickname>,
-    val groups: List<GroupMembership>
+    val groups: List<GroupMembership>,
+    val genders: List<Gender> = emptyList(),
+    val commPrefs: List<CommPref> = emptyList(),
 ) {
     fun all(): List<ContactDetail<*>> {
-        return phoneNumbers + emails + addresses + dates + photos + names + orgs + notes + nicknames + groups
+        return phoneNumbers + emails + addresses + dates + photos + names + orgs + notes + nicknames + groups + genders + commPrefs
     }
+
+    /** Single shared preferred number + platform; null means ask every time. */
+    val commPref: CommPref?
+        get() = commPrefs.firstOrNull()
 
     companion object {
         fun empty() = ContactDetails(
@@ -251,6 +257,50 @@ data class GroupMembership(override val id: Long, val groupId: Long): ContactDet
         throw UnsupportedOperationException("Group membership doesn't have type")
 }
 
+/**
+ * Singleton gender detail (RFC 6350 §6.2.7 sex/gender value): [code] is one of
+ * F/M/O/U, [text] carries the free-form value for O (and is otherwise blank).
+ * Persisted under a custom MIME type in DATA1 (code) + DATA2 (text); never stored
+ * on SIM contacts.
+ */
+@Serializable
+data class Gender(
+    override val id: Long,
+    val code: String,
+    val text: String = "",
+) : ContactDetail<Gender> {
+    override val type: Int = 0
+    override val value: String
+        get() = if (code == OTHER && text.isNotBlank()) "$code;$text" else code
+
+    override fun withType(type: Int) = throw UnsupportedOperationException("Cannot change type of gender")
+    override fun withValue(value: String): Gender {
+        val parts = value.split(";")
+        return copy(code = parts.getOrNull(0).orEmpty(), text = parts.drop(1).joinToString(";"))
+    }
+    override fun withLabel(label: String): Gender = this
+
+    override fun typeString(context: Context) =
+        throw UnsupportedOperationException("Gender doesn't have type")
+
+    companion object {
+        const val FEMALE = "F"
+        const val MALE = "M"
+        const val OTHER = "O"
+        const val UNSPECIFIED = "U"
+        const val MIME_TYPE = "vnd.android.cursor.item/vnd.com.vayunmathur.contacts.gender"
+
+        /** Canonical code for a raw string, or null when unrecognized. */
+        fun canonicalCode(raw: String): String? = when (raw.trim().uppercase()) {
+            FEMALE, "FEMALE", "W", "WOMAN", "GIRL" -> FEMALE
+            MALE, "MALE", "MAN", "BOY" -> MALE
+            OTHER, "OTHER", "X", "DIVERSE", "NONBINARY", "NON-BINARY" -> OTHER
+            UNSPECIFIED, "UNSPECIFIED", "UNKNOWN", "" -> UNSPECIFIED
+            else -> null
+        }
+    }
+}
+
 @Serializable
 data class Contact(
     val id: Long,
@@ -385,6 +435,8 @@ data class Contact(
             is Note -> completeNoteOperation(detail)
             is Nickname -> completeNicknameOperation(detail)
             is GroupMembership -> completeGroupMembershipOperation(detail)
+            is Gender -> completeGenderOperation(detail)
+            is CommPref -> completeCommPrefOperation(detail)
             else -> throw IllegalArgumentException("Unknown detail type")
         }
     }
@@ -401,6 +453,8 @@ data class Contact(
             is Note -> CDKNote.CONTENT_ITEM_TYPE
             is Nickname -> CDKNickname.CONTENT_ITEM_TYPE
             is GroupMembership -> CDKGroupMembership.CONTENT_ITEM_TYPE
+            is Gender -> Gender.MIME_TYPE
+            is CommPref -> CommPref.MIME_TYPE
             else -> throw IllegalArgumentException("Unknown detail type")
         }
 
@@ -431,7 +485,10 @@ data class Contact(
     private fun ContentProviderOperation.Builder.completeEventOperation(
         detail: Event
     ): ContentProviderOperation = this
-        .withValue(CDKEvent.START_DATE, detail.startDate.format(LocalDate.Formats.ISO))
+        // Year-less dates go out as "--MM-DD" (the provider contract Google
+        // Contacts and third-party readers parse); the internal 1604 sentinel
+        // must never reach the provider. See toExternalDateString.
+        .withValue(CDKEvent.START_DATE, detail.startDate.toExternalDateString())
         .withValue(CDKEvent.TYPE, detail.type)
         .withValue(CDKEvent.LABEL, detail.label)
         .build()
@@ -476,6 +533,20 @@ data class Contact(
         detail: GroupMembership
     ): ContentProviderOperation = this
         .withValue(CDKGroupMembership.GROUP_ROW_ID, detail.groupId)
+        .build()
+
+    private fun ContentProviderOperation.Builder.completeGenderOperation(
+        detail: Gender
+    ): ContentProviderOperation = this
+        .withValue(ContactsContract.Data.DATA1, detail.code)
+        .withValue(ContactsContract.Data.DATA2, detail.text)
+        .build()
+
+    private fun ContentProviderOperation.Builder.completeCommPrefOperation(
+        detail: CommPref
+    ): ContentProviderOperation = this
+        .withValue(ContactsContract.Data.DATA1, detail.number)
+        .withValue(ContactsContract.Data.DATA2, detail.platform.storageKey)
         .build()
 
     companion object {

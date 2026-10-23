@@ -138,7 +138,8 @@ fun CameraScreen(
                     onMicToggle = { viewModel.toggleMicMuted() },
                     onTimerCycle = {
                         val next = when (state.timerDuration) {
-                            TimerDuration.NONE -> TimerDuration.THREE
+                            TimerDuration.NONE -> TimerDuration.ONE
+                            TimerDuration.ONE -> TimerDuration.THREE
                             TimerDuration.THREE -> TimerDuration.FIVE
                             TimerDuration.FIVE -> TimerDuration.TEN
                             TimerDuration.TEN -> TimerDuration.NONE

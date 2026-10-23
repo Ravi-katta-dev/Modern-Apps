@@ -4,8 +4,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * On-device place catalogue response (`GeoDatabase.searchPlaces`), with the
- * same result fields city search has always shown.
+ * Place-search response: on-device catalogue rows ([GeoDatabase.searchPlaces])
+ * in the same shape city search has always shown, also reused by the
+ * `get_weather_by_name` intent.
  */
 @Serializable
 data class GeocodingResponse(val results: List<GeocodingResult> = emptyList())

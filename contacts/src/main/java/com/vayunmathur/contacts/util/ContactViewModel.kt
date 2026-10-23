@@ -19,6 +19,7 @@ import com.vayunmathur.contacts.data.CDKEvent
 import com.vayunmathur.contacts.data.CDKNickname
 import com.vayunmathur.contacts.data.CDKPhone
 import com.vayunmathur.contacts.data.CDKStructuredPostal
+import com.vayunmathur.contacts.data.CommPref
 import com.vayunmathur.contacts.data.Contact
 import com.vayunmathur.contacts.data.ContactDetail
 import com.vayunmathur.contacts.data.ContactDetails
@@ -260,11 +261,36 @@ class ContactViewModel(application: Application) : AndroidViewModel(application)
         override fun onChange(selfChange: Boolean) { syncTrigger.tryEmit(Unit) }
     }
 
+    // Fires on SIM insert/remove/swap. The provider observer above never fires for
+    // those (no provider write happens), so without this the SIM list only refreshes
+    // when the app is reopened. Feeds the same debounced syncTrigger; kept as a field
+    // so onCleared() can unregister it. Registering needs no permission; reading the
+    // subscription list inside syncFromSystem() already degrades gracefully without
+    // READ_PHONE_STATE (see SimContactsDataSource).
+    private val subscriptionListener =
+        object : android.telephony.SubscriptionManager.OnSubscriptionsChangedListener() {
+            override fun onSubscriptionsChanged() { syncTrigger.tryEmit(Unit) }
+        }
+
+    private fun subscriptionManager(): android.telephony.SubscriptionManager? =
+        getApplication<Application>().getSystemService(android.telephony.SubscriptionManager::class.java)
+
     init {
         // notifyForDescendants=true on the top-level authority so any contact/raw/data/
         // account change fires it; debounced so a sync burst causes a single reload.
         getApplication<Application>().contentResolver
             .registerContentObserver(ContactsContract.AUTHORITY_URI, true, contactsObserver)
+        // Broad catch is deliberate: OEM SubscriptionManager implementations throw
+        // undocumented RuntimeExceptions, and a failed listener must not block init.
+        @Suppress("TooGenericExceptionCaught")
+        try {
+            subscriptionManager()?.addOnSubscriptionsChangedListener(
+                getApplication<Application>().mainExecutor,
+                subscriptionListener,
+            )
+        } catch (e: Exception) {
+            Log.error("ContactViewModel", "Failed to register subscription listener", e)
+        }
         viewModelScope.launch {
             // Load immediately so cold-launched screens like InsertOrEdit don't
             // show empty list while waiting for the debounce.
@@ -277,6 +303,13 @@ class ContactViewModel(application: Application) : AndroidViewModel(application)
 
     override fun onCleared() {
         getApplication<Application>().contentResolver.unregisterContentObserver(contactsObserver)
+        // Broad catch is deliberate: must not throw out of onCleared.
+        @Suppress("TooGenericExceptionCaught")
+        try {
+            subscriptionManager()?.removeOnSubscriptionsChangedListener(subscriptionListener)
+        } catch (e: Exception) {
+            Log.error("ContactViewModel", "Failed to unregister subscription listener", e)
+        }
         super.onCleared()
     }
 
@@ -349,6 +382,7 @@ class ContactViewModel(application: Application) : AndroidViewModel(application)
 
     private suspend fun refreshContactsFromSystem() {
         val app = getApplication<Application>()
+        migrateNoYearEventDates()
         val device = com.vayunmathur.contacts.data.Contact.getAllContacts(app)
         val sim = SimContactsDataSource.simContactsAsContacts(app)
         allContactsState.value = device + sim
@@ -486,6 +520,8 @@ class ContactViewModel(application: Application) : AndroidViewModel(application)
         val company: String = "",
         val noteContent: String = "",
         val nickname: String = "",
+        val genderCode: String = "",
+        val genderText: String = "",
         val photo: Photo? = null,
         val birthday: LocalDate? = null,
         val accountName: String = "",
@@ -495,6 +531,7 @@ class ContactViewModel(application: Application) : AndroidViewModel(application)
         val dates: List<Event> = emptyList(),
         val addresses: List<Address> = emptyList(),
         val groupMemberships: List<GroupMembership> = emptyList(),
+        val commPref: CommPref? = null,
     )
 
     internal val editDraftState = MutableStateFlow<ContactDraft?>(null)

@@ -62,6 +62,34 @@ class UnitsTest {
     }
 
     @Test
+    fun lightUnitsConvertBySpeedOfLight() {
+        assertEquals(Dimension.LENGTH, q("1ly").dimension)
+        assertClose(9.4607304725808e15, q("1ly").value, tolerance = 1e3)
+        assertClose(299792458.0, q("1ls").value, tolerance = 1e-3)
+        assertClose(0.299792458, q("1lns").value, tolerance = 1e-12)
+        // Aliases resolve to the same units.
+        assertClose(q("1ly").value, q("1lightyear").value, tolerance = 1.0)
+        assertClose(1.0, unit("ly").fromBase(q("1lightyear").value))
+        assertClose(9.4607304725808e12, unit("km").fromBase(q("1ly").value), tolerance = 1e3)
+        assertTrue(UnitRegistry.unitsFor(Dimension.LENGTH).any { it.token == "ly" })
+    }
+
+    @Test
+    fun astronomicalUnitsAndParsecs() {
+        assertEquals(Dimension.LENGTH, q("1AU").dimension)
+        assertClose(1.495978707e11, q("1AU").value, tolerance = 1.0)
+        assertClose(q("1AU").value, q("1au").value, tolerance = 1.0)
+        assertEquals(Dimension.LENGTH, q("1pc").dimension)
+        assertClose(3.08567758149137e16, q("1pc").value, tolerance = 1e4)
+        assertClose(3.26156, unit("ly").fromBase(q("1pc").value), tolerance = 1e-4)
+        assertClose(1000.0, unit("pc").fromBase(q("1kpc").value), tolerance = 1e-9)
+        assertClose(1.0, unit("pc").fromBase(q("1parsec").value), tolerance = 1e-12)
+        assertClose(206264.806, unit("AU").fromBase(q("1pc").value), tolerance = 1e-3)
+        assertTrue(UnitRegistry.unitsFor(Dimension.LENGTH).any { it.token == "AU" })
+        assertTrue(UnitRegistry.unitsFor(Dimension.LENGTH).any { it.token == "pc" })
+    }
+
+    @Test
     fun areaVolumeSpeedDataEnergyPressureForceSamples() {
         assertEquals(Dimension.AREA, q("5m^2").dimension)
         assertClose(5.0, q("5m^2").value)

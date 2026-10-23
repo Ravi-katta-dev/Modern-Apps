@@ -28,7 +28,7 @@ use tile_build::mamaps::body::{
 };
 use tile_build::mamaps::dict::Dictionary;
 use tile_build::mamaps::header::Header;
-use tile_build::mamaps::index::{parse_leaf, parse_root, LEAF_ENTRY_LEN, ROOT_ENTRY_LEN};
+use tile_build::mamaps::index::{decompress_leaf, parse_leaf, parse_root, LEAF_ENTRY_LEN, ROOT_ENTRY_LEN};
 
 const KIND_NAMES: [(u8, &str); 13] = [
     (1, "graph_meta"), (2, "graph_nodes"), (3, "graph_edges"), (4, "graph_intermediate"),
@@ -96,8 +96,17 @@ fn scan_leaf(
     let mut p = Partial::default();
     f.seek(SeekFrom::Start(header.leaf_offset + re.leaf_offset))
         .map_err(|e| format!("cannot seek to leaf: {e}"))?;
-    let mut leaf_buf = vec![0u8; re.leaf_entry_count as usize * LEAF_ENTRY_LEN];
-    f.read_exact(&mut leaf_buf).map_err(|e| format!("cannot read leaf: {e}"))?;
+    // v9 leaf framing: `stored_len == 0` is a raw legacy leaf, anything else is
+    // one raw-DEFLATE frame of that length (see `index::decompress_leaf`).
+    let raw_len = re.leaf_entry_count as usize * LEAF_ENTRY_LEN;
+    let stored_len = if re.stored_len == 0 { raw_len } else { re.stored_len as usize };
+    let mut stored_buf = vec![0u8; stored_len];
+    f.read_exact(&mut stored_buf).map_err(|e| format!("cannot read leaf: {e}"))?;
+    let leaf_buf = if re.stored_len == 0 {
+        stored_buf
+    } else {
+        decompress_leaf(&stored_buf, raw_len).map_err(|e| format!("bad leaf frame: {e:?}"))?
+    };
     let leaf = parse_leaf(&leaf_buf).map_err(|e| format!("bad leaf: {e:?}"))?;
     // Dedup: a run of consecutive tiles shares one body — count each stored body
     // once (keyed by data offset), while crediting addressed tiles separately.

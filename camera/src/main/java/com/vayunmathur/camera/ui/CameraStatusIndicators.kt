@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vayunmathur.camera.R
+import com.vayunmathur.camera.domain.isFidoDeepLink
 import com.vayunmathur.library.ui.Text
 
 @Composable
@@ -33,7 +34,9 @@ internal fun BoxScope.CameraStatusIndicators(
     focusLocked: Boolean,
     focusTopPadding: Dp,
 ) {
-    qrResult?.let { qr ->
+    // FIDO deep links render in CameraSettingsColumn directly above the zoom
+    // bar — never in the generic QR popup here.
+    qrResult?.takeUnless { isFidoDeepLink(it) }?.let { qr ->
         QrResultOverlay(
             text = qr,
             onDismiss = onDismissQr,

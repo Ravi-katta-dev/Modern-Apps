@@ -159,6 +159,7 @@ internal fun CameraTopBar(
             } else {
                 val timerLabel = when (timerDuration) {
                     TimerDuration.NONE -> ""
+                    TimerDuration.ONE -> "1"
                     TimerDuration.THREE -> "3"
                     TimerDuration.FIVE -> "5"
                     TimerDuration.TEN -> "10"

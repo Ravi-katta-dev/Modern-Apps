@@ -353,7 +353,13 @@ Write-Host "[2/7] Building the routing graph ($Region) -> $graphDir"
 # Stdout is Tee'd to the phase log so the report can parse the TIMING line
 # back out; bars stay live because Tee-Object does not redirect.
 $graphLog = Join-Path $tmp "graph.log"
-& $roadGraph $Pbf --out $graphDir --region $BuildRegion | Tee-Object -FilePath $graphLog
+# Planet-scale inputs OOM the single-round write buffer (~48 B/edge x 1.08 B
+# edges); --rounds 3 partitions the write into source-id ranges so peak RSS
+# stays in the ~30 GB band (see osm_ingest README "Build-time memory"). Gated
+# on input size so state extracts keep single-round behavior.
+$graphRounds = @()
+if ($pbfBytes -gt 10GB) { $graphRounds = @("--rounds", "3") }
+& $roadGraph $Pbf --out $graphDir --region $BuildRegion @graphRounds | Tee-Object -FilePath $graphLog
 if ($LASTEXITCODE -ne 0) { throw "road_graph failed with exit code $LASTEXITCODE" }
 # Fail HERE, not 43 minutes into stage A: the world build died on a missing
 # metadata.bin after paying the whole of stage A first.

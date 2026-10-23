@@ -250,15 +250,27 @@ fn breakdown(path: &str, samples_per_zoom: usize) -> ExitCode {
     }
     let mut zooms: std::collections::BTreeMap<u8, Zoom> = std::collections::BTreeMap::new();
     for root_entry in &root {
-        let len = root_entry.leaf_entry_count as u64 * index::LEAF_ENTRY_LEN as u64;
-        let raw = match ranges.read(
+        let raw_len = root_entry.leaf_entry_count as u64 * index::LEAF_ENTRY_LEN as u64;
+        let stored_len = if root_entry.stored_len == 0 { raw_len } else { root_entry.stored_len as u64 };
+        let stored = match ranges.read(
             (hdr.leaf_offset + root_entry.leaf_offset) as u64,
-            len as u32,
+            stored_len as u32,
         ) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("mamaps_probe: leaf: {e}");
                 return ExitCode::from(1);
+            }
+        };
+        let raw = if root_entry.stored_len == 0 {
+            stored
+        } else {
+            match index::decompress_leaf(&stored, raw_len as usize) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("mamaps_probe: leaf inflate: {e}");
+                    return ExitCode::from(1);
+                }
             }
         };
         let leaf = match index::parse_leaf(&raw) {
@@ -545,13 +557,25 @@ fn layer_breakdown(path: &str, samples_per_zoom: usize) -> ExitCode {
     let mut zoom_bodies: std::collections::BTreeMap<u8, u64> =
         std::collections::BTreeMap::new();
     for root_entry in &root {
-        let len = root_entry.leaf_entry_count as u64 * index::LEAF_ENTRY_LEN as u64;
-        let raw = match ranges.read((hdr.leaf_offset + root_entry.leaf_offset) as u64, len as u32)
+        let raw_len = root_entry.leaf_entry_count as u64 * index::LEAF_ENTRY_LEN as u64;
+        let stored_len = if root_entry.stored_len == 0 { raw_len } else { root_entry.stored_len as u64 };
+        let stored = match ranges.read((hdr.leaf_offset + root_entry.leaf_offset) as u64, stored_len as u32)
         {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("mamaps_probe: leaf: {e}");
                 return ExitCode::from(1);
+            }
+        };
+        let raw = if root_entry.stored_len == 0 {
+            stored
+        } else {
+            match index::decompress_leaf(&stored, raw_len as usize) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("mamaps_probe: leaf inflate: {e}");
+                    return ExitCode::from(1);
+                }
             }
         };
         let leaf = match index::parse_leaf(&raw) {

@@ -65,6 +65,17 @@ impl Renderer {
                 *culled += tile.carriageways.len();
                 continue;
             }
+            let suppressed_carriageways = self
+                .suppression
+                .get(key)
+                .is_some_and(|suppressed| suppressed.carriageways);
+            if suppressed_carriageways {
+                // The whole tile's road surface is covered by settled finer
+                // carriageways: skipping this tile's is what removes the
+                // stacked copies. Counted like any other cull.
+                *culled += tile.carriageways.len();
+                continue;
+            }
             // The ribbon pool, bound at its offsets; each road draws its slice by
             // firstIndex. Fresh pools bind at 0, arena ranges at their committed offsets.
             // Handles are raw `vk::Buffer`s now (see `ResidentTile`): copy by value.
@@ -223,6 +234,17 @@ impl Renderer {
             let Some(terrain) = &tile.terrain else {
                 continue;
             };
+            // Covered-stand-in suppression: settled finer terrain covers this
+            // tile's ground, so drawing it too only doubles the relief. Kept
+            // where the finer tiles have no terrain of their own — those tiles
+            // never suppress this one (see the per-group content predicate).
+            if self
+                .suppressed_tile(tile.z, tile.x, tile.y)
+                .is_some_and(|suppressed| suppressed.terrain)
+            {
+                *culled += 1;
+                continue;
+            }
             // Same off-screen cull as the flat layer loop (see `tile_offscreen`).
             if tile_offscreen(camera, tile.z, tile.x, tile.y) {
                 *culled += 1;
@@ -330,6 +352,17 @@ impl Renderer {
             let Some(buildings) = &tile.buildings else {
                 continue;
             };
+            // Covered-stand-in suppression, like the terrain pass: a building
+            // footprint cannot survive a partially suppressed ancestor without
+            // looking demolished, so buildings suppress only under full
+            // coverage — which is exactly what the map records.
+            if self
+                .suppressed_tile(tile.z, tile.x, tile.y)
+                .is_some_and(|suppressed| suppressed.buildings)
+            {
+                *culled += 1;
+                continue;
+            }
             // Same off-screen cull as the flat layer loop (see `tile_offscreen`).
             if tile_offscreen(camera, tile.z, tile.x, tile.y) {
                 *culled += 1;

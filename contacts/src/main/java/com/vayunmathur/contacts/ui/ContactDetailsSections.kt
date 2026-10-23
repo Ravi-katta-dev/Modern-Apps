@@ -17,6 +17,7 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringArrayResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.contacts.R
@@ -35,6 +36,7 @@ import com.vayunmathur.library.ui.IconEvent
 import com.vayunmathur.library.ui.IconGroup
 import com.vayunmathur.library.ui.IconLocationOn
 import com.vayunmathur.library.ui.IconMail
+import com.vayunmathur.library.ui.IconPerson
 import com.vayunmathur.library.ui.IconVolumeUp
 import com.vayunmathur.library.ui.ListItem
 import com.vayunmathur.library.ui.ListItemDefaults
@@ -181,6 +183,20 @@ internal fun DatesSection(contact: Contact, details: ContactDetails) {
             )
         }
     }
+}
+
+@Composable
+internal fun GenderSection(contact: Contact, details: ContactDetails) {
+    val gender = details.genders.firstOrNull { it.code.isNotBlank() } ?: return
+    val options = stringArrayResource(R.array.genders).toList()
+    val display = genderDisplayText(gender.code, gender.text, options)
+    if (display.isBlank()) return
+    DetailItem(
+        icon = { IconPerson() },
+        data = display,
+        label = stringResource(R.string.gender),
+        sharedTextKey = "contact-gender-${contact.id}",
+    )
 }
 
 @Composable

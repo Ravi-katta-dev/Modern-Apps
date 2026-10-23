@@ -19,9 +19,12 @@ mod regions;
 mod split;
 mod terrain;
 mod traffic;
+mod wash_overzoom;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_wash;
 #[cfg(test)]
 mod tests_drape;
 #[cfg(test)]
@@ -42,6 +45,7 @@ mod tests_extra4;
 mod tests_extra8;
 
 pub use build::{build, build_toggled};
+pub use wash_overzoom::{needs_wash_underlay, parent_of, stitch_parent_wash, WASH_CAP_ZOOM};
 pub use mesh::{
     BuildingMesh, CarriagewayMesh, LayerMesh, RegionMesh, ShapedLabel, TerrainMesh, TileMesh,
     TrafficMesh, ROAD_LANE_MIN_ZOOM, TRAFFIC_MIN_ZOOM,

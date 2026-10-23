@@ -26,7 +26,10 @@ impl Renderer {
         height: u32,
         cache_dir: &std::path::Path,
     ) -> Result<Renderer, String> {
+        use crate::bridge::log::log_info;
+        log_info("Renderer::new: creating Vulkan context");
         let context = Context::new(window)?;
+        log_info("Renderer::new: creating swapchain");
         let swapchain = Swapchain::new(&context, width, height)?;
         let atlas_set = AtlasSet::new(&context.device)?;
         // Before any pipeline is created, so the very first launch's twelve compiles are the ones
@@ -42,6 +45,7 @@ impl Renderer {
             &context.device,
             Some(&cache_path),
         );
+        log_info("Renderer::new: creating pipelines");
         let pipelines = Pipelines::new(
             &context.device,
             swapchain.render_pass,
@@ -49,6 +53,7 @@ impl Renderer {
             Some(atlas_set.layout),
             pipeline_cache.handle(),
         )?;
+        log_info("Renderer::new: creating command pool and frames");
 
         let pool_info = vk::CommandPoolCreateInfo::default()
             .queue_family_index(context.queue_family_index)
@@ -144,6 +149,7 @@ impl Renderer {
 
         // The offscreen id-buffer pass for tap picking. Self-contained and format-stable, so it is
         // built once here and survives swapchain rebuilds (only its target is resized).
+        log_info("Renderer::new: creating pick pass and uploading atlases");
         let pick = Pick::new(&context, pipeline_cache.handle())?;
         // Everything that compiles a shader has now run once. On a cold cache this is the write
         // that makes every later launch cheap; on a warm one the blob has not grown and this does
@@ -187,6 +193,10 @@ impl Renderer {
             scratch_tile_alpha: HashMap::new(),
             scratch_deferred_symbols: Vec::new(),
             upload_pool: UploadPool::new(),
+            suppression: HashMap::new(),
+            suppression_residency: 0,
+            suppression_had_unsettled: true,
+            suppression_epoch: Cell::new(0),
             placement_cache: std::cell::RefCell::new(None),
             overlays: Vec::new(),
             marker_epoch: 0,

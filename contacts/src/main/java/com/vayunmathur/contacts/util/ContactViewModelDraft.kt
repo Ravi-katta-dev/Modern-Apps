@@ -14,12 +14,14 @@ import com.vayunmathur.contacts.data.CDKEvent
 import com.vayunmathur.contacts.data.CDKNickname
 import com.vayunmathur.contacts.data.CDKPhone
 import com.vayunmathur.contacts.data.CDKStructuredPostal
+import com.vayunmathur.contacts.data.CommPref
 import com.vayunmathur.contacts.data.Contact
 import com.vayunmathur.contacts.data.ContactDetail
 import com.vayunmathur.contacts.data.ContactDetails
 import com.vayunmathur.contacts.data.ContactPrefill
 import com.vayunmathur.contacts.data.Email
 import com.vayunmathur.contacts.data.Event
+import com.vayunmathur.contacts.data.Gender
 import com.vayunmathur.contacts.data.GroupMembership
 import com.vayunmathur.contacts.data.Name
 import com.vayunmathur.contacts.data.Nickname
@@ -81,6 +83,8 @@ private fun ContactViewModel.withMetaFields(
     company = contact?.org?.company ?: prefill?.company ?: "",
     noteContent = contact?.note?.content ?: prefill?.notes ?: "",
     nickname = contact?.nickname?.nickname ?: prefill?.nickname ?: "",
+    genderCode = contact?.details?.genders?.firstOrNull()?.code ?: "",
+    genderText = contact?.details?.genders?.firstOrNull()?.text ?: "",
     photo = contact?.photo,
     birthday = contact?.birthday?.startDate,
     accountName = draftAccountName(contact),
@@ -102,6 +106,7 @@ private fun ContactViewModel.ContactDraft.withListFields(
         prefill?.postals ?: emptyList()
     ),
     groupMemberships = details?.groups ?: emptyList(),
+    commPref = details?.commPref,
 )
 
 private fun ContactViewModel.draftAccountName(contact: Contact?): String =
@@ -350,6 +355,8 @@ private fun buildDetailsFromDraft(
     val orgs = draftOrg(draft, original)
     val notes = draftNote(draft, original)
     val nicknames = draftNickname(draft, original)
+    val genders = draftGender(draft, original)
+    val commPrefs = draftCommPref(draft, original)
     // SIM cards can store only name parts, a first phone, and at most a first email.
     // Defensively strip everything else so SIM saves never persist unsupported rows.
     val isSimDraft = isSimAccountType(draft.accountType)
@@ -363,7 +370,10 @@ private fun buildDetailsFromDraft(
         orgs = if (isSimDraft) emptyList() else orgs,
         notes = if (isSimDraft) emptyList() else notes,
         nicknames = if (isSimDraft) emptyList() else nicknames,
-        groups = draft.groupMemberships
+        groups = draft.groupMemberships,
+        genders = if (isSimDraft) emptyList() else genders,
+        // SIM ADN rows store only name/phone/email and have no Data rows.
+        commPrefs = if (isSimDraft) emptyList() else commPrefs,
     )
 }
 
@@ -404,6 +414,26 @@ private fun draftNickname(
     val id = original?.details?.nicknames
         ?.firstOrNull { it.type == CDKNickname.TYPE_DEFAULT }?.id ?: 0
     return listOf(Nickname(id, draft.nickname, CDKNickname.TYPE_DEFAULT))
+}
+
+private fun draftGender(
+    draft: ContactViewModel.ContactDraft,
+    original: Contact?,
+): List<Gender> {
+    if (draft.genderCode.isBlank()) return emptyList()
+    val id = original?.details?.genders?.firstOrNull()?.id ?: 0
+    return listOf(Gender(id, draft.genderCode, draft.genderText))
+}
+
+/** Keeps the existing pref row id so an edit updates rather than duplicates. */
+private fun draftCommPref(
+    draft: ContactViewModel.ContactDraft,
+    original: Contact?,
+): List<CommPref> {
+    val pref = draft.commPref ?: return emptyList()
+    if (pref.number.isBlank()) return emptyList()
+    val id = original?.details?.commPrefs?.firstOrNull()?.id ?: 0
+    return listOf(pref.copy(id = id))
 }
 
 private fun draftName(

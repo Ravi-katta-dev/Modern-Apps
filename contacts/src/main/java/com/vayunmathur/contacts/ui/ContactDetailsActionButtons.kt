@@ -12,7 +12,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.vayunmathur.contacts.R
+import com.vayunmathur.contacts.data.CommAction
+import com.vayunmathur.contacts.data.CommPlatform
+import com.vayunmathur.contacts.data.CommPrefResolver
 import com.vayunmathur.contacts.data.PhoneNumber
 import com.vayunmathur.contacts.util.ContactPlatforms
 import com.vayunmathur.contacts.util.PackageUtils
@@ -63,6 +68,38 @@ internal fun launchSingleVideoOption(
         platforms.telegramVideoId != null -> placePlatformCall(context, number, PackageUtils.TELEGRAM_PACKAGE, isVideo = true, fallbackDataRowId = platforms.telegramVideoId)
     }
 }
+
+/** Platform picker for one header-button action, filtered to live availability. */
+@Composable
+internal fun CommPlatformDropdown(
+    expanded: Boolean,
+    onDismiss: () -> Unit,
+    action: CommAction,
+    platforms: ContactPlatforms,
+    isGoogleMeetInstalled: Boolean,
+    onPick: (CommPlatform) -> Unit,
+) {
+    val options = CommPrefResolver.availablePlatformsFor(action, platforms, isGoogleMeetInstalled)
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        options.forEach { platform ->
+            DropdownMenuItem(
+                text = { Text(commPlatformLabel(platform)) },
+                onClick = { onPick(platform) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun commPlatformLabel(platform: CommPlatform): String = stringResource(
+    when (platform) {
+        CommPlatform.SIM -> R.string.system_default
+        CommPlatform.SIGNAL -> R.string.signal
+        CommPlatform.WHATSAPP -> R.string.whatsapp
+        CommPlatform.TELEGRAM -> R.string.telegram
+        CommPlatform.MEET -> R.string.google_meet
+    }
+)
 
 @Composable
 fun ActionButton(
