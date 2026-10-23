@@ -123,4 +123,12 @@
     <string name="cleartext_blocked_message">%1$s was requested over plain HTTP. Unencrypted connections are only allowed to devices on your local network.</string>
     <string name="local_network_title">Allow local network access?</string>
     <string name="local_network_message">%1$s looks like a device on your network. Android needs local network permission before this page can load.</string>
+    <string name="search_tab_text">Web</string>
+    <string name="search_tab_images">Images</string>
+    <string name="search_tab_news">News</string>
+    <string name="search_failed">Search failed</string>
+    <string name="search_no_results">No results found</string>
+    <string name="search_more_results">More results</string>
+    <string name="search_open_classic">Open classic search</string>
+    <string name="retry">Retry</string>
 </resources>

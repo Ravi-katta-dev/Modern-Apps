@@ -267,7 +267,7 @@ fun SettingsPage(
             title = { Text(stringResource(R.string.search_engine)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    SearchEngine.entries.forEach { engine ->
+                    SearchEngine.PICKABLE.forEach { engine ->
                         Row(
                             modifier = Modifier.fillMaxWidth().clickable {
                                 viewModel.updateSearchEngine(engine); showSearchEngineDialog = false

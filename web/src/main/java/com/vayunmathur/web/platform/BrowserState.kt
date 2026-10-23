@@ -39,7 +39,14 @@ enum class SearchEngine(
     // so it is left null instead of guessing at one.
     STARTPAGE("Startpage", "https://www.startpage.com/do/search?q=%s", "https://www.startpage.com"),
     ECOSIA("Ecosia", "https://www.ecosia.org/search?q=%s", "https://www.ecosia.org", "safesearch=1"),
-    QWANT("Qwant", "https://www.qwant.com/?q=%s", "https://www.qwant.com", "safesearch=2");
+    QWANT("Qwant", "https://www.qwant.com/?q=%s", "https://www.qwant.com", "safesearch=2"),
+    /**
+     * First-party search: queries go to our own API and render in a native
+     * Compose results page instead of loading engine HTML in a WebView.
+     * [searchUrl] is only a template for [buildQueryUrl]; navigation is
+     * intercepted in [navigateActiveTab] before any WebView load.
+     */
+    SELF_HOSTED("Maproj Search", "https://api.maproj.org/api/search?q=%s", "https://api.maproj.org/api/search", "safe_search=on");
 
     fun buildQueryUrl(query: String): String =
         searchUrl.replace("%s", Uri.encode(query))
@@ -63,8 +70,26 @@ enum class SearchEngine(
         /** Used when the selected engine has no strict-filter parameter of its own. */
         val SAFE_FALLBACK = DUCKDUCKGO
 
+        /**
+         * Engines offered in the Settings picker. [SELF_HOSTED] is dev-only
+         * (its backend text scraping is datacenter-blocked and the UI is
+         * unfinished): release builds never offer it. R8 folds
+         * [com.vayunmathur.web.BuildConfig.DEV_BUILD], so the reference is
+         * stripped from release.
+         */
+        val PICKABLE: List<SearchEngine> =
+            if (com.vayunmathur.web.BuildConfig.DEV_BUILD) entries else entries - SELF_HOSTED
+
         fun fromName(name: String): SearchEngine =
             entries.find { it.name == name } ?: DEFAULT
+
+        /**
+         * The engine to actually use: [SELF_HOSTED] outside a dev build falls
+         * back to [DEFAULT] (e.g. a dev-build pref restored on release).
+         */
+        fun effective(engine: SearchEngine): SearchEngine =
+            if (engine == SELF_HOSTED && !com.vayunmathur.web.BuildConfig.DEV_BUILD) DEFAULT
+            else engine
     }
 }
 

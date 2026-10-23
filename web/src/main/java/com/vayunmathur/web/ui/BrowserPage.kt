@@ -36,6 +36,7 @@ import com.vayunmathur.web.platform.getProgress
 import com.vayunmathur.web.platform.isNewTab
 import com.vayunmathur.web.platform.markFreshNavigation
 import com.vayunmathur.web.platform.navigateActiveTab
+import com.vayunmathur.web.platform.nativeSearchQuery
 import com.vayunmathur.web.platform.newTab
 import com.vayunmathur.web.platform.onTabUrlChange
 
@@ -143,8 +144,9 @@ fun BrowserPage(
                 progress = if (activeTab != null && !isNewTabActive) progress else 0f,
                 atBottom = viewModel.searchBarAtBottom,
                 onOmniboxClick = {
-                    val full = activeTab?.url?.let { if (it.isBlank() || it == "about:blank") "" else it } ?: ""
-                    viewModel.searchDraft = full
+                    val raw = activeTab?.url?.let { if (it.isBlank() || it == "about:blank") "" else it } ?: ""
+                    // A native search tab edits as its query, not its search:// pseudo-URL.
+                    viewModel.searchDraft = nativeSearchQuery(raw).ifBlank { raw }
                     viewModel.omniboxFocused = true
                 },
                 onTabSwitcherClick = {

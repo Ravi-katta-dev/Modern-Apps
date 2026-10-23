@@ -8,7 +8,9 @@ fun WebViewModel.updateCacheMode(mode: CacheMode) {
 }
 
 fun WebViewModel.updateSearchEngine(engine: SearchEngine) {
-    searchEngine = engine
+    // Dev-gated engine can never be selected on release (belt-and-braces:
+    // the picker already hides it there).
+    searchEngine = SearchEngine.effective(engine)
     persistPrefs()
 }
 

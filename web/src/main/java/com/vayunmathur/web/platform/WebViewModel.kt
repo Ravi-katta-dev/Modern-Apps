@@ -394,7 +394,10 @@ class WebViewModel(
             runCatching { CacheMode.valueOf(it) }.getOrNull()?.let { cm -> cacheMode = cm }
         }
         searchEngineName?.let {
-            runCatching { SearchEngine.valueOf(it) }.getOrNull()?.let { se -> searchEngine = se }
+            runCatching { SearchEngine.valueOf(it) }.getOrNull()?.let { se ->
+                // Dev-gated engine never survives into a release build.
+                searchEngine = SearchEngine.effective(se)
+            }
         }
         jsEnabled = js
         blockThirdPartyCookies = blockThird

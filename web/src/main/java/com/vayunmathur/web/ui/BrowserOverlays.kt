@@ -26,10 +26,13 @@ import com.vayunmathur.web.platform.closeTab
 import com.vayunmathur.web.platform.denyGeolocation
 import com.vayunmathur.web.platform.farblingConfig
 import com.vayunmathur.web.platform.grantGeolocation
+import com.vayunmathur.web.platform.BrowserUtils
 import com.vayunmathur.web.platform.isMultipleSelection
+import com.vayunmathur.web.platform.isNativeSearchUrl
 import com.vayunmathur.web.platform.isNewTab
 import com.vayunmathur.web.platform.markFreshNavigation
 import com.vayunmathur.web.platform.moveTab
+import com.vayunmathur.web.platform.nativeSearchQuery
 import com.vayunmathur.web.platform.newTab
 import com.vayunmathur.web.platform.safeAcceptTypes
 import com.vayunmathur.web.platform.switchToTab
@@ -217,6 +220,18 @@ internal fun BrowserContent(
                     },
                     faviconFor = viewModel::faviconFor,
                     modifier = Modifier.fillMaxSize()
+                )
+            }
+        } else if (activeTab != null && isNativeSearchUrl(activeTab.url)) {
+            // Self-hosted engine: native Compose results instead of a WebView.
+            // Result taps go through the normal tab navigation so history,
+            // shields, and thumbnails behave like any other page load.
+            key(activeTab.id, activeTab.url) {
+                SearchResultsPage(
+                    query = nativeSearchQuery(activeTab.url),
+                    onOpenResult = { url -> onOpenUrl(activeTab, url) },
+                    onOpenFallback = { url -> onOpenUrl(activeTab, url) },
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         } else if (activeTab != null) {

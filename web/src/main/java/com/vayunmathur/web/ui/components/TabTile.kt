@@ -31,6 +31,7 @@ import com.vayunmathur.web.R
 import com.vayunmathur.web.platform.BrowserTab
 import com.vayunmathur.web.platform.BrowserUtils
 import com.vayunmathur.web.platform.isNewTab
+import com.vayunmathur.web.platform.nativeSearchQuery
 
 /**
  * One square in the tab switcher: a favicon-and-title header with the page preview below it.
@@ -66,8 +67,10 @@ fun TabTile(
     gestureModifier: Modifier = Modifier,
 ) {
     val newTabLabel = stringResource(R.string.new_tab)
+    val searchQuery = nativeSearchQuery(tab.url)
     val displayTitle = when {
         tab.isNewTab -> newTabLabel
+        searchQuery.isNotBlank() -> searchQuery
         tab.title.isNotBlank() -> tab.title
         else -> BrowserUtils.prettyUrl(tab.url).ifBlank { newTabLabel }
     }

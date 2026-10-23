@@ -22,7 +22,8 @@ fun WebViewModel.onTabUrlChange(tabId: String, url: String) {
     updateTab(tabId) { it.copy(url = url) }
     persistTabs()
     if (tabId == activeTabId && !omniboxFocused) {
-        omniboxText = if (url.isBlank() || url == "about:blank") "" else url
+        // A native search tab shows its query, not its search:// pseudo-URL.
+        omniboxText = displayTextForUrl(url)
     }
     if (url.startsWith("http")) {
         val origin = BrowserUtils.originFromUrl(url)
@@ -78,7 +79,7 @@ fun WebViewModel.newTab(url: String = "", makeActive: Boolean = true, isPrivate:
     if (makeActive) {
         activeTabId = tab.id
         omniboxFocused = false
-        omniboxText = if (url.isBlank() || url == "about:blank") "" else url
+        omniboxText = displayTextForUrl(url)
         searchDraft = if (url.isBlank() || url == "about:blank") "" else url
     }
     persistTabs()
@@ -108,8 +109,9 @@ fun WebViewModel.closeTab(tabId: String) {
             else -> tabs.last().id
         }
         val cur = activeTab
-        omniboxText = if (cur == null || cur.url.isBlank() || cur.url == "about:blank") "" else cur.url
-        searchDraft = omniboxText
+        val url = cur?.url.orEmpty()
+        omniboxText = displayTextForUrl(url)
+        searchDraft = if (url.isBlank() || url == "about:blank") "" else url
     }
     persistTabs()
 }
@@ -128,18 +130,41 @@ fun WebViewModel.switchToTab(tabId: String) {
     if (tabId != activeTabId) captureActiveTab()
     activeTabId = tabId
     val cur = activeTab
-    omniboxText = if (cur == null || cur.url.isBlank() || cur.url == "about:blank") "" else cur.url
-    searchDraft = omniboxText
+    val url = cur?.url.orEmpty()
+    omniboxText = displayTextForUrl(url)
+    searchDraft = if (url.isBlank() || url == "about:blank") "" else url
     showTabSwitcher = false
     persistTabs()
 }
 
 fun WebViewModel.navigateActiveTab(input: String) {
     val active = activeTab ?: return
+    // Self-hosted engine renders results natively (SearchResultsPage) instead of
+    // loading engine HTML in a WebView. The query is stored as a search://
+    // pseudo-URL in the tab so tab switching, persistence, and the omnibox keep
+    // working unchanged; BrowserContent branches on the scheme. URLs and blank
+    // input still go through the normal path below. Dev-gated: release builds
+    // resolve SELF_HOSTED to the default engine via SearchEngine.effective.
+    val engine = SearchEngine.effective(searchEngine)
+    if (engine == SearchEngine.SELF_HOSTED) {
+        val trimmed = input.trim()
+        val isUrl = trimmed.startsWith("http://") || trimmed.startsWith("https://") ||
+            BrowserUtils.looksLikeUrl(trimmed)
+        if (trimmed.isNotEmpty() && !isUrl) {
+            val dest = nativeSearchUrl(trimmed)
+            markFreshNavigation(active.id)
+            onTabUrlChange(active.id, dest)
+            // The query itself is not history-logged (a search box is not a
+            // visit); result taps are recorded when their pages load.
+            omniboxText = trimmed
+            omniboxFocused = false
+            return
+        }
+    }
     // Read live rather than from a cached field: a parent can turn search filtering on while
     // the browser is open, and the next search should honour it.
     val safeSearch = ContentFilters.filterSearchResults(context)
-    val dest = BrowserUtils.toNavigationUrl(input, searchEngine, safeSearch)
+    val dest = BrowserUtils.toNavigationUrl(input, engine, safeSearch)
     noteNavigation(dest)
     markFreshNavigation(active.id)
     onTabUrlChange(active.id, dest)
