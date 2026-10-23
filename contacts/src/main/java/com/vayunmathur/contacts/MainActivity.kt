@@ -9,6 +9,7 @@ import android.net.Uri
 import android.provider.ContactsContract
 import android.provider.ContactsContract.Intents.Insert
 import androidx.core.content.IntentCompat
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.LocalActivity
@@ -29,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +76,7 @@ import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.NavKey
 import com.vayunmathur.library.util.onFileDrop
 import com.vayunmathur.library.util.rememberNavBackStack
+import kotlinx.coroutines.launch
 import kotlinx.datetime.LocalDate
 import kotlinx.serialization.Serializable
 
@@ -695,6 +698,13 @@ private fun ContactsTabs(
         else -> 0
     }
     val pagerState = rememberPagerState(initialPage = startPage, pageCount = { 3 })
+    // Contacts (page 0) is the home tab: system back from Groups/Settings returns
+    // there instead of exiting the app. Back from Contacts falls through to the
+    // nav host, which exits when it is the only entry.
+    val scope = rememberCoroutineScope()
+    BackHandler(enabled = pagerState.currentPage != 0) {
+        scope.launch { pagerState.animateScrollToPage(0) }
+    }
     val tabs = listOf(
         PagerTab(stringResource(UiR.string.contacts), { IconPerson() }) {
             ContactList(
