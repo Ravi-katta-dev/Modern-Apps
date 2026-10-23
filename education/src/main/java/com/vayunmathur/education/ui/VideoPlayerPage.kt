@@ -1,9 +1,7 @@
 package com.vayunmathur.education.ui
 
-import android.content.Intent
 import android.text.format.DateUtils
 import androidx.compose.runtime.setValue
-import com.vayunmathur.library.log.Log
 import androidx.annotation.OptIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,57 +23,39 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.compose.PlayerSurface
 import androidx.media3.ui.compose.SURFACE_TYPE_TEXTURE_VIEW
 import androidx.media3.ui.compose.material3.buttons.PlayPauseButton
 import com.vayunmathur.education.Route
-import com.vayunmathur.education.util.ResolvedStreams
-import com.vayunmathur.education.util.VideoExtractor
 import com.vayunmathur.library.util.NavBackStack
 import kotlinx.coroutines.delay
 import androidx.compose.ui.res.stringResource
 import com.vayunmathur.education.R
 
-private sealed interface PlayerUiState {
-    data object Loading : PlayerUiState
-    data class Ready(val streams: ResolvedStreams) : PlayerUiState
-    data object Failed : PlayerUiState
-}
-
 @kotlin.OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoPlayerPage(
     backStack: NavBackStack<Route>,
-    youtubeId: String,
+    videoUrl: String,
     title: String,
 ) {
-    var state by remember(youtubeId) { mutableStateOf<PlayerUiState>(PlayerUiState.Loading) }
-    // Broad catch is deliberate: the extractor throws undocumented RuntimeExceptions
-    // (not just IOException) on malformed responses, which read as "unplayable".
-    @Suppress("TooGenericExceptionCaught")
-    LaunchedEffect(youtubeId) {
-        state = try {
-            PlayerUiState.Ready(VideoExtractor.resolve(youtubeId))
-        } catch (e: Exception) {
-            Log.status("VideoPlayer", "could not resolve $youtubeId", e)
-            PlayerUiState.Failed
-        }
-    }
+    var failed by remember(videoUrl) { mutableStateOf(false) }
+    var retryCount by remember(videoUrl) { mutableIntStateOf(0) }
 
     AppScaffold(
         title = { Text(title, maxLines = 1) },
@@ -88,10 +68,10 @@ fun VideoPlayerPage(
                 .padding(padding),
             contentAlignment = Alignment.Center,
         ) {
-            when (val s = state) {
-                PlayerUiState.Loading -> CircularProgressIndicator()
-                is PlayerUiState.Ready -> VideoSurface(s.streams)
-                PlayerUiState.Failed -> VideoError(youtubeId)
+            if (failed) {
+                VideoError { failed = false; retryCount++ }
+            } else {
+                VideoSurface(videoUrl, retryCount, onError = { failed = true })
             }
         }
     }
@@ -99,24 +79,30 @@ fun VideoPlayerPage(
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun VideoSurface(streams: ResolvedStreams) {
+private fun VideoSurface(videoUrl: String, retryCount: Int, onError: () -> Unit) {
     val context = LocalContext.current
-    val player = remember { ExoPlayer.Builder(context).build() }
+    val player = remember(videoUrl) { ExoPlayer.Builder(context).build() }
+    var buffering by remember(videoUrl) { mutableStateOf(true) }
 
-    DisposableEffect(streams) {
-        val factory = ProgressiveMediaSource.Factory(DefaultHttpDataSource.Factory())
-        val source = if (streams.audioUrl == null) {
-            factory.createMediaSource(MediaItem.fromUri(streams.videoUrl))
-        } else {
-            MergingMediaSource(
-                factory.createMediaSource(MediaItem.fromUri(streams.videoUrl)),
-                factory.createMediaSource(MediaItem.fromUri(streams.audioUrl)),
-            )
+    DisposableEffect(videoUrl, retryCount) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) buffering = false
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                onError()
+            }
         }
-        player.setMediaSource(source)
+        player.addListener(listener)
+        val factory = ProgressiveMediaSource.Factory(DefaultHttpDataSource.Factory())
+        player.setMediaSource(factory.createMediaSource(MediaItem.fromUri(videoUrl)))
         player.prepare()
         player.playWhenReady = true
-        onDispose { player.release() }
+        onDispose {
+            player.removeListener(listener)
+            player.release()
+        }
     }
 
     var position by remember { mutableLongStateOf(0L) }
@@ -143,11 +129,15 @@ private fun VideoSurface(streams: ResolvedStreams) {
                 modifier = Modifier.fillMaxSize(),
                 surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
             )
-            PlayPauseButton(
-                player = player,
-                modifier = Modifier
-                    .align(Alignment.Center),
-            )
+            if (buffering) {
+                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+            } else {
+                PlayPauseButton(
+                    player = player,
+                    modifier = Modifier
+                        .align(Alignment.Center),
+                )
+            }
         }
         Row(
             Modifier
@@ -171,8 +161,7 @@ private fun VideoSurface(streams: ResolvedStreams) {
 }
 
 @Composable
-private fun VideoError(youtubeId: String) {
-    val context = LocalContext.current
+private fun VideoError(onRetry: () -> Unit) {
     Column(
         Modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -180,13 +169,10 @@ private fun VideoError(youtubeId: String) {
     ) {
         Text(stringResource(R.string.couldn_t_load_this_video), color = MaterialTheme.colorScheme.onSurface)
         Text(
-            stringResource(R.string.check_your_connection_or_open_it_in_yout),
+            stringResource(R.string.check_your_connection_and_try_again),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Button(onClick = {
-            val uri = "https://www.youtube.com/watch?v=$youtubeId".toUri()
-            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-        }) { Text(stringResource(R.string.open_in_youtube)) }
+        Button(onClick = onRetry) { Text(stringResource(R.string.retry)) }
     }
 }

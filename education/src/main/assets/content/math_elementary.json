@@ -24,7 +24,7 @@
               "id": "lesson.mult-meaning",
               "title": "What is multiplication?",
               "videos": [
-                { "youtubeId": "RNxwasijbAo", "title": "Intro to multiplication", "durationSeconds": 0 }
+                { "videoUrl": "https://education.maproj.org/RNxwasijbAo.mp4", "title": "Intro to multiplication", "durationSeconds": 0 }
               ],
               "exercise": {
                 "id": "ex.mult-meaning",
@@ -36,7 +36,7 @@
               "id": "lesson.mult-facts",
               "title": "Times tables",
               "videos": [
-                { "youtubeId": "mvOkMYCygps", "title": "Basic multiplication", "durationSeconds": 0 }
+                { "videoUrl": "https://education.maproj.org/mvOkMYCygps.mp4", "title": "Basic multiplication", "durationSeconds": 0 }
               ],
               "exercise": {
                 "id": "ex.mult-facts",
@@ -60,7 +60,7 @@
               "id": "lesson.frac-intro",
               "title": "What is a fraction?",
               "videos": [
-                { "youtubeId": "kZzoVCmUyKg", "title": "Introduction to fractions", "durationSeconds": 341 }
+                { "videoUrl": "https://education.maproj.org/kZzoVCmUyKg.mp4", "title": "Introduction to fractions", "durationSeconds": 341 }
               ],
               "exercise": {
                 "id": "ex.frac-intro",

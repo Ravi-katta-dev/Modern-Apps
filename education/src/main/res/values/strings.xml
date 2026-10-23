@@ -67,8 +67,8 @@
     <string name="home">Home</string>
     <!-- VideoPlayerPage: Error message when video cannot be loaded -->
     <string name="couldn_t_load_this_video">Couldn\'t load this video.</string>
-    <!-- VideoPlayerPage: Button to open video in YouTube app as fallback. Verb phrase -->
-    <string name="open_in_youtube">Open in YouTube</string>
+    <!-- VideoPlayerPage: Button to retry loading the video. Verb -->
+    <string name="retry">Retry</string>
 
     <!-- BadgesPage K2 variant: Title for K2 children where badges are called stickers. Child-friendly -->
     <string name="my_stickers">My Stickers</string>
@@ -157,8 +157,8 @@
     <string name="exercise"> · exercise</string>
     <!-- UnitPage: Button/fallback for unit-final quiz challenge. Noun phrase -->
     <string name="unit_quiz">Unit quiz</string>
-    <!-- VideoPlayerPage: Subtitle under video error, suggesting to open in YouTube -->
-    <string name="check_your_connection_or_open_it_in_yout">Check your connection, or open it in YouTube.</string>
+    <!-- VideoPlayerPage: Subtitle under video error, suggesting to retry -->
+    <string name="check_your_connection_and_try_again">Check your connection and try again.</string>
 
     <!-- HomePage Scholar: Section header for deadline chips when units due soon. Adjective phrase -->
     <string name="due_soon">Due soon</string>

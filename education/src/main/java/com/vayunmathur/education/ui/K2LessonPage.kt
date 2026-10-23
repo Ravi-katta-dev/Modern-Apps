@@ -65,7 +65,7 @@ fun K2LessonPage(backStack: NavBackStack<Route>, viewModel: EducationViewModel, 
                     contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     onClick = {
                         narrator?.stop()
-                        backStack.add(Route.VideoPlayer(video.youtubeId, video.title))
+                        backStack.add(Route.VideoPlayer(video.videoUrl, video.title))
                     },
                 )
             }

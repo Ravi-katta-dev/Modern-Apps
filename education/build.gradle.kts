@@ -20,10 +20,8 @@ dependencies {
     implementRoom(libs)
     implementation(project(":library:room"))
 
-    // Video playback (Khan/YouTube streaming via NewPipe + media3), like :youpipe.
-    implementation(project(":youpipe:extractor"))
+    // Direct MP4 video playback (self-hosted R2) via media3.
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui.compose.material3)
-    implementation(project(":library:network"))
 
 }

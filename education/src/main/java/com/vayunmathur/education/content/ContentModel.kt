@@ -93,10 +93,10 @@ data class Lesson(
     val exercise: Exercise? = null,
 )
 
-/** Reference to a Khan Academy video streamed from YouTube. */
+/** Reference to a lesson video streamed from the self-hosted R2 mirror. */
 @Serializable
 data class VideoRef(
-    val youtubeId: String,
+    val videoUrl: String,
     val title: String,
     val durationSeconds: Int = 0,
 )

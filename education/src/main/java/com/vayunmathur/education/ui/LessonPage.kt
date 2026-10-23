@@ -66,7 +66,7 @@ fun LessonPage(backStack: NavBackStack<Route>, viewModel: EducationViewModel, le
                 Text(stringResource(R.string.watch), style = MaterialTheme.typography.titleMedium)
                 lesson.videos.forEach { video ->
                     VideoRow(video) {
-                        backStack.add(Route.VideoPlayer(video.youtubeId, video.title))
+                        backStack.add(Route.VideoPlayer(video.videoUrl, video.title))
                     }
                 }
             }

@@ -64,8 +64,8 @@ object ContentValidator {
         for (lesson in unit.lessons) {
             lesson.exercise?.let { errors += checkExercise(it, questionIdSet) }
             for (v in lesson.videos) {
-                if (v.youtubeId.isBlank()) {
-                    errors += "Lesson '${lesson.id}' has a video with a blank youtubeId"
+                if (v.videoUrl.isBlank()) {
+                    errors += "Lesson '${lesson.id}' has a video with a blank videoUrl"
                 }
             }
         }

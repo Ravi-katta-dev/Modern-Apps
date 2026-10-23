@@ -25,7 +25,7 @@
               "id": "lesson.k-count",
               "title": "Count to 5",
               "videos": [
-                { "youtubeId": "y2-uaPiyoxc", "title": "Counting with small numbers", "durationSeconds": 0 }
+                { "videoUrl": "https://education.maproj.org/y2-uaPiyoxc.mp4", "title": "Counting with small numbers", "durationSeconds": 0 }
               ],
               "exercise": {
                 "id": "ex.k-count",
@@ -44,7 +44,7 @@
               "id": "lesson.k-shapes",
               "title": "Find the shape",
               "videos": [
-                { "youtubeId": "10dTx1Zy_4w", "title": "Recognizing shapes", "durationSeconds": 0 }
+                { "videoUrl": "https://education.maproj.org/10dTx1Zy_4w.mp4", "title": "Recognizing shapes", "durationSeconds": 0 }
               ],
               "exercise": {
                 "id": "ex.k-shapes",
@@ -63,7 +63,7 @@
               "id": "lesson.k-trace",
               "title": "Trace 1, 2, 3",
               "videos": [
-                { "youtubeId": "eLRMI2ZX5Qw", "title": "Writing numbers", "durationSeconds": 0 }
+                { "videoUrl": "https://education.maproj.org/eLRMI2ZX5Qw.mp4", "title": "Writing numbers", "durationSeconds": 0 }
               ],
               "exercise": {
                 "id": "ex.k-trace",

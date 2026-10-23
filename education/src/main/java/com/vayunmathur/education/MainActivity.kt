@@ -87,7 +87,7 @@ sealed interface Route : NavKey {
     @Serializable
     data class Quiz(val exerciseId: String) : Route
     @Serializable
-    data class VideoPlayer(val youtubeId: String, val title: String) : Route
+    data class VideoPlayer(val videoUrl: String, val title: String) : Route
     @Serializable
     data class K2Lesson(val lessonId: String) : Route
     @Serializable
@@ -143,7 +143,7 @@ fun MainGraph(viewModel: EducationViewModel) {
             }
             // Quiz/Results are exercises off a lesson, not catalog details.
             entry<Route.Quiz>(metadata = ListDetailPage()) { QuizPage(backStack, viewModel, it.exerciseId) }
-            entry<Route.VideoPlayer>(metadata = FullscreenPage()) { VideoPlayerPage(backStack, it.youtubeId, it.title) }
+            entry<Route.VideoPlayer>(metadata = FullscreenPage()) { VideoPlayerPage(backStack, it.videoUrl, it.title) }
             entry<Route.K2Lesson>(metadata = ListDetailPage()) { K2LessonPage(backStack, viewModel, it.lessonId) }
             entry<Route.K2Quiz>(metadata = ListDetailPage()) { K2QuizPage(backStack, viewModel, it.exerciseId) }
             entry<Route.K2Reward>(metadata = ListDetailPage()) { K2RewardPage(backStack, it.stars) }
