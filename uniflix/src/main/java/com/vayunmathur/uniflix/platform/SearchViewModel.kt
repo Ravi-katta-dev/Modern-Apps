@@ -8,11 +8,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.library.util.AppMessages
 import com.vayunmathur.uniflix.data.TmdbApi
-import com.vayunmathur.uniflix.data.TmdbKeyStore
 import com.vayunmathur.uniflix.domain.MediaItem
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Multi-search state with a short debounce. */
@@ -24,7 +22,6 @@ data class SearchUiState(
 
 class SearchViewModel(app: Application) : AndroidViewModel(app) {
     private val api = TmdbApi()
-    private val keys = TmdbKeyStore(app)
     private var searchJob: Job? = null
 
     var state by mutableStateOf(SearchUiState())
@@ -39,11 +36,9 @@ class SearchViewModel(app: Application) : AndroidViewModel(app) {
         }
         searchJob = viewModelScope.launch {
             delay(400)
-            val key = keys.apiKey.first()
-            if (key.isBlank()) return@launch
             state = state.copy(loading = true)
             runCatching {
-                state = state.copy(loading = false, results = api.search(key, value))
+                state = state.copy(loading = false, results = api.search(value))
             }.onFailure {
                 state = state.copy(loading = false)
                 AppMessages.show("Search failed: ${it.message}")

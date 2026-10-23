@@ -8,9 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.library.util.AppMessages
 import com.vayunmathur.uniflix.data.TmdbApi
-import com.vayunmathur.uniflix.data.TmdbKeyStore
 import com.vayunmathur.uniflix.domain.MediaItem
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** Discover grid state, shared shape for the Movies and Series hubs. */
@@ -21,7 +19,6 @@ data class BrowseUiState(
 
 class BrowseViewModel(app: Application) : AndroidViewModel(app) {
     private val api = TmdbApi()
-    private val keys = TmdbKeyStore(app)
 
     var movies by mutableStateOf(BrowseUiState())
         private set
@@ -30,11 +27,9 @@ class BrowseViewModel(app: Application) : AndroidViewModel(app) {
 
     fun loadMovies() {
         viewModelScope.launch {
-            val key = keys.apiKey.first()
-            if (key.isBlank()) return@launch
             movies = movies.copy(loading = true)
             runCatching {
-                movies = BrowseUiState(items = api.discoverMovies(key))
+                movies = BrowseUiState(items = api.discoverMovies())
             }.onFailure {
                 movies = movies.copy(loading = false)
                 AppMessages.show("Movies failed to load: ${it.message}")
@@ -44,11 +39,9 @@ class BrowseViewModel(app: Application) : AndroidViewModel(app) {
 
     fun loadSeries() {
         viewModelScope.launch {
-            val key = keys.apiKey.first()
-            if (key.isBlank()) return@launch
             series = series.copy(loading = true)
             runCatching {
-                series = BrowseUiState(items = api.discoverTv(key))
+                series = BrowseUiState(items = api.discoverTv())
             }.onFailure {
                 series = series.copy(loading = false)
                 AppMessages.show("Series failed to load: ${it.message}")

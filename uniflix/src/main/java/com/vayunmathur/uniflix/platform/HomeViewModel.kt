@@ -8,18 +8,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.library.util.AppMessages
 import com.vayunmathur.uniflix.data.TmdbApi
-import com.vayunmathur.uniflix.data.TmdbKeyStore
 import com.vayunmathur.uniflix.data.UniflixRepository
 import com.vayunmathur.uniflix.domain.MediaItem
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
-/** Home rows: trending + top-rated, gated on a configured TMDB key. */
+/** Home rows: trending + top-rated, served by the self-hosted TMDB proxy. */
 data class HomeUiState(
-    val hasKey: Boolean = false,
     val loading: Boolean = false,
     val trendingMovies: List<MediaItem> = emptyList(),
     val trendingTv: List<MediaItem> = emptyList(),
@@ -29,34 +24,23 @@ data class HomeUiState(
 
 class HomeViewModel(app: Application) : AndroidViewModel(app) {
     private val api = TmdbApi()
-    private val keys = TmdbKeyStore(app)
     val repository = UniflixRepository.get(app)
 
     var state by mutableStateOf(HomeUiState())
         private set
 
     init {
-        keys.apiKey
-            .onEach { key ->
-                state = state.copy(hasKey = key.isNotBlank())
-                if (key.isNotBlank()) refresh(key)
-            }
-            .launchIn(viewModelScope)
+        refresh()
     }
 
-    fun refresh(apiKey: String = "") {
+    fun refresh() {
         viewModelScope.launch {
-            val key = apiKey.ifEmpty { keys.apiKey.first() }
-            if (key.isBlank()) {
-                state = state.copy(hasKey = false)
-                return@launch
-            }
-            state = state.copy(loading = true, hasKey = true)
+            state = state.copy(loading = true)
             runCatching {
-                val movies = api.trendingMovies(key)
-                val tv = api.trendingTv(key)
-                val topM = api.topRatedMovies(key)
-                val topT = api.topRatedTv(key)
+                val movies = api.trendingMovies()
+                val tv = api.trendingTv()
+                val topM = api.topRatedMovies()
+                val topT = api.topRatedTv()
                 state = state.copy(
                     loading = false,
                     trendingMovies = movies,

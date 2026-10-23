@@ -13,7 +13,6 @@ import com.vayunmathur.uniflix.data.AddonStreamProvider
 import com.vayunmathur.uniflix.data.ContinueWatchingEntry
 import com.vayunmathur.uniflix.data.TitleNote
 import com.vayunmathur.uniflix.data.TmdbApi
-import com.vayunmathur.uniflix.data.TmdbKeyStore
 import com.vayunmathur.uniflix.data.UniflixRepository
 import com.vayunmathur.uniflix.data.WatchlistEntry
 import com.vayunmathur.uniflix.data.watchKey
@@ -87,7 +86,6 @@ class DetailViewModel(
     private val registryFactory: RegistryFactory = RegistryFactory.HttpAddons,
 ) : AndroidViewModel(app) {
     private val api = TmdbApi()
-    private val keys = TmdbKeyStore(app)
     private val repository = UniflixRepository.get(app)
     private val addonPrefs = AddonPrefs(app)
 
@@ -106,20 +104,18 @@ class DetailViewModel(
 
     fun load(mediaType: MediaType, tmdbId: Int) {
         viewModelScope.launch {
-            val key = keys.apiKey.first()
-            if (key.isBlank()) return@launch
             state = state.copy(loading = true)
             runCatching {
                 val detail = when (mediaType) {
-                    MediaType.MOVIE -> api.movieDetail(key, tmdbId)
-                    MediaType.TV -> api.tvDetail(key, tmdbId)
+                    MediaType.MOVIE -> api.movieDetail(tmdbId)
+                    MediaType.TV -> api.tvDetail(tmdbId)
                 }
                 val watchlisted = repository.isWatchlisted(
                     watchKey(tmdbId, mediaType.name.lowercase()),
                 )
                 val episodes = if (mediaType == MediaType.TV) {
                     val season = detail.seasons.firstOrNull { it.seasonNumber > 0 }?.seasonNumber ?: 1
-                    api.seasonEpisodes(key, tmdbId, season)
+                    api.seasonEpisodes(tmdbId, season)
                 } else {
                     emptyList()
                 }
@@ -140,10 +136,8 @@ class DetailViewModel(
 
     fun selectSeason(mediaType: MediaType, tmdbId: Int, season: Int) {
         viewModelScope.launch {
-            val key = keys.apiKey.first()
-            if (key.isBlank()) return@launch
             runCatching {
-                state = state.copy(selectedSeason = season, episodes = api.seasonEpisodes(key, tmdbId, season))
+                state = state.copy(selectedSeason = season, episodes = api.seasonEpisodes(tmdbId, season))
             }.onFailure {
                 AppMessages.show("Season failed to load: ${it.message}")
                 Log.error(TAG, "Season failed to load: ${it.message}", it)

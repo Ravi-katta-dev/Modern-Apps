@@ -10,15 +10,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-/** Public TMDB v3 catalog client. Key is injected per call, never stored here. */
+/** TMDB catalog client via the self-hosted proxy. Keyless: the server holds the TMDB API key. */
 class TmdbApi {
     private val json = Json { ignoreUnknownKeys = true }
 
-    private fun url(path: String, apiKey: String, extra: String = ""): String {
-        val params = "language=en-US&include_adult=false&api_key=$apiKey"
-        val suffix = if (extra.isEmpty()) "" else "&$extra"
-        return "$BASE$path?$params$suffix"
-    }
+    private fun url(path: String): String = "$BASE$path"
 
     private suspend fun getItems(requestUrl: String): List<MediaItem> {
         val resp = NetworkClient.execute(requestUrl)
@@ -26,39 +22,35 @@ class TmdbApi {
         return json.decodeFromString(TmdbList.serializer(), resp.text).results.map { it.toMediaItem() }
     }
 
-    suspend fun trendingMovies(apiKey: String): List<MediaItem> =
-        getItems(url("/trending/movie/day", apiKey))
+    suspend fun trendingMovies(): List<MediaItem> =
+        getItems(url("/trending/movie"))
 
-    suspend fun trendingTv(apiKey: String): List<MediaItem> =
-        getItems(url("/trending/tv/day", apiKey))
+    suspend fun trendingTv(): List<MediaItem> =
+        getItems(url("/trending/tv"))
 
-    suspend fun topRatedMovies(apiKey: String): List<MediaItem> =
-        getItems(url("/movie/top_rated", apiKey, "page=1"))
+    suspend fun topRatedMovies(): List<MediaItem> =
+        getItems(url("/top/movie"))
 
-    suspend fun topRatedTv(apiKey: String): List<MediaItem> =
-        getItems(url("/tv/top_rated", apiKey, "page=1"))
+    suspend fun topRatedTv(): List<MediaItem> =
+        getItems(url("/top/tv"))
 
-    suspend fun discoverMovies(apiKey: String): List<MediaItem> =
-        getItems(url("/discover/movie", apiKey, "page=1"))
+    suspend fun discoverMovies(): List<MediaItem> =
+        getItems(url("/discover/movie"))
 
-    suspend fun discoverTv(apiKey: String): List<MediaItem> =
-        getItems(url("/discover/tv", apiKey, "page=1"))
+    suspend fun discoverTv(): List<MediaItem> =
+        getItems(url("/discover/tv"))
 
-    suspend fun search(apiKey: String, query: String): List<MediaItem> {
+    suspend fun search(query: String): List<MediaItem> {
         val encoded = java.net.URLEncoder.encode(query, Charsets.UTF_8.name())
-        return getItems(url("/search/multi", apiKey, "query=$encoded&page=1"))
+        return getItems(url("/search?query=$encoded"))
     }
 
-    suspend fun movieDetail(apiKey: String, tmdbId: Int): MediaDetail {
-        val requestUrl = url(
-            "/movie/$tmdbId",
-            apiKey,
-            "append_to_response=release_dates,images,credits,videos,external_ids",
-        )
+    suspend fun movieDetail(tmdbId: Int): MediaDetail {
+        val requestUrl = url("/movie/$tmdbId")
         val resp = NetworkClient.execute(requestUrl)
         if (!resp.isSuccess) error("TMDB request failed: ${resp.status}")
         val dto = json.decodeFromString(TmdbMovieDetail.serializer(), resp.text)
-        val recs = runCatching { movieRecommendations(apiKey, tmdbId) }.getOrDefault(emptyList())
+        val recs = runCatching { movieRecommendations(tmdbId) }.getOrDefault(emptyList())
         return MediaDetail(
             tmdbId = dto.id,
             mediaType = MediaType.MOVIE,
@@ -73,12 +65,8 @@ class TmdbApi {
         )
     }
 
-    suspend fun tvDetail(apiKey: String, tmdbId: Int): MediaDetail {
-        val requestUrl = url(
-            "/tv/$tmdbId",
-            apiKey,
-            "append_to_response=content_ratings,images,credits,seasons,external_ids",
-        )
+    suspend fun tvDetail(tmdbId: Int): MediaDetail {
+        val requestUrl = url("/tv/$tmdbId")
         val resp = NetworkClient.execute(requestUrl)
         if (!resp.isSuccess) error("TMDB request failed: ${resp.status}")
         val dto = json.decodeFromString(TmdbTvDetail.serializer(), resp.text)
@@ -97,19 +85,19 @@ class TmdbApi {
         )
     }
 
-    suspend fun seasonEpisodes(apiKey: String, tmdbId: Int, season: Int): List<Episode> {
-        val resp = NetworkClient.execute(url("/tv/$tmdbId/season/$season", apiKey))
+    suspend fun seasonEpisodes(tmdbId: Int, season: Int): List<Episode> {
+        val resp = NetworkClient.execute(url("/tv/$tmdbId/season/$season"))
         if (!resp.isSuccess) error("TMDB request failed: ${resp.status}")
         return json.decodeFromString(TmdbSeason.serializer(), resp.text).episodes.map {
             Episode(season, it.episodeNumber, it.name, it.overview, it.stillPath)
         }
     }
 
-    private suspend fun movieRecommendations(apiKey: String, tmdbId: Int): List<MediaItem> =
-        getItems(url("/movie/$tmdbId/recommendations", apiKey, "page=1"))
+    private suspend fun movieRecommendations(tmdbId: Int): List<MediaItem> =
+        getItems(url("/movie/$tmdbId/recommendations"))
 
     companion object {
-        private const val BASE = "https://api.themoviedb.org/3"
+        private const val BASE = "https://api.maproj.org/api/tmdb"
     }
 }
 

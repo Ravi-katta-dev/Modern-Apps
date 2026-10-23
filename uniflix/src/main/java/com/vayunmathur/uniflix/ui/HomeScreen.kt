@@ -50,10 +50,6 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth().padding(16.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                if (!state.hasKey) {
-                    Text("Add your TMDB API key in Settings to browse.")
-                    return@Column
-                }
                 if (state.loading) {
                     CircularProgressIndicator()
                 }

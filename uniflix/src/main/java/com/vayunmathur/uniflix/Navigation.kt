@@ -17,7 +17,6 @@ import com.vayunmathur.uniflix.platform.DetailViewModel
 import com.vayunmathur.uniflix.platform.HomeViewModel
 import com.vayunmathur.uniflix.platform.ListsViewModel
 import com.vayunmathur.uniflix.platform.SearchViewModel
-import com.vayunmathur.uniflix.platform.SettingsViewModel
 import com.vayunmathur.uniflix.ui.AddonDetailScreen
 import com.vayunmathur.uniflix.ui.AddonsScreen
 import com.vayunmathur.uniflix.ui.ContinueWatchingScreen
@@ -25,7 +24,6 @@ import com.vayunmathur.uniflix.ui.DetailScreen
 import com.vayunmathur.uniflix.ui.HomeScreen
 import com.vayunmathur.uniflix.ui.ListsScreen
 import com.vayunmathur.uniflix.ui.MediaGridScreen
-import com.vayunmathur.uniflix.ui.OnboardingScreen
 import com.vayunmathur.uniflix.ui.PlayerSettingsScreen
 import com.vayunmathur.uniflix.ui.SearchScreen
 import com.vayunmathur.uniflix.ui.WatchScreen
@@ -34,27 +32,10 @@ private fun mediaTypeOf(raw: String): MediaType =
     if (raw == "tv") MediaType.TV else MediaType.MOVIE
 
 @Composable
-fun Navigation(settingsViewModel: SettingsViewModel) {
-    val settings = settingsViewModel.state
-    val start = if (settings.onboarded) Route.Home else Route.Onboarding
-    val backStack = rememberNavBackStack<Route>(start)
-
-    // Onboarding ends because the settings now hold a TMDB key, not because anything
-    // navigated - so the stack follows the flag rather than the other way round. reset()
-    // rather than add(): there is no going back to onboarding once a key exists.
-    LaunchedEffect(settings.onboarded) {
-        if (backStack.last() != start) backStack.reset(start)
-    }
+fun Navigation() {
+    val backStack = rememberNavBackStack<Route>(Route.Home)
 
     MainNavigation(backStack) {
-        entry<Route.Onboarding> {
-            OnboardingScreen(
-                draftKey = settings.draftKey,
-                saving = settings.saving,
-                onDraftChange = settingsViewModel::onDraftChange,
-                onSave = settingsViewModel::saveKey,
-            )
-        }
         entry<Route.Home> {
             val vm: HomeViewModel = viewModel()
             HomeScreen(
