@@ -5,5 +5,6 @@ Features:
 - Search the catalog, keep a watchlist and custom lists
 - Resume playback where you left off
 - Install stream addons by URL and manage them in-app
+- Import JavaScript stream plugins (.js)
 
 Requires internet

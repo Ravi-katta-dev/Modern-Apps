@@ -103,4 +103,14 @@ data class InstalledAddon(
     val name: String,
     val version: String = "",
     val priority: Int = 0,
+    /** `http` for URL addons, `js` for installable JavaScript plugins. */
+    val kind: String = AddonKind.HTTP,
+    /** Full plugin file source; only set when [kind] is [AddonKind.JS]. */
+    val jsSource: String = "",
 )
+
+/** Addon kinds: URL (Stremio HTTP) vs installable JavaScript plugin. */
+object AddonKind {
+    const val HTTP = "http"
+    const val JS = "js"
+}

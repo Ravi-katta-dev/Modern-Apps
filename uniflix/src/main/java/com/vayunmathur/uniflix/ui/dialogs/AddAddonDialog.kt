@@ -18,7 +18,12 @@ import com.vayunmathur.library.ui.TextButton
 
 /** Add-by-URL dialog: accepts a bare addon base or a full `.../manifest.json` URL. */
 @Composable
-fun AddAddonDialog(adding: Boolean, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+fun AddAddonDialog(
+    adding: Boolean,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+    onImportJs: () -> Unit,
+) {
     var url by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -33,6 +38,9 @@ fun AddAddonDialog(adding: Boolean, onDismiss: () -> Unit, onConfirm: (String) -
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
+                TextButton(onClick = onImportJs, enabled = !adding) {
+                    Text("Import .js plugin instead")
+                }
                 if (adding) CircularProgressIndicator()
             }
         },

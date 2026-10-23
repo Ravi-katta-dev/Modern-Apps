@@ -10,6 +10,7 @@ import com.vayunmathur.library.log.Log
 import com.vayunmathur.library.util.AppMessages
 import com.vayunmathur.uniflix.data.AddonPrefs
 import com.vayunmathur.uniflix.data.AddonStreamProvider
+import com.vayunmathur.uniflix.data.JsStreamProvider
 import com.vayunmathur.uniflix.data.ContinueWatchingEntry
 import com.vayunmathur.uniflix.data.TitleNote
 import com.vayunmathur.uniflix.data.TmdbApi
@@ -17,7 +18,9 @@ import com.vayunmathur.uniflix.data.UniflixRepository
 import com.vayunmathur.uniflix.data.WatchlistEntry
 import com.vayunmathur.uniflix.data.watchKey
 import com.vayunmathur.uniflix.domain.Episode
+import com.vayunmathur.uniflix.domain.AddonKind
 import com.vayunmathur.uniflix.domain.InstalledAddon
+import com.vayunmathur.uniflix.domain.JsPluginManifest
 import com.vayunmathur.uniflix.domain.MediaDetail
 import com.vayunmathur.uniflix.domain.MediaType
 import com.vayunmathur.uniflix.domain.PluginRegistry
@@ -58,6 +61,37 @@ fun interface RegistryFactory {
                 },
             )
         }
+
+        /** Installed addons of both kinds: HTTP URL addons + JS plugins. */
+        val AllInstalled = RegistryFactory { repository, prefs ->
+            val entities = repository.enabledAddons.first()
+            val defaultId = prefs.defaultAddonDbId.first()
+            PluginRegistry.ordered(
+                entities = entities.map {
+                    InstalledAddon(
+                        dbId = it.dbId,
+                        addonId = it.addonId,
+                        baseUrl = it.baseUrl,
+                        name = it.name,
+                        version = it.version,
+                        priority = it.priority,
+                        kind = it.kind,
+                        jsSource = it.jsSource,
+                    )
+                },
+                defaultDbId = defaultId,
+                build = { installed ->
+                    if (installed.kind == AddonKind.JS) {
+                        runCatching {
+                            val manifest = JsPluginManifest.parse(installed.jsSource)
+                            JsStreamProvider(manifest = manifest, displayName = installed.name)
+                        }.getOrNull()
+                    } else {
+                        AddonStreamProvider(baseUrl = installed.baseUrl, displayName = installed.name)
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -83,7 +117,7 @@ data class DetailUiState(
 
 class DetailViewModel(
     app: Application,
-    private val registryFactory: RegistryFactory = RegistryFactory.HttpAddons,
+    private val registryFactory: RegistryFactory = RegistryFactory.AllInstalled,
 ) : AndroidViewModel(app) {
     private val api = TmdbApi()
     private val repository = UniflixRepository.get(app)

@@ -25,6 +25,10 @@ data class AddonEntity(
     /** Last fetch/resolve failure, shown as a badge; null when healthy. */
     val lastError: String? = null,
     val updatedAt: Long = 0L,
+    /** `http` for URL addons, `js` for installable JavaScript plugins. */
+    val kind: String = "http",
+    /** Full plugin file source; only set when [kind] is `js`. */
+    val jsSource: String = "",
 )
 
 @Dao

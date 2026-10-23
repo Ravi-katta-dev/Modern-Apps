@@ -133,4 +133,5 @@ class PluginRegistryTest {
         registry.resolve(550, MediaType.MOVIE)
         assertEquals(listOf("addon-2", "addon-1"), seen, "lower priority resolves first")
     }
+    }
 }

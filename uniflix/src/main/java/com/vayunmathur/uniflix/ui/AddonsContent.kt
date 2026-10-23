@@ -2,6 +2,7 @@ package com.vayunmathur.uniflix.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -16,7 +17,9 @@ import com.vayunmathur.library.ui.DesktopMaxWidthContainer
 import com.vayunmathur.library.ui.IconAdd
 import com.vayunmathur.library.ui.IconButton
 import com.vayunmathur.library.ui.IconRefresh
+import com.vayunmathur.library.ui.IconUpload
 import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.OutlinedButton
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.uniflix.platform.AddonRow
@@ -32,6 +35,7 @@ fun AddonsContent(
     refreshing: Boolean,
     onBack: () -> Unit,
     onAddClick: () -> Unit,
+    onImportJsClick: () -> Unit,
     onToggle: (AddonRow) -> Unit,
     onSetDefault: (AddonRow) -> Unit,
     onClearDefault: () -> Unit,
@@ -48,6 +52,7 @@ fun AddonsContent(
         scrollBehavior = appBarScrollBehavior(),
         actions = {
             IconButton(onClick = onRefreshAll, enabled = !refreshing) { IconRefresh() }
+            IconButton(onClick = onImportJsClick) { IconUpload() }
             IconButton(onClick = onAddClick) { IconAdd() }
         },
     ) { padding ->
@@ -57,7 +62,7 @@ fun AddonsContent(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    "Addons supply streams. Uniflix ships none — paste an addon URL to watch.",
+                    "Addons supply streams. Uniflix ships none — paste an addon URL or import a .js plugin to watch.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 if (rows.isEmpty()) {
@@ -65,7 +70,10 @@ fun AddonsContent(
                         "No stream addons yet. Add one to enable playback.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    Button(onClick = onAddClick, enabled = !adding) { Text("Add addon") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onAddClick, enabled = !adding) { Text("Add addon") }
+                        OutlinedButton(onClick = onImportJsClick, enabled = !adding) { Text("Import .js") }
+                    }
                     return@Column
                 }
                 rows.forEach { row ->

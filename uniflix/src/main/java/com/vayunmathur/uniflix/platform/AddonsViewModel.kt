@@ -11,7 +11,11 @@ import com.vayunmathur.library.util.AppMessages
 import com.vayunmathur.uniflix.data.AddonEntity
 import com.vayunmathur.uniflix.data.AddonPrefs
 import com.vayunmathur.uniflix.data.AddonStreamProvider
+import com.vayunmathur.uniflix.data.JsStreamProvider
+import com.vayunmathur.uniflix.data.NetworkClientBridge
 import com.vayunmathur.uniflix.data.UniflixRepository
+import com.vayunmathur.uniflix.domain.AddonKind
+import com.vayunmathur.uniflix.domain.JsPluginManifest
 import com.vayunmathur.uniflix.domain.ManifestError
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
@@ -76,6 +80,44 @@ class AddonsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Validates [source] as a JS plugin and stores it. */
+    fun addJsPlugin(source: String) {
+        if (source.isBlank()) return
+        viewModelScope.launch {
+            adding = true
+            runCatching {
+                val manifest = JsPluginManifest.parse(source)
+                val key = "js:${manifest.id}"
+                val existing = repository.addonByManifestUrl(key)
+                val count = repository.addonCount()
+                repository.upsertAddon(
+                    (existing ?: AddonEntity(
+                        manifestUrl = key,
+                        baseUrl = "",
+                        addonId = manifest.id,
+                        name = manifest.name,
+                        priority = count,
+                        kind = AddonKind.JS,
+                    )).copy(
+                        addonId = manifest.id,
+                        name = manifest.name,
+                        version = manifest.version,
+                        kind = AddonKind.JS,
+                        jsSource = source,
+                        lastError = null,
+                        updatedAt = System.currentTimeMillis(),
+                    ),
+                )
+                AppMessages.show("Added ${manifest.name}")
+            }.onFailure {
+                val message = it.message ?: "Could not add plugin"
+                Log.error(TAG, "Add plugin failed: $message", it)
+                AppMessages.show(message)
+            }
+            adding = false
+        }
+    }
+
     fun remove(row: AddonRow) {
         viewModelScope.launch {
             repository.deleteAddon(row.entity.dbId)
@@ -126,6 +168,7 @@ class AddonsViewModel(app: Application) : AndroidViewModel(app) {
             val rows = addons.first()
             var failures = 0
             for (row in rows) {
+                if (row.entity.kind == AddonKind.JS) continue
                 runCatching {
                     val (base, manifest) = AddonStreamProvider.fetchManifest(row.entity.manifestUrl)
                     repository.upsertAddon(
@@ -150,6 +193,10 @@ class AddonsViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Re-fetches the manifest; updates identity, clears or sets [AddonEntity.lastError]. */
     fun refreshManifest(row: AddonRow) {
+        if (row.entity.kind == AddonKind.JS) {
+            AppMessages.show("Re-import the .js file to update ${row.entity.name}")
+            return
+        }
         viewModelScope.launch {
             refreshing = true
             runCatching {
@@ -176,6 +223,10 @@ class AddonsViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Re-resolves identity without changing priority/enabled; reports reachability. */
     fun testAddon(row: AddonRow) {
+        if (row.entity.kind == AddonKind.JS) {
+            testJsPlugin(row)
+            return
+        }
         viewModelScope.launch {
             runCatching {
                 AddonStreamProvider.fetchManifest(row.entity.manifestUrl)
@@ -185,6 +236,30 @@ class AddonsViewModel(app: Application) : AndroidViewModel(app) {
                 val message = it.message ?: "Addon unreachable"
                 repository.setAddonError(row.entity.dbId, message)
                 if (it !is ManifestError) Log.error(TAG, "Test addon failed: $message", it)
+                AppMessages.show(message)
+            }
+        }
+    }
+
+    /** Runs the plugin's `servers()` as a health probe; failures land on the row badge. */
+    private fun testJsPlugin(row: AddonRow) {
+        viewModelScope.launch {
+            runCatching {
+                val manifest = JsPluginManifest.parse(row.entity.jsSource)
+                val provider = JsStreamProvider(
+                    manifest = manifest,
+                    displayName = row.entity.name,
+                    configJson = row.entity.configJson,
+                    network = NetworkClientBridge,
+                )
+                val servers = provider.servers()
+                repository.setAddonError(row.entity.dbId, null)
+                val detail = if (servers.isEmpty()) "no servers listed" else "${servers.size} server(s)"
+                AppMessages.show("${row.entity.name} works ($detail)")
+            }.onFailure {
+                val message = it.message ?: "Plugin failed"
+                repository.setAddonError(row.entity.dbId, message)
+                Log.error(TAG, "Test plugin failed: $message", it)
                 AppMessages.show(message)
             }
         }

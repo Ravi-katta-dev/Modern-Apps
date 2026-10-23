@@ -143,7 +143,7 @@ interface UserListDao {
         TitleNote::class,
         AddonEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class UniflixDatabase : RoomDatabase() {
@@ -170,7 +170,21 @@ abstract class UniflixDatabase : RoomDatabase() {
                             "priority INTEGER NOT NULL, " +
                             "configJson TEXT NOT NULL, " +
                             "lastError TEXT, " +
-                            "updatedAt INTEGER NOT NULL)"
+                            "updatedAt INTEGER NOT NULL, " +
+                            "kind TEXT NOT NULL DEFAULT 'http', " +
+                            "jsSource TEXT NOT NULL DEFAULT '')"
+                    )
+                }
+            },
+            object : Migration(2, 3) {
+                override suspend fun migrate(connection: SQLiteConnection) {
+                    // Installable JavaScript plugins: kind + embedded source.
+                    // Existing rows stay `http` URL addons.
+                    connection.execSQL(
+                        "ALTER TABLE AddonEntity ADD COLUMN kind TEXT NOT NULL DEFAULT 'http'",
+                    )
+                    connection.execSQL(
+                        "ALTER TABLE AddonEntity ADD COLUMN jsSource TEXT NOT NULL DEFAULT ''",
                     )
                 }
             },

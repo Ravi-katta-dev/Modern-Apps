@@ -124,6 +124,7 @@ apksig = "9.4.1"
 
 # JavaScript engines & HTML
 quickjs = "1.0.15"
+chicory = "1.4.0"
 
 # Git
 jgit = "7.8.0.202609011348-r"
@@ -332,6 +333,8 @@ apksig = { module = "com.android.tools.build:apksig", version.ref = "apksig" }
 
 # JavaScript engines & HTML
 quickjs-kt = { module = "io.github.dokar3:quickjs-kt", version.ref = "quickjs" }
+# Pure-Java WebAssembly runtime (JS plugin WASM host). No native libs, no WASI.
+chicory-runtime = { module = "com.dylibso.chicory:runtime", version.ref = "chicory" }
 
 # Git
 jgit = { module = "org.eclipse.jgit:org.eclipse.jgit", version.ref = "jgit" }
