@@ -469,8 +469,11 @@ class AppStoreViewModel(
             playInstalledPackagesFlow.value = emptySet()
             return
         }
-        val available = play.details(candidates).map { it.packageName }.toSet()
-        if (available.isNotEmpty()) playInstalledPackagesFlow.value = available
+        // Null (lookup failed) keeps the previous attribution rather than emptying
+        // the library; an answered lookup (even empty) replaces it.
+        play.detailsOrNull(candidates)?.map { it.packageName }?.toSet()?.let {
+            playInstalledPackagesFlow.value = it
+        }
     }
 
     // (loadAccrescent/accrescentUpdate live in AppStoreUpdateOps.kt.)

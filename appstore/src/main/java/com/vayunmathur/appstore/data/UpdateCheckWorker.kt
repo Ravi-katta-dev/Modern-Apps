@@ -157,7 +157,10 @@ class UpdateCheckWorker(
         val unknown = installed
             .filter { it.packageName !in index }
             .map { it.packageName }
-        val remote = env.play.details(unknown).associateBy { it.packageName }
+        // Null (lookup failed) reads as no Play contribution here rather than wiping:
+        // the worker diffs the merged set against the last notification, so a failed
+        // lookup returning rows would silently cancel a standing notification.
+        val remote = env.play.detailsOrNull(unknown).orEmpty().associateBy { it.packageName }
         return installed.mapNotNull { inst ->
             remote[inst.packageName]?.takeIf { it.versionCode > inst.versionCode }
         }

@@ -227,6 +227,19 @@ class PlayRepository(private val context: Context) {
     suspend fun details(packageNames: List<String>): List<UnifiedApp> =
         withFreshApi { it.getDetails(packageNames) }.orEmpty().filterTv()
 
+    /**
+     * Like [details], but null when the lookup itself failed (no account could be
+     * dispensed, Play refused twice, no network) rather than empty.
+     *
+     * Lets the update check tell "Play has no updates for these packages" apart from
+     * "Play didn't answer": the former clears the Play rows, the latter keeps the
+     * previous ones rather than wiping valid updates on a transient failure.
+     */
+    suspend fun detailsOrNull(packageNames: List<String>): List<UnifiedApp>? {
+        if (packageNames.isEmpty()) return emptyList()
+        return withFreshApi { it.getDetails(packageNames) }?.filterTv()
+    }
+
     suspend fun topChart(): List<UnifiedApp> =
         withFreshApi { it.topChart() }.orEmpty().filterTv()
 

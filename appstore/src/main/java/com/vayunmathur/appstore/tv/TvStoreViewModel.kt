@@ -444,9 +444,15 @@ class TvStoreViewModel(
                     val playCandidates = installed
                         .filter { it.packageName !in index }
                         .map { it.packageName }
-                    val remote = play.details(playCandidates).associateBy { it.packageName }
-                    playUpdatesFlow.value = installed.mapNotNull { inst ->
-                        remote[inst.packageName]?.takeIf { it.versionCode > inst.versionCode }
+                    // Fail soft: a refused/failed lookup (null) keeps the previous Play
+                    // rows rather than wiping valid updates. Only an answered lookup
+                    // (even an empty one) clears.
+                    val remote = play.detailsOrNull(playCandidates)
+                    if (remote != null) {
+                        val byPackage = remote.associateBy { it.packageName }
+                        playUpdatesFlow.value = installed.mapNotNull { inst ->
+                            byPackage[inst.packageName]?.takeIf { it.versionCode > inst.versionCode }
+                        }
                     }
                 } else {
                     // A check with Play off must not leave a stale snapshot behind (#845).

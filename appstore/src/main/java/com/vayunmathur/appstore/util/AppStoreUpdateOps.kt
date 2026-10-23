@@ -43,13 +43,20 @@ internal fun AppStoreViewModel.checkForUpdatesImpl() {
                     .filter { it.packageName !in index }
                     .map { it.packageName }
 
-                val remote = play.details(playCandidates).associateBy { it.packageName }
-                playUpdatesFlow.value = installed.mapNotNull { inst ->
-                    remote[inst.packageName]?.takeIf { it.versionCode > inst.versionCode }
+                // Fail soft: a refused/failed lookup (null) keeps the previous Play rows
+                // rather than wiping valid updates — "Play didn't answer" is not "Play
+                // has no updates". Only an answered lookup (even an empty one) clears.
+                val remote = play.detailsOrNull(playCandidates)
+                if (remote != null) {
+                    val byPackage = remote.associateBy { it.packageName }
+                    playUpdatesFlow.value = installed.mapNotNull { inst ->
+                        byPackage[inst.packageName]?.takeIf { it.versionCode > inst.versionCode }
+                    }
+                    // The same response tells us which of these packages Play actually
+                    // hosts, which the library uses to tell a genuine Play app from a
+                    // sideloaded one.
+                    if (byPackage.isNotEmpty()) playInstalledPackagesFlow.value = byPackage.keys.toSet()
                 }
-                // The same response tells us which of these packages Play actually hosts, which
-                // the library uses to tell a genuine Play app from a sideloaded one.
-                if (remote.isNotEmpty()) playInstalledPackagesFlow.value = remote.keys.toSet()
             } else {
                 // A cold-start check with Play off must not leave a stale snapshot behind.
                 playUpdatesFlow.value = emptyList()
