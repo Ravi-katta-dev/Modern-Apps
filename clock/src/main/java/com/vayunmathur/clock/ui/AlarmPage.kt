@@ -37,7 +37,11 @@ fun AlarmPage(backStack: NavBackStack<Route>, clockViewModel: ClockViewModel) {
         if (result.resultCode == android.app.Activity.RESULT_OK) {
             val picked = ringtonePickerResult(result.data)
             clockViewModel.alarms.value.firstOrNull { it.id == pickingAlarmId }?.let { target ->
-                clockViewModel.upsert(target.copy(ringtoneUri = picked))
+                // Same reschedule requirement as setGradualVolumeSeconds below:
+                // the fire intent carries the ringtone URI.
+                val updated = target.copy(ringtoneUri = picked)
+                if (updated.enabled) alarmScheduler.schedule(context, updated)
+                clockViewModel.upsert(updated)
             }
         }
         pickingAlarmId = null
@@ -46,16 +50,26 @@ fun AlarmPage(backStack: NavBackStack<Route>, clockViewModel: ClockViewModel) {
     val actions = remember(clockViewModel, context) {
         object : AlarmActions {
             private fun save(alarm: Alarm) {
-                if (alarm.enabled) alarmScheduler.schedule(context, alarm)
-                clockViewModel.upsert(alarm)
+                // Snooze state belongs to the old schedule: re-arming the alarm
+                // (new time, new days) drops any pending snooze with it.
+                val cleared = if (alarm.snoozedUntil != null) alarm.copy(snoozedUntil = null) else alarm
+                if (cleared.enabled) alarmScheduler.schedule(context, cleared)
+                clockViewModel.upsert(cleared)
             }
 
-            override fun setName(alarm: Alarm, name: String) = save(alarm.copy(name = name))
+            override fun setName(alarm: Alarm, name: String) {
+                // The fire intent carries the label; reschedule like any sound-affecting edit.
+                save(alarm.copy(name = name))
+            }
             override fun setTime(alarm: Alarm, time: LocalTime) = save(alarm.copy(time = time))
             override fun setDays(alarm: Alarm, days: Int) = save(alarm.copy(days = days))
 
             override fun setEnabled(alarm: Alarm, enabled: Boolean) {
-                val updated = alarm.copy(enabled = enabled)
+                // Toggling off also drops a pending snooze: the user silenced the alarm.
+                val updated = alarm.copy(
+                    enabled = enabled,
+                    snoozedUntil = if (enabled) alarm.snoozedUntil else null,
+                )
                 if (enabled) alarmScheduler.schedule(context, updated) else alarmScheduler.cancel(context, updated)
                 clockViewModel.upsert(updated)
             }
@@ -77,7 +91,10 @@ fun AlarmPage(backStack: NavBackStack<Route>, clockViewModel: ClockViewModel) {
             }
 
             override fun setVibrate(alarm: Alarm, vibrate: Boolean) {
-                clockViewModel.upsert(alarm.copy(vibrate = vibrate))
+                // The fire intent carries vibrate/ringtone so the receiver can ring
+                // without a database read; a plain upsert would leave the already-
+                // scheduled intent (and the snooze path) holding the old values.
+                save(alarm.copy(vibrate = vibrate))
             }
 
             override fun setSnoozeMinutes(alarm: Alarm, minutes: Int) {

@@ -50,6 +50,12 @@ data class Alarm(
     var vibrate: Boolean = true,
     var snoozeMinutes: Int = 5,
     var gradualVolumeSeconds: Int = 0, // 0 = play at full volume immediately
+    /**
+     * When a snoozed ring is due. Set when the user snoozes, cleared when that
+     * snooze fires (or is superseded); the snooze PendingIntent lives only in
+     * AlarmManager, so without this a reboot would silently drop it.
+     */
+    var snoozedUntil: Instant? = null,
     @PrimaryKey(autoGenerate = true)
     override var id: Long = 0,
 ): DatabaseItem
@@ -91,7 +97,7 @@ interface AlarmDao {
 }
 
 @ColumnTypeConverters(DefaultConverters::class)
-@Database(entities = [Timer::class, Alarm::class], version = 2, exportSchema = false)
+@Database(entities = [Timer::class, Alarm::class], version = 3, exportSchema = false)
 abstract class ClockDatabase: RoomDatabase() {
     abstract fun timerDao(): TimerDao
     abstract fun alarmDao(): AlarmDao
@@ -103,6 +109,9 @@ abstract class ClockDatabase: RoomDatabase() {
                 it.execSQL("ALTER TABLE Alarm ADD COLUMN vibrate INTEGER NOT NULL DEFAULT 1")
                 it.execSQL("ALTER TABLE Alarm ADD COLUMN snoozeMinutes INTEGER NOT NULL DEFAULT 5")
                 it.execSQL("ALTER TABLE Alarm ADD COLUMN gradualVolumeSeconds INTEGER NOT NULL DEFAULT 0")
+            },
+            Migration(2, 3) {
+                it.execSQL("ALTER TABLE Alarm ADD COLUMN snoozedUntil INTEGER")
             },
         )
     }

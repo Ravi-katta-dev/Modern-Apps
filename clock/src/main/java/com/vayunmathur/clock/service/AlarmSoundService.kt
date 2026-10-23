@@ -11,7 +11,6 @@ import android.net.Uri
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
-import com.vayunmathur.library.log.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.net.toUri
 import com.vayunmathur.clock.R
@@ -19,6 +18,7 @@ import com.vayunmathur.clock.platform.ALARM_CHANNEL_ID
 import com.vayunmathur.clock.platform.ALARM_RING_NOTIFICATION_ID
 import com.vayunmathur.clock.platform.createAlarmChannel
 import com.vayunmathur.clock.data.ClockRepository
+import com.vayunmathur.library.log.Log
 import com.vayunmathur.library.ui.RINGTONE_SILENT
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +31,7 @@ import kotlinx.coroutines.withContext
 class AlarmSoundService : Service() {
     private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
-    private var started = false
+    private var ringingForAlarmId: Long = -1L
 
     /** Whether the MediaPlayer is actually producing sound, so the ring notification is spare. */
     @Volatile
@@ -79,21 +79,21 @@ class AlarmSoundService : Service() {
             return START_NOT_STICKY
         }
 
-        if (started) {
-            // A second alarm has fired and posted its own ring notification over the first.
-            // We are already the ringer, so take it back off the system at once; if we are not
-            // sounding yet, the launch below is still on its way to doing so.
-            if (sounding) cancelRingNotification()
-            return START_NOT_STICKY
+        if (ringingForAlarmId != -1L && ringingForAlarmId != alarmId) {
+            // A second alarm has fired while the first is still ringing. The receiver
+            // already stopped this service before posting the new ring, but the stop
+            // is asynchronous (onDestroy runs on the main thread) while this start
+            // can land first; without the guard both alarms play on top of each other.
+            // The old ring loses: the ringing activity only ever shows the latest.
+            stopRingLocked()
         }
-        started = true
+        ringingForAlarmId = alarmId
+        sounding = false
 
         scope.launch {
-            val alarm = if (alarmId != -1L) {
-                runCatching {
-                    ClockRepository.get(applicationContext).getAlarm(alarmId)
-                }.getOrNull()
-            } else null
+            val alarm = runCatching {
+                ClockRepository.get(applicationContext).getAlarm(alarmId)
+            }.getOrNull()
 
             val ringtoneUri = alarm?.ringtoneUri
             val vibrate = alarm?.vibrate ?: true
@@ -119,9 +119,18 @@ class AlarmSoundService : Service() {
             // drop the safety net during the database read and prepare() above - the slow part,
             // on exactly the hardware this is meant to fix - and drop it permanently if neither
             // ringtone plays, which is the one case it exists for.
-            if (silent || sounding) {
+            //
+            // A gradual alarm's notification was posted silent and only becomes spare once
+            // the fade actually starts; cancelling it unconditionally would leave a slow
+            // prepare() with no sound at all. The receiver made that notification
+            // insistent when the service was unlikely to start, so only cancel there.
+            if (sounding) {
                 cancelRingNotification()
-            } else {
+                // The looping player is the ring now: bound it like the notification,
+                // which times out after ten minutes. Otherwise a missed alarm plays
+                // until the process dies or the battery does.
+                scheduleAutoStop(alarmId, RING_TIMEOUT_MS)
+            } else if (!silent) {
                 Log.error(TAG, "Alarm $alarmId: no ringtone played; leaving the ring notification up")
             }
         }
@@ -151,6 +160,18 @@ class AlarmSoundService : Service() {
 
     private fun cancelRingNotification() {
         getSystemService(NotificationManager::class.java).cancel(ALARM_RING_NOTIFICATION_ID)
+    }
+
+    /** Stops the ring after [timeoutMs] if nobody dismissed it first. */
+    private fun scheduleAutoStop(alarmId: Long, timeoutMs: Long) {
+        scope.launch {
+            delay(timeoutMs)
+            // Still the same ring: a newer alarm re-arms its own deadline.
+            if (ringingForAlarmId == alarmId) {
+                Log.status(TAG, "Alarm $alarmId: ringing timed out; stopping")
+                stopSelf()
+            }
+        }
     }
 
     private fun resolveRingtone(uriString: String?): Uri? = when (uriString) {
@@ -205,8 +226,18 @@ class AlarmSoundService : Service() {
         vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
     }
 
+    /** Synchronous stop of the current ring, for the overlapping-alarm handover. */
+    private fun stopRingLocked() {
+        runCatching { mediaPlayer?.stop() }
+        releasePlayer()
+        runCatching { vibrator?.cancel() }
+        vibrator = null
+        sounding = false
+    }
+
     override fun onDestroy() {
         destroyed = true
+        ringingForAlarmId = -1L
         scope.cancel()
         // stop() throws IllegalStateException unless prepared/started; an unguarded call
         // would skip the vibrator cancel and super.onDestroy() below, wedging vibration on.
@@ -221,6 +252,12 @@ class AlarmSoundService : Service() {
 
     companion object {
         const val NOTIFICATION_ID = 1001
+
+        /**
+         * Matches the receiver's bound: the insistent notification gives up after
+         * ten minutes, so the looping player must not outlive it.
+         */
+        const val RING_TIMEOUT_MS = 10 * 60 * 1000L
         private const val TAG = "AlarmSoundService"
     }
 }

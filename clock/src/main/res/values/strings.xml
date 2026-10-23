@@ -21,6 +21,8 @@
     <!-- AlarmReceiver / AlarmSoundService: notifications shown when alarm triggers -->
     <!-- Foreground service notification title while alarm is ringing -->
     <string name="alarm_ringing_notification_title">Alarm is Ringing</string>
+    <!-- AlarmReceiver: fallback line when USE_FULL_SCREEN_INTENT is denied and only a heads-up shows -->
+    <string name="alarm_missing_fullscreen_text">Tap to open \u2014 full-screen alarm permission is off</string>
 
     <!-- Notification channels: visible in system notification settings -->
     <!-- System channel name for ongoing timers countdown notification -->
@@ -99,6 +101,10 @@
     <string name="time_pm">PM</string>
     <!-- MainActivity: permission onboarding button to grant notification permission -->
     <string name="grant_notifications_permission">Grant Notifications Permission</string>
+    <!-- MainActivity: persistent banner while the full-screen alarm permission is revoked (API 34+) -->
+    <string name="alarm_fullscreen_revoked">Full-screen alarms are off \u2014 ringing alarms won\u2019t pop up over the lock screen</string>
+    <!-- MainActivity: action that opens the full-screen-intent settings page -->
+    <string name="action_open_settings">Open settings</string>
 
     <!-- App widgets -->
     <!-- Widget picker label for analog clock widget -->

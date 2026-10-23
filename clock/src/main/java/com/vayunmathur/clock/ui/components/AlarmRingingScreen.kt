@@ -35,7 +35,8 @@ fun AlarmRingingScreen(
     alarmName: String,
     snoozeMinutes: Int,
     onDismiss: () -> Unit,
-    onSnooze: () -> Unit
+    onSnooze: () -> Unit,
+    snoozeEnabled: Boolean = true,
 ) {
     // RAW SCAFFOLD EXCEPTION: full-screen alarm-ringing takeover — no top bar, nav,
     // actions or FAB, just centered content with SpaceBetween. None of the shared
@@ -67,7 +68,7 @@ fun AlarmRingingScreen(
                 ) {
                     Text(text = stringResource(R.string.button_stop), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold)
                 }
-                FilledTonalButton(onClick = onSnooze, modifier = Modifier.fillMaxWidth().height(64.dp), shape = MaterialTheme.shapes.extraLarge) {
+                FilledTonalButton(onClick = onSnooze, enabled = snoozeEnabled, modifier = Modifier.fillMaxWidth().height(64.dp), shape = MaterialTheme.shapes.extraLarge) {
                     IconPause(); Spacer(modifier = Modifier.width(8.dp)); Text(text = stringResource(R.string.button_snooze, snoozeMinutes), style = MaterialTheme.typography.titleMedium)
                 }
             }

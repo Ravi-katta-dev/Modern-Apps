@@ -4,6 +4,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import com.vayunmathur.clock.data.Alarm
+import com.vayunmathur.clock.data.ClockRepository
 import kotlinx.datetime.DayOfWeek
 import kotlinx.datetime.LocalDateTime
 import kotlinx.datetime.TimeZone
@@ -12,6 +13,8 @@ import kotlinx.datetime.toInstant
 import kotlinx.datetime.toLocalDateTime
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Instant
 
 object AlarmScheduler {
     /**
@@ -21,6 +24,19 @@ object AlarmScheduler {
      */
     const val EXTRA_GRADUAL_SECONDS = "GRADUAL_SECONDS"
     const val EXTRA_LABEL = "ALARM_LABEL"
+    const val EXTRA_RINGTONE_URI = "RINGTONE_URI"
+    const val EXTRA_VIBRATE = "VIBRATE"
+
+    /**
+     * Marks the intent as the fire of a previously persisted snooze (as opposed to the
+     * alarm's regular schedule). [AlarmReceiver] clears the stored snooze when it sees
+     * this, so a regular fire does not clear a pending snooze and a snooze fire does.
+     */
+    const val EXTRA_IS_SNOOZE = "IS_SNOOZE"
+
+    /** Distinct request codes so a snooze never overwrites the alarm's own schedule. */
+    internal const val REQUEST_RING = 0
+    internal const val REQUEST_SNOOZE = 1
 
     fun schedule(context: Context, alarm: Alarm) {
         val alarmManager = context.getSystemService(AlarmManager::class.java)
@@ -29,11 +45,13 @@ object AlarmScheduler {
             putExtra("ALARM_ID", alarm.id)
             putExtra(EXTRA_GRADUAL_SECONDS, alarm.gradualVolumeSeconds)
             putExtra(EXTRA_LABEL, alarm.name)
+            putExtra(EXTRA_RINGTONE_URI, alarm.ringtoneUri)
+            putExtra(EXTRA_VIBRATE, alarm.vibrate)
         }
-        
+
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            alarm.id.hashCode(), // Unique ID per alarm
+            ringRequestCode(alarm.id),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -50,14 +68,91 @@ object AlarmScheduler {
 
     fun cancel(context: Context, alarm: Alarm) {
         val alarmManager = context.getSystemService(AlarmManager::class.java)
+        cancelRing(context, alarmManager, alarm.id)
+        cancelSnooze(context, alarmManager, alarm.id)
+    }
+
+    /**
+     * Arms the snoozed ring as its own AlarmManager entry, on a distinct request
+     * code so it cannot clobber the alarm's recurring schedule, and persists it
+     * so [BootReceiver] can re-arm it after a reboot.
+     */
+    suspend fun scheduleSnooze(
+        context: Context,
+        repository: ClockRepository,
+        alarm: Alarm,
+        snoozeMinutes: Int,
+    ): Long {
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        val triggerMillis = Clock.System.now().plus(
+            snoozeMinutes.coerceAtLeast(1).minutes
+        ).toEpochMilliseconds()
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra("ALARM_ID", alarm.id)
+            putExtra(EXTRA_IS_SNOOZE, true)
+            // Snooze builds its own intent rather than going through schedule(), so it has
+            // to carry these itself or the snoozed alarm would ring with the wrong settings.
+            putExtra(EXTRA_GRADUAL_SECONDS, alarm.gradualVolumeSeconds)
+            putExtra(EXTRA_LABEL, alarm.name)
+            putExtra(EXTRA_RINGTONE_URI, alarm.ringtoneUri)
+            putExtra(EXTRA_VIBRATE, alarm.vibrate)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            snoozeRequestCode(alarm.id),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        alarmManager.setAlarmClock(AlarmManager.AlarmClockInfo(triggerMillis, pendingIntent), pendingIntent)
+        repository.upsertAlarm(
+            alarm.copy(snoozedUntil = Instant.fromEpochMilliseconds(triggerMillis))
+        )
+        return triggerMillis
+    }
+
+    /** Drops the persisted snooze without touching the alarm's own schedule. */
+    suspend fun clearSnooze(
+        context: Context,
+        repository: ClockRepository,
+        alarm: Alarm,
+    ) {
+        val alarmManager = context.getSystemService(AlarmManager::class.java)
+        cancelSnooze(context, alarmManager, alarm.id)
+        if (alarm.snoozedUntil != null) {
+            repository.upsertAlarm(alarm.copy(snoozedUntil = null))
+        }
+    }
+
+    internal fun ringRequestCode(alarmId: Long): Int = alarmId.toInt() * 2 + REQUEST_RING
+
+    internal fun snoozeRequestCode(alarmId: Long): Int = alarmId.toInt() * 2 + REQUEST_SNOOZE
+
+    private fun cancelRing(context: Context, alarmManager: AlarmManager, alarmId: Long) {
         val intent = Intent(context, AlarmReceiver::class.java)
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            alarm.id.hashCode(),
+            ringRequestCode(alarmId),
             intent,
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
         )
-        pendingIntent?.let { alarmManager.cancel(it) }
+        pendingIntent?.let {
+            alarmManager.cancel(it)
+            it.cancel()
+        }
+    }
+
+    private fun cancelSnooze(context: Context, alarmManager: AlarmManager, alarmId: Long) {
+        val intent = Intent(context, AlarmReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            snoozeRequestCode(alarmId),
+            intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        pendingIntent?.let {
+            alarmManager.cancel(it)
+            it.cancel()
+        }
     }
 
     fun calculateNextTriggerMillis(alarm: Alarm): Long {

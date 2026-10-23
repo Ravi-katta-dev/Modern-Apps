@@ -1,56 +1,43 @@
 package com.vayunmathur.clock.platform
-import android.app.AlarmManager
-import android.app.KeyguardManager
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.lifecycleScope
 import com.vayunmathur.clock.R
+import com.vayunmathur.clock.data.Alarm
 import com.vayunmathur.clock.data.ClockRepository
 import com.vayunmathur.clock.ui.components.AlarmRingingScreen
 import com.vayunmathur.clock.ui.components.formatAlarmTime
 import com.vayunmathur.clock.service.AlarmSoundService
+import com.vayunmathur.library.log.Log
 import com.vayunmathur.library.ui.DynamicTheme
-import kotlin.time.Clock
-import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class AlarmActivity : ComponentActivity() {
     private var alarmId: Long = -1L
-    private var snoozeMinutes: Int = 5
-    private var gradualSeconds: Int = 0
-    private var alarmLabel: String = ""
+    private var alarm: Alarm? by mutableStateOf(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         setShowWhenLocked(true); setTurnScreenOn(true); super.onCreate(savedInstanceState)
         alarmId = intent.getLongExtra("ALARM_ID", -1L)
-        val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-        km.requestDismissKeyguard(this, null)
-        val repository = ClockRepository.get(applicationContext)
+        loadAlarm(intent)
         setContent {
-            val alarm by androidx.compose.runtime.produceState<com.vayunmathur.clock.data.Alarm?>(initialValue = null) {
-                value = withContext(Dispatchers.IO) { repository.getAlarm(alarmId) }
-            }
-            androidx.compose.runtime.LaunchedEffect(alarm) {
-                alarm?.let {
-                    snoozeMinutes = it.snoozeMinutes
-                    gradualSeconds = it.gradualVolumeSeconds
-                    alarmLabel = it.name
-                }
-            }
             DynamicTheme {
                 AlarmRingingScreen(
                     alarmTime = alarm?.let { formatAlarmTime(this@AlarmActivity, it.time) } ?: "--:--",
                     alarmName = alarm?.name ?: getString(R.string.label_alarm),
-                    // Read off the loaded alarm, not the field: the field is only assigned in
-                    // the LaunchedEffect below (after composition), so passing it would still
-                    // show the default 5 on first draw. The field stays for snoozeAlarm(),
-                    // which reads it from a click handler long after load.
-                    snoozeMinutes = alarm?.snoozeMinutes ?: snoozeMinutes,
+                    // The alarm is loaded async; read it off state (not a field
+                    // assigned in a LaunchedEffect after composition) so the first
+                    // draw already shows the real value once loaded.
+                    snoozeMinutes = alarm?.snoozeMinutes ?: 5,
+                    snoozeEnabled = alarm != null,
                     onDismiss = { dismissAlarm() },
                     onSnooze = { snoozeAlarm() }
                 )
@@ -58,36 +45,81 @@ class AlarmActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * singleInstance reuses this activity for a second alarm fired while the
+     * first is still showing; without this the dismiss/snooze buttons would
+     * keep acting on the stale id and the UI would show the wrong alarm.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        alarmId = intent.getLongExtra("ALARM_ID", -1L)
+        loadAlarm(intent)
+    }
+
+    private fun loadAlarm(intent: Intent) {
+        val id = intent.getLongExtra("ALARM_ID", -1L)
+        if (id == -1L) {
+            Log.error(TAG, "Ringing activity started without an alarm id")
+            finish()
+            return
+        }
+        alarm = null
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching { ClockRepository.get(applicationContext).getAlarm(id) }
+                .onSuccess { loaded -> withContext(Dispatchers.Main) { alarm = loaded } }
+                .onFailure {
+                    Log.error(TAG, "Alarm $id: could not load ringing alarm", it)
+                    withContext(Dispatchers.Main) { finish() }
+                }
+        }
+    }
+
     private fun dismissAlarm() {
+        val ringing = alarm
         stopService(Intent(this, AlarmSoundService::class.java))
         val nm = getSystemService(NotificationManager::class.java)
         nm.cancel(ALARM_RING_NOTIFICATION_ID); finish()
+        if (ringing != null) {
+            // Dismissing also drops any pending snooze: the user stopped the alarm,
+            // they did not ask to be woken again in five minutes.
+            val ctx = this
+            lifecycleScope.launch(Dispatchers.IO) {
+                runCatching {
+                    AlarmScheduler.clearSnooze(ctx, ClockRepository.get(ctx), ringing)
+                }.onFailure {
+                    Log.error(TAG, "Alarm ${ringing.id}: could not clear snooze on dismiss", it)
+                }
+            }
+        }
     }
 
     private fun snoozeAlarm() {
+        // Snooze is disabled until the alarm loads (snoozeEnabled above), but a
+        // stale click could still land here; guard rather than schedule garbage.
+        val ringing = alarm ?: return
+        // Stop the sound first so the snooze tap never overlaps the old ring, and
+        // clear the insistent notification the receiver posted: it keeps sounding
+        // on the system side after the service dies.
         stopService(Intent(this, AlarmSoundService::class.java))
-        // The ring notification is insistent, so it keeps sounding until cancelled. Snoozing
-        // used to leave it posted, which only went unnoticed while the service owned the sound.
         getSystemService(NotificationManager::class.java).cancel(ALARM_RING_NOTIFICATION_ID)
-        val snoozeTime = Clock.System.now().plus(snoozeMinutes.minutes)
-        val triggerMillis = snoozeTime.toEpochMilliseconds()
-        val intent = Intent(this, AlarmReceiver::class.java).apply {
-            putExtra("ALARM_ID", alarmId)
-            putExtra("IS_SNOOZE", true)
-            // Snooze builds its own intent rather than going through AlarmScheduler, so it has
-            // to carry this itself or the snoozed alarm would ring on the wrong channel.
-            putExtra(AlarmScheduler.EXTRA_GRADUAL_SECONDS, gradualSeconds)
-            putExtra(AlarmScheduler.EXTRA_LABEL, alarmLabel)
+        val ctx = this
+        lifecycleScope.launch(Dispatchers.IO) {
+            runCatching {
+                AlarmScheduler.scheduleSnooze(
+                    ctx,
+                    ClockRepository.get(ctx),
+                    ringing,
+                    ringing.snoozeMinutes,
+                )
+            }.onFailure {
+                Log.error(TAG, "Alarm ${ringing.id}: could not schedule snooze", it)
+            }
+            withContext(Dispatchers.Main) { finish() }
         }
-        val pendingIntent = PendingIntent.getBroadcast(
-            this,
-            alarmId.toInt(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-        val alarmManager = getSystemService(AlarmManager::class.java)
-        val info = AlarmManager.AlarmClockInfo(triggerMillis, pendingIntent)
-        alarmManager.setAlarmClock(info, pendingIntent)
-        finish()
+    }
+
+    private companion object {
+        const val TAG = "AlarmActivity"
     }
 }
