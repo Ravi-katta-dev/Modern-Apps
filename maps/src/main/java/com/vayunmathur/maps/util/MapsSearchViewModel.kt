@@ -6,8 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.vayunmathur.maps.data.RecentSearchStore
 import com.vayunmathur.maps.data.SpecificFeature
 import com.vayunmathur.maps.data.osmPlace
-import com.vayunmathur.maps.data.google.GoogleSearchDataSource
-import com.vayunmathur.maps.data.google.GoogleSearchResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -21,10 +19,9 @@ import kotlinx.coroutines.withContext
 import com.vayunmathur.library.map.GeoPoint
 
 /**
- * A single row in the search list. Since search is now Google-only (Decision D2,
- * amenities.db removed), every result is one Google place: a title, an optional
- * subtitle (address or category) and a position, so it can both fill the list
- * row and drop a pin on the map.
+ * A single row in the search list. Results come from the offline OSM POI
+ * index: a title, an optional subtitle (category) and a position, so it can
+ * both fill the list row and drop a pin on the map.
  */
 data class SearchResult(
     val id: String,
@@ -33,15 +30,6 @@ data class SearchResult(
     val lat: Double,
     val lon: Double,
     val category: String?,
-)
-
-private fun GoogleSearchResult.toSearchResult() = SearchResult(
-    id = id,
-    title = name,
-    subtitle = address ?: category,
-    lat = lat,
-    lon = lng,
-    category = category,
 )
 
 private fun PoiIndex.PoiRecord.toSearchResult() = SearchResult(
@@ -56,7 +44,7 @@ private fun PoiIndex.PoiRecord.toSearchResult() = SearchResult(
 /**
  * Owns the text query and result list for the maps search page.
  *
- * Results come from the keyless Google scrape ([GoogleSearchDataSource]); the map
+ * Results come from the offline OSM POI index ([PoiIndex.searchByName]); the map
  * centre is supplied per-query by the calling composable to bias the search. The
  * results flow is also observed by `MapPage` to draw the search-result pin layer.
  */
@@ -96,11 +84,11 @@ class MapsSearchViewModel(application: Application) : AndroidViewModel(applicati
     private var searchJob: Job? = null
 
     /**
-     * Updates the search text and (asynchronously) the result list via the Google
-     * scrape, biased toward [nearLat],[nearLon] (the map centre). Queries shorter
-     * than two characters clear the results without hitting the network.
+     * Updates the search text and (asynchronously) the result list from the
+     * offline OSM POI index, biased toward [nearLat],[nearLon] (the map centre).
+     * Queries shorter than two characters clear the results without searching.
      *
-     * Debounced ~250 ms (Decision D7) so fast typists don't stack a scrape per
+     * Debounced ~250 ms (Decision D7) so fast typists don't stack a search per
      * keystroke; the previous job is cancelled on every call.
      */
     fun setQuery(query: String, nearLat: Double, nearLon: Double) {
@@ -117,11 +105,9 @@ class MapsSearchViewModel(application: Application) : AndroidViewModel(applicati
         searchJob = viewModelScope.launch {
             try {
                 delay(SEARCH_DEBOUNCE_MS)
-                // Try the offline OSM POI index first (P27): resolving a POI name
-                // locally avoids a Google call. Google stays the fallback (and
-                // handles addresses, which the POI index doesn't carry). Any offline
-                // failure (unmapped/poisoned index, decode error) is swallowed so the
-                // query still falls through to Google.
+                // Offline OSM POI index only (P27). Addresses are not carried by
+                // the index, so they resolve to empty. Any offline failure
+                // (unmapped/poisoned index, decode error) is swallowed to empty.
                 val app = getApplication<Application>()
                 val offline = withContext(Dispatchers.IO) {
                     runCatching {
@@ -129,14 +115,7 @@ class MapsSearchViewModel(application: Application) : AndroidViewModel(applicati
                         PoiIndex.searchByName(query, nearLat, nearLon, limit = 20)
                     }.getOrDefault(emptyList())
                 }
-                if (offline.isNotEmpty()) {
-                    _results.value = offline.map { it.toSearchResult() }
-                    return@launch
-                }
-                // GoogleSearchDataSource.search does its own Dispatchers.IO + never
-                // throws (empty list on any scrape/path failure).
-                _results.value = GoogleSearchDataSource.search(query, nearLat, nearLon)
-                    .map { it.toSearchResult() }
+                _results.value = offline.map { it.toSearchResult() }
             } finally {
                 // `finally` because cancellation is the normal exit: every keystroke cancels
                 // the previous job, and a cancelled search that never clears this flag leaves
@@ -147,13 +126,14 @@ class MapsSearchViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     /**
-     * Runs the Google search for [query] immediately (no debounce), publishes the
-     * results so the list + map pins update, and hands back the FIRST result (or
-     * null) so a caller can auto-select it programmatically.
+     * Runs the offline OSM search for [query] immediately (no debounce),
+     * publishes the results so the list + map pins update, and hands back the
+     * FIRST result (or null) so a caller can auto-select it programmatically.
      *
-     * Used by the P17 contact-address shortcut: pick an address → search → open
+     * Used by the P17 contact-address shortcut: pick a POI name → search → open
      * the top hit without a user tap. Cancels any in-flight keystroke search
-     * first so results don't race.
+     * first so results don't race. Free-text addresses have no OSM path and
+     * resolve to null.
      */
     fun searchAndSelectFirst(
         query: String,
@@ -164,10 +144,13 @@ class MapsSearchViewModel(application: Application) : AndroidViewModel(applicati
         _query.value = query
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
-            // GoogleSearchDataSource.search does its own Dispatchers.IO + never
-            // throws (empty list on any scrape/path failure).
-            val results = GoogleSearchDataSource.search(query, nearLat, nearLon)
-                .map { it.toSearchResult() }
+            val app = getApplication<Application>()
+            val results = withContext(Dispatchers.IO) {
+                runCatching {
+                    PoiIndex.initialize(app)
+                    PoiIndex.searchByName(query, nearLat, nearLon, limit = 20)
+                }.getOrDefault(emptyList())
+            }.map { it.toSearchResult() }
             _results.value = results
             onFirst(results.firstOrNull())
         }
@@ -181,12 +164,10 @@ class MapsSearchViewModel(application: Application) : AndroidViewModel(applicati
      * [_query] or populate [_results] (that would prefill the search bar and
      * draw the search-result pins).
      *
-     * A full address string is resolved via the Google text [GoogleSearchDataSource.search]
-     * (the only path that maps a string to a coordinate; [reverseGeocode] takes a
-     * coordinate, not an address). The search does its own [Dispatchers.IO] and
-     * never throws; [onResolved] fires on the main thread so the caller can
-     * safely drive [SelectedFeatureViewModel.selectAndFocus]. Returns null when
-     * nothing resolves.
+     * Offline-only: a POI-name query resolves through the OSM index; a full
+     * postal address has no OSM path and resolves to null. [onResolved] fires
+     * on the main thread so the caller can safely drive
+     * [SelectedFeatureViewModel.selectAndFocus].
      */
     fun resolveAndSelect(
         address: String,
@@ -199,16 +180,19 @@ class MapsSearchViewModel(application: Application) : AndroidViewModel(applicati
             return
         }
         viewModelScope.launch {
-            val hit = GoogleSearchDataSource.search(address, nearLat, nearLon).firstOrNull()
-            onResolved(
-                hit?.let {
-                    osmPlace(
-                        name = it.name.ifBlank { it.address ?: address },
-                        position = GeoPoint(it.lng, it.lat),
-                        poiType = null,
-                    )
-                }
-            )
+            // Reuse the POI-name path: named places resolve, street addresses
+            // (which the OSM index doesn't carry) resolve to null.
+            searchAndSelectFirst(address, nearLat, nearLon) { first ->
+                onResolved(
+                    first?.let {
+                        osmPlace(
+                            name = it.title.ifBlank { address },
+                            position = GeoPoint(it.lon, it.lat),
+                            poiType = null,
+                        )
+                    }
+                )
+            }
         }
     }
 
@@ -230,11 +214,9 @@ class MapsSearchViewModel(application: Application) : AndroidViewModel(applicati
 
     /**
      * Build a [SpecificFeature.GenericPlace] for a picked search result. It flows
-     * through the same selection path as a tapped map pin, so
-     * `SelectedFeatureViewModel.currentPoiInfo` then fetches the Google
-     * enrichment for the sheet.
+     * through the same selection path as a tapped map pin.
      *
-     * The sidecar lookup matters most here: an offline result has no Google
+     * The sidecar lookup matters most here: an offline result has no remote
      * enrichment coming, so without it the sheet opens with a title and nothing
      * else. It is also a mapped-file read, hence [osmPlace] and this suspend.
      */
@@ -242,19 +224,25 @@ class MapsSearchViewModel(application: Application) : AndroidViewModel(applicati
         osmPlace(name = result.title, position = GeoPoint(result.lon, result.lat))
 
     /**
-     * Reverse-geocode [lat],[lon] to the nearest addressable place and hand it
-     * back as a [SpecificFeature.GenericPlace] (or null when there's no match).
-     * Replaces the removed address FTS geocoder; used for "what's here?" taps on
-     * empty map (Decision D2 — online-only).
+     * Reverse-geocode [lat],[lon] to the nearest offline POI and hand it back
+     * as a [SpecificFeature.GenericPlace] (or null when nothing is nearby).
+     * Used for "what's here?" taps on empty map. Street addresses have no OSM
+     * path — the result is the nearest named POI within 250 m, or null.
      */
     fun reverseGeocode(lat: Double, lon: Double, onResult: (SpecificFeature.GenericPlace?) -> Unit) {
         viewModelScope.launch {
-            val hit = GoogleSearchDataSource.reverseGeocode(lat, lon)
+            val app = getApplication<Application>()
+            val hit = withContext(Dispatchers.IO) {
+                runCatching {
+                    PoiIndex.initialize(app)
+                    PoiIndex.nearest(lat, lon, limit = 1).firstOrNull()
+                }.getOrNull()
+            }
             onResult(
                 hit?.let {
                     osmPlace(
-                        name = it.name.ifBlank { it.address ?: "" },
-                        position = GeoPoint(it.lng, it.lat),
+                        name = it.name,
+                        position = GeoPoint(it.lon, it.lat),
                     )
                 }
             )

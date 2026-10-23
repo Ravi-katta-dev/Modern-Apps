@@ -27,7 +27,6 @@ import com.vayunmathur.library.util.rememberNavBackStack
 import com.vayunmathur.maps.data.MapLink
 import com.vayunmathur.maps.data.MapLinkParser
 import com.vayunmathur.maps.data.SpecificFeature
-import com.vayunmathur.maps.data.google.GoogleSearchDataSource
 import com.vayunmathur.maps.ui.MapPage
 import com.vayunmathur.maps.ui.SavedPlacesPage
 import com.vayunmathur.maps.ui.settings.MapSettingsPage
@@ -213,9 +212,21 @@ class MainActivity : MaActivity() {
                 destName = link.query ?: getString(R.string.dropped_pin)
             } else if (!link.query.isNullOrBlank()) {
                 val near = biasPosition()
-                val hit = GoogleSearchDataSource.search(link.query, near.latitude, near.longitude).firstOrNull()
-                destPos = hit?.let { GeoPoint(it.lng, it.lat) }
-                destName = hit?.name ?: link.query
+                // Offline OSM POI search (no query-bar side effects: this path
+                // must not prefill the search text like searchAndSelectFirst
+                // does). Free-text addresses have no OSM path and stay
+                // unresolvable, handled below.
+                val query = link.query
+                val first = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        com.vayunmathur.maps.util.PoiIndex.initialize(applicationContext)
+                        com.vayunmathur.maps.util.PoiIndex.searchByName(
+                            query, near.latitude, near.longitude, limit = 1,
+                        ).firstOrNull()
+                    }.getOrNull()
+                }
+                destPos = first?.let { GeoPoint(it.lon, it.lat) }
+                destName = first?.name ?: query
             } else {
                 destPos = null
                 destName = getString(R.string.dropped_pin)

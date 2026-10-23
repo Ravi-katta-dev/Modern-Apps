@@ -22,7 +22,7 @@ import java.time.OffsetDateTime
  * to fall back to `/api/v1/plan`; the on-device RAPTOR planner is now the only
  * planner.
  *
- * Design mirrors [com.vayunmathur.maps.data.google.GooglePoiDiscovery]:
+ * Design mirrors the (since removed) GooglePoiDiscovery shape:
  *  - an `object` singleton, all network on [Dispatchers.IO];
  *  - **never throws** — every public call returns empty on any failure so a
  *    flaky feed or a MOTIS schema drift degrades gracefully;
@@ -88,7 +88,7 @@ object TransitousDataSource {
     }
 
     private suspend fun fetchDepartures(stopId: String): List<Departure> = withContext(Dispatchers.IO) {
-        // Proxied via self-hosted (maps/.../TransitBoards mirrors GooglePoiDiscovery):
+        // Proxied via self-hosted (same object-singleton shape as the retired Google fetchers):
         // server forwards to api.transitous.org/api/v1/stoptimes with a short cache.
         // arriveBy is fixed false server-side — the only value this client uses.
         val url = "$BASE_URL/stoptimes" +

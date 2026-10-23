@@ -272,9 +272,9 @@ private fun PlaceTabPanel(
 /**
  * The `addr:*` tags as one tappable row.
  *
- * New surface: nothing displayed an address before, because nothing had one —
- * `GoogleSearchResult.address` only ever appeared as a search-row subtitle. Tapping
- * copies it, which is what an address on a sheet is usually for.
+ * New surface: nothing displayed an address before — search rows only ever
+ * showed a category subtitle. Tapping copies it, which is what an address on
+ * a sheet is usually for.
  */
 @Composable
 private fun AddressRow(address: String) {

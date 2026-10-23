@@ -28,8 +28,8 @@ import androidx.lifecycle.LifecycleOwner
 import com.vayunmathur.maps.R
 import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.maps.data.SpecificFeature
-import com.vayunmathur.maps.data.google.GoogleSearchDataSource
-import com.vayunmathur.maps.data.google.GoogleSearchResult
+import com.vayunmathur.maps.util.PoiCategories
+import com.vayunmathur.maps.util.PoiIndex
 import com.vayunmathur.maps.util.NavigationService
 import com.vayunmathur.maps.util.NavigationSessionManager
 import com.vayunmathur.maps.util.OfflineRouterRoadRoutes
@@ -38,6 +38,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import com.vayunmathur.library.map.GeoPoint
 
@@ -47,8 +48,8 @@ import com.vayunmathur.library.map.GeoPoint
  * Voice-first: the Search action launches the **system** [SpeechRecognizer]
  * (the OS routes it to the user-selected recognition service — the same
  * system-STT path P8 uses on the phone via `VoiceSearchButton`), and the final
- * transcript is fed to the existing keyless [GoogleSearchDataSource] (P3). Hits
- * are shown in a [MapWithContentTemplate] (list + map markers); tapping a
+ * transcript is fed to the offline OSM POI index ([PoiIndex.searchByName]).
+ * Hits are shown in a [MapWithContentTemplate] (list + map markers); tapping a
  * result routes to it with the existing [OfflineRouter], starts the shared
  * [NavigationSessionManager] + [NavigationService], and returns to the map
  * screen where turn-by-turn takes over.
@@ -58,7 +59,7 @@ import com.vayunmathur.library.map.GeoPoint
  */
 class CarSearchScreen(carContext: CarContext) : Screen(carContext) {
 
-    private var results: List<GoogleSearchResult> = emptyList()
+    private var results: List<PoiIndex.PoiRecord> = emptyList()
     private var loading = false
     private var message: String? = null
     private var recognizer: SpeechRecognizer? = null
@@ -119,11 +120,11 @@ class CarSearchScreen(carContext: CarContext) : Screen(carContext) {
         } else {
             for (r in results) {
                 val row = Row.Builder().setTitle(r.name)
-                val subtitle = r.address ?: r.category
-                if (!subtitle.isNullOrBlank()) row.addText(subtitle)
+                val subtitle = PoiCategories.label(r.type)
+                if (subtitle.isNotBlank()) row.addText(subtitle)
                 row.setMetadata(
                     Metadata.Builder()
-                        .setPlace(Place.Builder(CarLocation.create(r.lat, r.lng)).build())
+                        .setPlace(Place.Builder(CarLocation.create(r.lat, r.lon)).build())
                         .build()
                 )
                 row.setOnClickListener { startNavigationTo(r) }
@@ -194,22 +195,26 @@ class CarSearchScreen(carContext: CarContext) : Screen(carContext) {
         loading = true
         message = carContext.getString(R.string.car_searching)
         invalidate()
-        scope.launch {
-            val hits = GoogleSearchDataSource.search(
-                query,
-                near?.latitude ?: 0.0,
-                near?.longitude ?: 0.0,
-            )
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val hits = runCatching {
+                PoiIndex.initialize(carContext)
+                PoiIndex.searchByName(
+                    query,
+                    near?.latitude ?: 0.0,
+                    near?.longitude ?: 0.0,
+                    limit = 20,
+                )
+            }.getOrDefault(emptyList())
             results = hits
             loading = false
             message = if (hits.isEmpty()) {
                 carContext.getString(R.string.car_no_results)
             } else null
-            invalidate()
+            withContext(kotlinx.coroutines.Dispatchers.Main) { invalidate() }
         }
     }
 
-    private fun startNavigationTo(result: GoogleSearchResult) {
+    private fun startNavigationTo(result: PoiIndex.PoiRecord) {
         val userPos = lastKnownPosition()
         if (userPos == null) {
             message = carContext.getString(R.string.car_route_failed)
@@ -219,7 +224,7 @@ class CarSearchScreen(carContext: CarContext) : Screen(carContext) {
         loading = true
         invalidate()
         scope.launch {
-            val dest = GeoPoint(longitude = result.lng, latitude = result.lat)
+            val dest = GeoPoint(longitude = result.lon, latitude = result.lat)
             val routeFeature = SpecificFeature.Route(
                 listOf(
                     null, // first waypoint = current position (getRouteMulti fills it)
