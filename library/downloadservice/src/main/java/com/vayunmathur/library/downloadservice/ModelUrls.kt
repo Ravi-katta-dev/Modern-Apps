@@ -6,17 +6,11 @@ package com.vayunmathur.library.downloadservice
  * The server must host each file under https://data.maproj.org/models/
  * and set Content-Length + ETag.
  *
- * To populate the mirror, upload these HuggingFace source files under the given
- * mirror paths (left = mirror path, right = HuggingFace source):
- *
+ * Mirror contents (path = file served under MIRROR_BASE):
  *   models/gemma-4-E2B-it.litertlm
- *     <- https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm
  *   models/siglip2_vision_model_fp16.onnx
- *     <- https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/resolve/main/onnx/vision_model_fp16.onnx
  *   models/siglip2_text_model_int8.onnx
- *     <- https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/resolve/main/onnx/text_model_int8.onnx
  *   models/siglip2_tokenizer.model
- *     <- https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/resolve/main/tokenizer.model
  */
 object ModelUrls {
     const val MIRROR_BASE = "https://data.maproj.org/models/"
