@@ -10,7 +10,7 @@ import java.time.OffsetDateTime
 /**
  * Online public-transit data source (P10) backed by **Transitous** — a free,
  * community-hosted aggregation of open GTFS / GTFS-RT feeds — via its **MOTIS**
- * REST API. One call is exposed:
+ * REST API, proxied through the self-hosted backend. One call is exposed:
  *
  *  - [departures] — the live board for one stop (`/api/v1/stoptimes`): route
  *    short name, headsign, scheduled + realtime time, delay, platform.
@@ -35,7 +35,7 @@ import java.time.OffsetDateTime
  */
 object TransitousDataSource {
 
-    private const val BASE_URL = "https://api.transitous.org"
+    private const val BASE_URL = "https://api.maproj.org/api/transit"
 
     /** Cap departures requested per board so a busy hub stays scrollable. */
     private const val DEPARTURE_COUNT = 30
@@ -88,8 +88,11 @@ object TransitousDataSource {
     }
 
     private suspend fun fetchDepartures(stopId: String): List<Departure> = withContext(Dispatchers.IO) {
-        val url = "$BASE_URL/api/v1/stoptimes" +
-            "?stopId=${enc(stopId)}&n=$DEPARTURE_COUNT&arriveBy=false"
+        // Proxied via self-hosted (maps/.../TransitBoards mirrors GooglePoiDiscovery):
+        // server forwards to api.transitous.org/api/v1/stoptimes with a short cache.
+        // arriveBy is fixed false server-side — the only value this client uses.
+        val url = "$BASE_URL/stoptimes" +
+            "?stopId=${enc(stopId)}&n=$DEPARTURE_COUNT"
         val resp: MotisStoptimes = NetworkClient.getJson(url, REQUEST_HEADERS, useSystemTrust = true)
         resp.stopTimes.mapNotNull { it.toDeparture() }
     }
