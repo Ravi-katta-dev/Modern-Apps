@@ -72,6 +72,15 @@ class MapSettingsViewModel(application: Application) : AndroidViewModel(applicat
         MapPreferences.KEY_LAYER_TRANSIT, MapPreferences.DEFAULT_LAYER_TRANSIT,
     )
 
+    /**
+     * Google services (place enrichment + reviews + Street View). Off by
+     * default; the first-launch consent dialog or the settings toggle opts in.
+     * Every Google call site gates on this — off means zero Google traffic.
+     */
+    val googleServices: StateFlow<Boolean> = boolPref(
+        MapPreferences.KEY_GOOGLE_SERVICES, MapPreferences.DEFAULT_GOOGLE_SERVICES,
+    )
+
     fun setTrafficLayer(enabled: Boolean) =
         launch { ds.setBoolean(MapPreferences.KEY_LAYER_TRAFFIC, enabled) }
 
@@ -83,6 +92,12 @@ class MapSettingsViewModel(application: Application) : AndroidViewModel(applicat
 
     fun setTransitLayer(enabled: Boolean) =
         launch { ds.setBoolean(MapPreferences.KEY_LAYER_TRANSIT, enabled) }
+
+    fun setGoogleServices(enabled: Boolean) =
+        launch {
+            ds.setBoolean(MapPreferences.KEY_GOOGLE_SERVICES, enabled)
+            ds.setBoolean(MapPreferences.KEY_GOOGLE_CONSENT_ASKED, true)
+        }
 
     private fun boolPref(key: String, default: Boolean): StateFlow<Boolean> =
         ds.booleanFlow(key).stateIn(

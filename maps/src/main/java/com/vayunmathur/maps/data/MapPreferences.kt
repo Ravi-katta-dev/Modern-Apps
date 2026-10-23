@@ -22,6 +22,16 @@ object MapPreferences {
     const val KEY_LAYER_TRANSIT = "layer_transit"
 
     /**
+     * Google services (place enrichment + reviews + Street View). OFF by
+     * default: nothing contacts Google until the user opts in, via the
+     * first-launch consent dialog or the settings toggle. A null (never
+     * asked) value is treated as off — the dialog, not the default, decides.
+     */
+    const val KEY_GOOGLE_SERVICES = "google_services_enabled"
+    /** Whether the first-launch Google consent dialog has been answered. */
+    const val KEY_GOOGLE_CONSENT_ASKED = "google_consent_asked"
+
+    /**
      * Last known user position (lon/lat doubles). Written on every accepted GPS
      * fix and read back to seed the cold-start camera, so the map opens where
      * the user was. Absent = no fix ever recorded.
@@ -35,6 +45,7 @@ object MapPreferences {
     const val DEFAULT_LAYER_SATELLITE = false
     const val DEFAULT_LAYER_SAFETY = false
     const val DEFAULT_LAYER_TRANSIT = false
+    const val DEFAULT_GOOGLE_SERVICES = false
 }
 
 /** App theme selection persisted under [MapPreferences.KEY_THEME_MODE]. */

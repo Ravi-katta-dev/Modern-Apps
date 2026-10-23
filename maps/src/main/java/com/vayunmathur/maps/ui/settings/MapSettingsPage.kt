@@ -46,6 +46,7 @@ fun MapSettingsPage(backStack: NavBackStack<Route>, viewModel: MapSettingsViewMo
     val theme by viewModel.themeMode.collectAsState()
     val voice by viewModel.voiceGuidance.collectAsState()
     val globe by viewModel.globeEnabled.collectAsState()
+    val googleServices by viewModel.googleServices.collectAsState()
 
     // Pre-resolve option labels — the SettingsSelectRow `label` lambda is a plain
     // (non-@Composable) function, so stringResource can't be called inside it.
@@ -95,6 +96,13 @@ fun MapSettingsPage(backStack: NavBackStack<Route>, viewModel: MapSettingsViewMo
             }
 
             SettingsSection(title = stringResource(R.string.settings_section_places)) {
+                SettingsSwitchRow(
+                    title = stringResource(R.string.settings_google_services),
+                    supportingText = stringResource(R.string.settings_google_services_desc),
+                    checked = googleServices,
+                    onCheckedChange = { viewModel.setGoogleServices(it) },
+                    leadingContent = { IconStar() },
+                )
                 com.vayunmathur.library.ui.SettingsRow(
                     title = stringResource(R.string.saved_places_title),
                     onClick = {

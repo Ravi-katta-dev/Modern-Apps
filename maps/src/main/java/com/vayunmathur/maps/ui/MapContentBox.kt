@@ -94,7 +94,8 @@ internal fun MapPageScope.MapContentBox(
                 // Gated on search separately from `browsing` because the sheets draw over
                 // this box: while search is up, a drop in the bottom third lands on the sheet
                 // rather than the map, and half a working drag is worse than no peg.
-                if (browsing && searchRequest == null) StreetViewPegman(camera)
+                // Also gated on the Google services opt-in: no opt-in, no peg, no tiles.
+                if (browsing && searchRequest == null && googleServices) StreetViewPegman(camera)
 
                 // The chrome's inset, in one place. `windowInsetsPadding` *consumes* what it
                 // applies, so the pieces below that inset themselves — the FAB stack, the scale

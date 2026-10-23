@@ -114,6 +114,13 @@ class SelectedFeatureViewModel(application: Application): AndroidViewModel(appli
 
     private val dataStore = DataStoreUtils.getInstance(application)
 
+    /** Synchronous Google-services gate (off by default): no opt-in, no fetch. */
+    private fun googleServicesEnabled(): Boolean =
+        dataStore.getBoolean(
+            MapPreferences.KEY_GOOGLE_SERVICES,
+            MapPreferences.DEFAULT_GOOGLE_SERVICES,
+        )
+
     /**
      * Last fix persisted, throttled by distance — DataStore rewrites the whole
      * file per edit, so a standing-still phone should not rewrite it every second.
@@ -249,10 +256,14 @@ class SelectedFeatureViewModel(application: Application): AndroidViewModel(appli
      * Emits null for other feature types and while the network scrape is in
      * flight; cancels the in-flight fetch when the selection changes.
      * [GooglePoiDataSource] caches and does its own IO, so a re-select is instant.
+     *
+     * Hard-gated on the Google services toggle: when off, emits null without
+     * touching the network — zero Google traffic.
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val currentPoiInfo: StateFlow<GooglePoiInfo?> = selectedFeature
         .flatMapLatest { feature ->
+            if (!googleServicesEnabled()) return@flatMapLatest flowOf(null)
             val (name, pos) = when (feature) {
                 is SpecificFeature.Restaurant -> feature.name to feature.position
                 is SpecificFeature.GenericPlace -> feature.name to feature.position

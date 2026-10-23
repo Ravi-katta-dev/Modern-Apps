@@ -36,7 +36,6 @@ import com.vayunmathur.maps.ui.map.MapSurface
 import com.vayunmathur.maps.ui.map.NavigationCameraFollow
 import com.vayunmathur.maps.ui.map.WaypointList
 import com.vayunmathur.maps.ui.map.rememberMapChromeState
-import com.vayunmathur.maps.ui.streetview.StreetViewPegman
 import com.vayunmathur.maps.ui.theme.MapChromeMetrics
 import com.vayunmathur.maps.util.MapsSearchViewModel
 import com.vayunmathur.maps.util.NavigationSessionManager

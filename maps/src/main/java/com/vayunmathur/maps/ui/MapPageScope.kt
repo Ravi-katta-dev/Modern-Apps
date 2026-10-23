@@ -131,6 +131,8 @@ internal class MapPageScope(
     val safetyEnabled: Boolean,
     val transitEnabled: Boolean,
     val globeEnabled: Boolean,
+    /** Google services opt-in (enrichment + reviews + Street View). Off = no Google traffic. */
+    val googleServices: Boolean,
     val body: MapBody,
     val moonTextures: MoonTextures?,
     val darkMap: Boolean,

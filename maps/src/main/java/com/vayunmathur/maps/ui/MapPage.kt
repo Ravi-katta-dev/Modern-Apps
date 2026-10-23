@@ -156,6 +156,14 @@ fun MapPage(
     val safetyEnabled by settingsViewModel.safetyLayer.collectAsState()
     val transitEnabled by settingsViewModel.transitLayer.collectAsState()
     val globeEnabled by settingsViewModel.globeEnabled.collectAsState()
+    val googleServices by settingsViewModel.googleServices.collectAsState()
+    var googleConsentDone by remember {
+        mutableStateOf(
+            !shouldShowGoogleConsent(
+                com.vayunmathur.library.util.DataStoreUtils.getInstance(context)
+            )
+        )
+    }
     // Enabling the globe at street zoom shows nothing new: the sphere only
     // reads past the detail threshold. Zoom out to reveal it, so the toggle
     // answers visibly instead of arming a mode the user cannot see.
@@ -285,6 +293,7 @@ fun MapPage(
         safetyEnabled = safetyEnabled,
         transitEnabled = transitEnabled,
         globeEnabled = globeEnabled,
+        googleServices = googleServices,
         body = chrome.body,
         moonTextures = moonTextures,
         darkMap = darkMap,
@@ -303,6 +312,9 @@ fun MapPage(
         settingsAction = settingsAction,
         wide = wide,
     )
+    if (!googleConsentDone) {
+        GoogleConsentDialog(settingsViewModel) { googleConsentDone = true }
+    }
     if (wide) {
         scope.MapWideHost(
             searchActions = searchActions,
