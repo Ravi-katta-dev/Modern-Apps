@@ -4,7 +4,7 @@ Apps that fetch from external servers (excluding vayunmathur.com, findfamily.cc,
 
 ## Mandatory — connects during normal use, no per-service opt-in
 
-1. **maps** — `www.google.com` (ambient POI pins + traffic, traffic layer default-ON), `maps.googleapis.com` + `streetviewpixels-pa.googleapis.com` (Street View), `maps.google.com` (reviews scraper). No master toggle.
+1. **maps** — `www.google.com` (search, ambient POI pins, place enrichment with rating/hours/photos), `maps.googleapis.com` + `streetviewpixels-pa.googleapis.com` (Street View lookup + tiles), `maps.google.com` (reviews scraper). Fires on search, map pan (pins), place select, Street View use. No master toggle; traffic overlay itself is on-device (prefetch goes to the native router, not `GoogleTrafficSource.tile`, which has no live caller).
 2. **taxi** — `api.lyft.com`, `cn-geo1.uber.com` + `m.uber.com`, `api.stripe.com`, `payments.braintree-api.com`
 3. **fooddelivery** — `api.deliverycollective.com`
 4. **youpipe** — `youtube.com` family + `*.googlevideo.com` + `youtubei.googleapis.com` + `yt3.ggpht.com` + `suggestqueries.google.com`, `api.pipepipe.dev` (decoder/player + PO tokens), `jnn-pa.googleapis.com` (BotGuard attestation), `vimeo.com`
