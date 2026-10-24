@@ -112,7 +112,7 @@ interface OutboxDao {
 
 @Database(
     entities = [StoredMessage::class, CachedKey::class, OutboxMessage::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class MailDatabase : RoomDatabase() {
@@ -121,6 +121,38 @@ abstract class MailDatabase : RoomDatabase() {
     abstract fun outboxDao(): OutboxDao
 
     companion object : DatabaseMigrations {
-        override val migrations: List<Migration> = emptyList()
+        /**
+         * v1 → v2: drops the `sendUnencrypted` column from OutboxMessage (the
+         * explicit opt-in was removed — keyless recipients always go out
+         * plaintext now). SQLite has no DROP COLUMN on older devices, so the
+         * table is rebuilt; outbox rows are transient retries, safe to carry
+         * over by column list.
+         */
+        private val MIGRATION_1_2 = Migration(1, 2) {
+            it.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `OutboxMessage_new` (
+                    `rowId` INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                    `toJson` TEXT NOT NULL,
+                    `subject` TEXT NOT NULL,
+                    `body` TEXT NOT NULL,
+                    `inReplyTo` TEXT,
+                    `createdMillis` INTEGER NOT NULL,
+                    `lastError` TEXT,
+                    `attemptCount` INTEGER NOT NULL DEFAULT 0
+                )
+                """.trimIndent(),
+            )
+            it.execSQL(
+                "INSERT INTO OutboxMessage_new " +
+                    "(rowId, toJson, subject, body, inReplyTo, createdMillis, lastError, attemptCount) " +
+                    "SELECT rowId, toJson, subject, body, inReplyTo, createdMillis, lastError, attemptCount " +
+                    "FROM OutboxMessage",
+            )
+            it.execSQL("DROP TABLE OutboxMessage")
+            it.execSQL("ALTER TABLE OutboxMessage_new RENAME TO OutboxMessage")
+        }
+
+        override val migrations: List<Migration> = listOf(MIGRATION_1_2)
     }
 }
