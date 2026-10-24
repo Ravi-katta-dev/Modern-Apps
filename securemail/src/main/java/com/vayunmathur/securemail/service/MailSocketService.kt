@@ -6,13 +6,9 @@ import android.content.Intent
 import android.os.IBinder
 import com.vayunmathur.library.log.Log
 import com.vayunmathur.library.util.ensureNotificationChannel
+import com.vayunmathur.securemail.data.InboundStore
 import com.vayunmathur.securemail.data.MailConfig
-import com.vayunmathur.securemail.data.MailRepository
-import com.vayunmathur.securemail.data.StoredMessage
-import com.vayunmathur.securemail.domain.mail.MimeCodec
-import com.vayunmathur.securemail.domain.pgp.PgpCrypto
 import com.vayunmathur.securemail.network.MailSocket
-import com.vayunmathur.securemail.platform.crypto.KeyManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -54,82 +50,9 @@ class MailSocketService : Service() {
                     else MailSocket.IdentitySnapshot(current.address, current.publicArmor)
                 },
                 onMessage = { id, unencrypted, raw ->
-                    // Write straight to the Room vault, decrypting immediately:
-                    // the S2K passphrase loads transparently from
-                    // Keystore-wrapped storage, so arrival-time decrypt needs
-                    // no user interaction. The UI observes the vault as a Flow
-                    // and shows decrypted content as soon as it lands.
-                    val repo = MailRepository.get(this@MailSocketService)
-                    val config = MailConfig(this@MailSocketService)
-                    val settings = config.settings.first()
-                    val keyManager = KeyManager(this@MailSocketService)
-                    if (unencrypted) {
-                        // Plaintext frames carry the MIME body directly.
-                        val text = raw.toString(Charsets.UTF_8)
-                        val (subject, body, from) =
-                            MimeCodec.parseMime(text)
-                        repo.messageDao().upsert(
-                            StoredMessage(
-                                id = id,
-                                from = from,
-                                toJson = settings.address,
-                                dateMillis = System.currentTimeMillis(),
-                                messageId = id,
-                                blobBase64 = "",
-                                decryptedBody = body,
-                                decryptedSubject = subject,
-                                unencrypted = true,
-                            ),
-                        )
-                    } else {
-                        val passphrase = keyManager.getKeyPassphrase()
-                        val stored = if (passphrase != null) {
-                            runCatching {
-                                val pgpB64 = MimeCodec.extractPgpPayloadB64(raw)
-                                val pgpBytes = if (pgpB64 != null) {
-                                    android.util.Base64.decode(
-                                        pgpB64, android.util.Base64.DEFAULT,
-                                    )
-                                } else {
-                                    raw
-                                }
-                                val mime = PgpCrypto.decrypt(
-                                    pgpBytes,
-                                    keyManager.getSecretArmor(),
-                                    passphrase,
-                                ).toString(Charsets.UTF_8)
-                                val (subject, body, from) = MimeCodec.parseMime(mime)
-                                StoredMessage(
-                                    id = id,
-                                    from = from,
-                                    toJson = settings.address,
-                                    dateMillis = System.currentTimeMillis(),
-                                    messageId = id,
-                                    blobBase64 = android.util.Base64.encodeToString(
-                                        raw, android.util.Base64.NO_WRAP,
-                                    ),
-                                    decryptedBody = body,
-                                    decryptedSubject = subject,
-                                    unencrypted = false,
-                                )
-                            }.getOrNull()
-                        } else {
-                            null
-                        }
-                        repo.messageDao().upsert(
-                            stored ?: StoredMessage(
-                                id = id,
-                                from = "",
-                                toJson = settings.address,
-                                dateMillis = System.currentTimeMillis(),
-                                messageId = id,
-                                blobBase64 = android.util.Base64.encodeToString(
-                                    raw, android.util.Base64.NO_WRAP,
-                                ),
-                                unencrypted = false,
-                            ),
-                        )
-                    }
+                    // Single choke point (decrypt-on-arrival + vault write),
+                    // shared with the background sync worker.
+                    InboundStore.store(this@MailSocketService, id, unencrypted, raw)
                 },
             ) {
                 // onBump: socket liveness tick — no-op here; UI polls [MailSocket.connected].
