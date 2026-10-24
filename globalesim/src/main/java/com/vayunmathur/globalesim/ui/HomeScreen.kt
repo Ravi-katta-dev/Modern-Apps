@@ -1,10 +1,16 @@
 package com.vayunmathur.globalesim.ui
 
 import android.content.Intent
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -12,8 +18,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import com.stripe.android.PaymentConfiguration
@@ -22,14 +30,19 @@ import com.stripe.android.paymentsheet.PaymentSheetResult
 import com.stripe.android.paymentsheet.rememberPaymentSheet
 import com.vayunmathur.globalesim.domain.QuoteMath
 import com.vayunmathur.globalesim.platform.EsimUiState
+import com.vayunmathur.library.intents.euicc.EsimLink
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.Card
 import com.vayunmathur.library.ui.LoadingIndicator
+import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.OutlinedButton
+import com.vayunmathur.library.ui.OutlinedTextField
+import com.vayunmathur.library.ui.Surface
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.ui.rememberMessenger
+import kotlin.math.roundToLong
 
 /**
  * Home: your global eSIM at a glance — status, wallet balance, one-tap
@@ -39,15 +52,12 @@ import com.vayunmathur.library.ui.rememberMessenger
 @Composable
 fun HomeScreen(
     state: EsimUiState,
-    onTopUp: (Long) -> Unit,
     onCreateEsim: () -> Unit,
     onStartCardPurchase: (amountCents: Long, publishableKey: String?, onKey: (String) -> Unit, onSheetReady: () -> Unit) -> Unit,
     onCardPurchaseDone: () -> Unit,
     onStartCryptoPurchase: (Long) -> Unit,
     onCheckCryptoStatus: () -> Unit,
     onClearCryptoInvoice: () -> Unit,
-    onOpenInstall: () -> Unit,
-    onOpenBudget: () -> Unit,
     onOpenTransfer: () -> Unit,
     onDismissError: () -> Unit,
 ) {
@@ -125,7 +135,7 @@ fun HomeScreen(
                     } else {
                         Text("Status: ${profile.status}")
                         Text(
-                            "Wallet: ${QuoteMath.formatCents(profile.walletUsdCents)}",
+                            "Balance: ${QuoteMath.formatCents(profile.walletUsdCents)}",
                             modifier = Modifier.padding(top = 4.dp),
                         )
                         Text(
@@ -138,7 +148,6 @@ fun HomeScreen(
             if (profile != null) {
                 TopUpCard(
                     loading = state.loading,
-                    onTopUp = onTopUp,
                     onBuyWithCard = { cents ->
                         onStartCardPurchase(
                             cents,
@@ -158,16 +167,26 @@ fun HomeScreen(
                     modifier = Modifier.padding(top = 12.dp),
                 )
                 OutlinedButton(
-                    onClick = onOpenInstall,
+                    onClick = {
+                        // The vendor stores SM-DP+ and matching ID separately;
+                        // the LPA needs the full LPA:1$<smdp>$<code> string.
+                        // A bare matching ID fails validation and lands on a
+                        // blank manual-entry page.
+                        val code = profile.activationCode
+                        val full = if (code.startsWith("LPA:", ignoreCase = true) || '$' in code) {
+                            code
+                        } else {
+                            "LPA:1$${profile.smdpAddress}$code"
+                        }
+                        val intent = Intent(
+                            Intent.ACTION_VIEW,
+                            EsimLink.provisioningUri(full),
+                        ).setPackage(EsimLink.LPA_PACKAGE)
+                        context.startActivity(intent)
+                    },
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 ) {
                     Text("Install / reinstall eSIM")
-                }
-                OutlinedButton(
-                    onClick = onOpenBudget,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) {
-                    Text("Credit balance")
                 }
                 OutlinedButton(
                     onClick = onOpenTransfer,
@@ -181,14 +200,14 @@ fun HomeScreen(
 }
 
 /**
- * Fixed top-up presets. The button disables while a top-up is in flight
- * so a double-tap cannot double-charge; each attempt carries a fresh
- * idempotency key and the server dedupes replays.
+ * Custom-amount top-up. The user types any dollar amount; two side-by-side
+ * buttons pay by card ($5 min) or crypto ($2 min, +5% bonus), both capped
+ * at $20. Payment funds the eSIM wallet directly — there is no manual
+ * move step and no separate credit pool.
  */
 @Composable
 private fun TopUpCard(
     loading: Boolean,
-    onTopUp: (Long) -> Unit,
     onBuyWithCard: (Long) -> Unit,
     onBuyWithCrypto: (Long) -> Unit,
     pendingInvoiceUrl: String?,
@@ -199,45 +218,63 @@ private fun TopUpCard(
 ) {
     val context = LocalContext.current
     val messenger = rememberMessenger()
+    var amountText by remember { mutableStateOf("") }
+    // Parse "$12.34" / "12.34" to integer cents; null while invalid.
+    val amountCents: Long? = remember(amountText) {
+        val cleaned = amountText.trim().removePrefix("$")
+        if (cleaned.isEmpty()) null
+        else cleaned.toDoubleOrNull()?.let { (it * 100).roundToLong() }?.takeIf { it > 0 }
+    }
+    val cardOk = amountCents != null && amountCents in 500..2000
+    val cryptoOk = amountCents != null && amountCents in 200..2000
+    // Live bonus preview: 5% of the entered amount.
+    val bonusPreview: Long? = amountCents?.let { (it * 105) / 100 - it }?.takeIf { cryptoOk }
     Card(modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
-            Text("Top up credit")
+            Text("Top up")
             Text(
-                "Tops up the eSIM wallet directly. ~$1/GB in most countries.",
+                "Enter any amount. Card: $5 min. Crypto: $2 min, +5% bonus. $20 max.",
                 modifier = Modifier.padding(top = 4.dp),
             )
-            val presets = listOf(500L to "$5", 1000L to "$10", 2000L to "$20")
-            for ((cents, label) in presets) {
+            OutlinedTextField(
+                value = amountText,
+                onValueChange = { amountText = it },
+                label = { Text("Amount (USD)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
+            if (bonusPreview != null && bonusPreview > 0) {
+                Text(
+                    "Crypto bonus: +${QuoteMath.formatCents(bonusPreview)} extra.",
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Button(
-                    onClick = { onTopUp(cents) },
-                    enabled = !loading,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    onClick = { onBuyWithCard(amountCents!!) },
+                    enabled = !loading && cardOk,
+                    modifier = Modifier.weight(1f),
                 ) {
-                    Text("Add $label credit")
+                    Text("Card topup")
+                }
+                BadgedBox(badge = "+5%", modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = { onBuyWithCrypto(amountCents!!) },
+                        enabled = !loading && cryptoOk,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Crypto topup")
+                    }
                 }
             }
-            Text(
-                "Or pay by card — credit lands automatically after payment.",
-                modifier = Modifier.padding(top = 8.dp),
-            )
-            for ((cents, label) in presets) {
-                OutlinedButton(
-                    onClick = { onBuyWithCard(cents) },
-                    enabled = !loading,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) {
-                    Text("Buy $label with card")
-                }
-            }
-            Text(
-                "Or pay with crypto and get 5% extra credit free — " +
-                    "e.g. pay $10, get $10.50. No account needed.",
-                modifier = Modifier.padding(top = 8.dp),
-            )
             if (pendingInvoiceUrl != null) {
                 Text(
                     "Checkout open in your browser. Come back here when you've paid.",
-                    modifier = Modifier.padding(top = 4.dp),
+                    modifier = Modifier.padding(top = 8.dp),
                 )
                 if (pendingBonusCents > 0) {
                     Text(
@@ -268,17 +305,30 @@ private fun TopUpCard(
                 ) {
                     Text("Cancel crypto payment")
                 }
-            } else {
-                for ((cents, label) in presets) {
-                    OutlinedButton(
-                        onClick = { onBuyWithCrypto(cents) },
-                        enabled = !loading,
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    ) {
-                        Text("Buy $label with crypto (+5%)")
-                    }
-                }
             }
+        }
+    }
+}
+
+/** Small pill badge overlapped on the top-end corner of [content]. */
+@Composable
+private fun BadgedBox(
+    badge: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Box(modifier) {
+        content()
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.tertiaryContainer,
+            modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-8).dp),
+        ) {
+            Text(
+                badge,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            )
         }
     }
 }

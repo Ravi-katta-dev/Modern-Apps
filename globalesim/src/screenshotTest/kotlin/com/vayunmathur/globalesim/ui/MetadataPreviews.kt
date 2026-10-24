@@ -52,16 +52,13 @@ class MetadataPreviews {
     fun Preview1Purchase() {
         DynamicTheme(darkTheme = true) {
             HomeScreen(
-                state = EsimUiState(profile = demoProfile, budgetCents = 2000),
-                onTopUp = {},
+                state = EsimUiState(profile = demoProfile),
                 onCreateEsim = {},
                 onStartCardPurchase = { _, _, _, _ -> },
                 onCardPurchaseDone = {},
                 onStartCryptoPurchase = {},
                 onCheckCryptoStatus = {},
                 onClearCryptoInvoice = {},
-                onOpenInstall = {},
-                onOpenBudget = {},
                 onOpenTransfer = {},
                 onDismissError = {},
             )
@@ -75,33 +72,6 @@ class MetadataPreviews {
         DynamicTheme(darkTheme = true) {
             PricingScreen(
                 state = EsimUiState(rates = demoRates),
-                onDismissError = {},
-            )
-        }
-    }
-
-    @PreviewTest
-    @Preview(name = "3-install", device = PHONE, showSystemUi = true)
-    @Composable
-    fun Preview3Install() {
-        DynamicTheme(darkTheme = true) {
-            InstallScreen(
-                state = EsimUiState(profile = demoProfile),
-                onNavigateBack = {},
-                onDismissError = {},
-            )
-        }
-    }
-
-    @PreviewTest
-    @Preview(name = "4-budget", device = PHONE, showSystemUi = true)
-    @Composable
-    fun Preview4Budget() {
-        DynamicTheme(darkTheme = true) {
-            BudgetScreen(
-                state = EsimUiState(profile = demoProfile, budgetCents = 2000),
-                onNavigateBack = {},
-                onRefresh = {},
                 onDismissError = {},
             )
         }

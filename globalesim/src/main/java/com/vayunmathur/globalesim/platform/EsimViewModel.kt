@@ -74,12 +74,11 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshAll() {
         refreshRates()
-        // No eSIM yet (fresh install, pre-create): status/budget would hit
-        // a nonexistent account, so skip them. createEsim/transferIn call
+        // No eSIM yet (fresh install, pre-create): status would hit
+        // a nonexistent account, so skip it. createEsim/transferIn call
         // refreshAll again once the account exists.
         if (state.profile == null) return
         refreshStatus()
-        refreshBudget()
     }
 
     fun refreshStatus() {
@@ -96,37 +95,6 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
             runCatching { EsimApi.rates() }
                 .onSuccess { state = state.copy(rates = it.rates) }
                 .onFailure { state = state.copy(error = it.message) }
-        }
-    }
-
-    fun refreshBudget() {
-        viewModelScope.launch {
-            runCatching { EsimApi.budget(accountId()) }
-                .onSuccess { state = state.copy(budgetCents = it.budgetUsdCents) }
-                .onFailure { state = state.copy(error = it.message) }
-        }
-    }
-
-    /**
-     * Move credit from budget to the on-SIM wallet. One attempt per call;
-     * the caller disables the button while [EsimUiState.loading] so a
-     * double-tap cannot double-charge. Each attempt carries a fresh
-     * idempotency key and the server dedupes replays.
-     */
-    fun topUp(amountCents: Long) {
-        viewModelScope.launch {
-            state = state.copy(loading = true, error = null)
-            val req = TopUpRequest(accountId(), amountCents, UUID.randomUUID().toString())
-            runCatching { EsimApi.topUp(req) }
-                .onSuccess {
-                    state = state.copy(
-                        loading = false,
-                        budgetCents = it.budgetUsdCents,
-                        profile = state.profile?.copy(walletUsdCents = it.walletUsdCents),
-                    )
-                    refreshStatus()
-                }
-                .onFailure { state = state.copy(loading = false, error = it.message) }
         }
     }
 
@@ -218,8 +186,7 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
                 .onSuccess {
                     if (it.status == "finished") {
                         state = state.copy(pendingInvoiceUrl = null, pendingInvoiceId = null)
-                        refreshBudget()
-                        refreshAll()
+                        refreshStatus()
                     }
                     onResult(it.status)
                 }

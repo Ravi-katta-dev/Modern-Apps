@@ -7,9 +7,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
 import com.vayunmathur.globalesim.platform.EsimViewModel
-import com.vayunmathur.globalesim.ui.BudgetScreen
 import com.vayunmathur.globalesim.ui.HomeScreen
-import com.vayunmathur.globalesim.ui.InstallScreen
 import com.vayunmathur.globalesim.ui.PricingScreen
 import com.vayunmathur.globalesim.ui.TransferScreen
 import com.vayunmathur.library.ui.IconGlobe
@@ -29,16 +27,7 @@ fun Navigation(viewModel: EsimViewModel) {
         entry<Route.Tabs> {
             EsimTabs(
                 viewModel = viewModel,
-                onOpenInstall = { backStack.add(Route.Install) },
-                onOpenBudget = { backStack.add(Route.Budget) },
                 onOpenTransfer = { backStack.add(Route.Transfer) },
-            )
-        }
-        entry<Route.Install> {
-            InstallScreen(
-                state = viewModel.state,
-                onNavigateBack = { backStack.pop() },
-                onDismissError = viewModel::dismissError,
             )
         }
         entry<Route.Transfer> {
@@ -51,27 +40,17 @@ fun Navigation(viewModel: EsimViewModel) {
                 onNavigateBack = { backStack.pop() },
             )
         }
-        entry<Route.Budget> {
-            BudgetScreen(
-                state = viewModel.state,
-                onNavigateBack = { backStack.pop() },
-                onRefresh = viewModel::refreshBudget,
-                onDismissError = viewModel::dismissError,
-            )
-        }
     }
 }
 
 /**
  * The two bottom-nav tabs: Purchase (your eSIM + top-ups) and Pricing
- * (searchable per-country rates). Install, Transfer, and Budget push on
- * top as ordinary routes.
+ * (searchable per-country rates). Install and Transfer push on top as
+ * ordinary routes.
  */
 @Composable
 private fun EsimTabs(
     viewModel: EsimViewModel,
-    onOpenInstall: () -> Unit,
-    onOpenBudget: () -> Unit,
     onOpenTransfer: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -80,7 +59,6 @@ private fun EsimTabs(
         PagerTab("Purchase", { IconSim() }) {
             HomeScreen(
                 state = viewModel.state,
-                onTopUp = viewModel::topUp,
                 onCreateEsim = viewModel::createEsim,
                 onStartCardPurchase = viewModel::startCardPurchase,
                 onCardPurchaseDone = {
@@ -98,8 +76,6 @@ private fun EsimTabs(
                     }
                 },
                 onClearCryptoInvoice = viewModel::clearPendingInvoice,
-                onOpenInstall = onOpenInstall,
-                onOpenBudget = onOpenBudget,
                 onOpenTransfer = onOpenTransfer,
                 onDismissError = viewModel::dismissError,
             )
