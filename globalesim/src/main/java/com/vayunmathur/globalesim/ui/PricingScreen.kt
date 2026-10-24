@@ -3,6 +3,7 @@ package com.vayunmathur.globalesim.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -32,14 +33,16 @@ import com.vayunmathur.library.ui.LoadingIndicator
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.Surface
 import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.TopAppBar
 import com.vayunmathur.library.ui.animatedColor
 import com.vayunmathur.library.ui.animatedDp
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.ui.rememberMessenger
 
 /**
- * Pricing: searchable per-country rate list. Tapping a country expands it
- * to show every carrier and its per-GB price (cheapest first), in the same
+ * Pricing: searchable per-country rate list with the search field in the
+ * app bar (no title text). Tapping a country expands it to show every
+ * carrier and its per-GB price (cheapest first), in the same
  * expandable-group style as the contacts groups page. Display-only —
  * the wallet is charged the local rate automatically as you use data.
  */
@@ -67,18 +70,22 @@ fun PricingScreen(
     }
 
     LazyListScaffold(
-        title = "Pricing",
+        topBar = {
+            TopAppBar(
+                title = {
+                    CommonSearchBar(
+                        value = query,
+                        onValueChange = { query = it },
+                        placeholder = "Search countries",
+                        padding = PaddingValues(bottom = 8.dp),
+                    )
+                },
+            )
+        },
         horizontalPadding = 8.dp,
         verticalArrangement = Arrangement.spacedBy(4.dp),
         scrollBehavior = appBarScrollBehavior(),
     ) {
-        item(key = "pricing-search") {
-            CommonSearchBar(
-                value = query,
-                onValueChange = { query = it },
-                placeholder = "Search countries",
-            )
-        }
         if (filtered.isEmpty()) {
             item(key = "pricing-empty") {
                 if (state.loading) {
@@ -95,12 +102,13 @@ fun PricingScreen(
         }
         filtered.forEach { rate ->
             val isExpanded = rate.countryCode in expanded
-            val showNetworks = isExpanded && rate.networks.isNotEmpty()
+            // Expand whenever tapped; the body shows carriers, or a fallback
+            // line when the server didn't send a breakdown.
             item(key = "country-${rate.countryCode}") {
                 val collapsedColor = MaterialTheme.colorScheme.surfaceVariant
                 val expandedColor = MaterialTheme.colorScheme.secondaryContainer
-                val headerColor = animatedColor(if (showNetworks) expandedColor else collapsedColor)
-                val bottomRadius = animatedDp(if (showNetworks) 4.dp else 16.dp)
+                val headerColor = animatedColor(if (isExpanded) expandedColor else collapsedColor)
+                val bottomRadius = animatedDp(if (isExpanded) 4.dp else 16.dp)
                 Column {
                     Surface(
                         onClick = {
@@ -128,7 +136,7 @@ fun PricingScreen(
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                         )
                     }
-                    ExpandVisibility(visible = showNetworks) {
+                    ExpandVisibility(visible = isExpanded) {
                         Column {
                             Spacer(Modifier.height(2.dp))
                             Surface(
@@ -137,15 +145,27 @@ fun PricingScreen(
                                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
                             ) {
                                 Column(Modifier.padding(vertical = 4.dp)) {
-                                    rate.networks.forEach { net ->
+                                    if (rate.networks.isEmpty()) {
                                         ListItem(
-                                            modifier = Modifier.clickable {},
-                                            content = { Text(net.operator) },
-                                            supportingContent = {
-                                                Text(QuoteMath.formatCents(net.pricePerGbUsdCents) + " / GB")
+                                            content = {
+                                                Text(
+                                                    "Carrier breakdown unavailable — " +
+                                                        "charged at ${QuoteMath.formatCents(rate.pricePerGbUsdCents)} / GB.",
+                                                )
                                             },
                                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                                         )
+                                    } else {
+                                        rate.networks.forEach { net ->
+                                            ListItem(
+                                                modifier = Modifier.clickable {},
+                                                content = { Text(net.operator) },
+                                                supportingContent = {
+                                                    Text(QuoteMath.formatCents(net.pricePerGbUsdCents) + " / GB")
+                                                },
+                                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                            )
+                                        }
                                     }
                                 }
                             }

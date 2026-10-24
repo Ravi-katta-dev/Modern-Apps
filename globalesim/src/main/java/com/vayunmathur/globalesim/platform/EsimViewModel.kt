@@ -40,9 +40,11 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             // Mint the anonymous id only. Provisioning happens on explicit
             // user action (createEsim) — never on launch, since each
-            // provision is a real $1.75 vendor charge.
+            // provision is a real $1.75 vendor charge. Rates are public, so
+            // they load immediately; status/budget wait until an eSIM exists
+            // (refreshAll guards on profile presence).
             idStore.getOrCreate()
-            refreshAll()
+            refreshRates()
         }
     }
 
@@ -58,7 +60,10 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             state = state.copy(loading = true, error = null)
             runCatching { EsimApi.register(accountId()) }
-                .onSuccess { refreshAll() }
+                .onSuccess {
+                    state = state.copy(profile = it.profile)
+                    refreshAll()
+                }
                 .onFailure { state = state.copy(loading = false, error = it.message) }
         }
     }
@@ -68,8 +73,12 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refreshAll() {
-        refreshStatus()
         refreshRates()
+        // No eSIM yet (fresh install, pre-create): status/budget would hit
+        // a nonexistent account, so skip them. createEsim/transferIn call
+        // refreshAll again once the account exists.
+        if (state.profile == null) return
+        refreshStatus()
         refreshBudget()
     }
 
@@ -233,7 +242,14 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
             runCatching { EsimApi.transferIn(oldAccountId, code.trim(), fresh) }
                 .onSuccess {
                     idStore.replace(fresh)
-                    state = state.copy(loading = false, transferCode = null)
+                    // Claimed account owns the moved eSIM — status/budget are
+                    // valid now. Set a non-null profile first so refreshAll
+                    // doesn't skip them, then overwrite with live data.
+                    state = state.copy(
+                        loading = false,
+                        transferCode = null,
+                        profile = state.profile ?: ProfileDto(iccid = "", status = "active"),
+                    )
                     refreshAll()
                     onDone()
                 }
