@@ -15,13 +15,11 @@
 // `misc.y`, tile fade in `morph.x`, draped-z scale in `morph.z`; `morph.y`
 // keeps the dash phase speed the line fragment reads) — the limb discard is
 // the only fragment difference from `fill.frag`, so opacity, fade and coverage
-// match the flat map exactly. Vertices on the far side (z < 0) are pulled
-// are pulled behind the near plane so the triangle clips away; straddling
-// triangles clip at the limb per-fragment via the varying. Depth is `1 - z`
-// mapped into [0, 1): the sub-sphere centre is deepest, the limb is nearest —
-// coarser ancestor tiles drawn first lose the depth test to finer descendants
-// drawn over them, which is the same coarsest-first order the flat loop relies
-// on. Screen y follows the CPU anchor convention (`halfH - y`, north up).
+// match the flat map exactly. Far-side vertices (z < 0) are emitted at the far
+// plane and the fragment stage discards wherever the interpolated z is negative,
+// so straddling triangles cut cleanly at the limb. Depth is `1 - z`: the
+// sub-camera point is nearest (0), the limb farthest (1). Screen y follows the
+// CPU anchor convention (`halfH - y`, north up).
 
 layout(location = 0) in vec3 inPosition;
 
@@ -37,13 +35,13 @@ layout(location = 0) out float outZ;
 
 const float PI = 3.141592653589793;
 
-// `tileToClip[2]` third row: (ox, oy, span) packed by `globe_tile_to_clip`.
-// Column-major: m[2] = row0-col2, m[6] = row1-col2, m[10] = row2-col2.
+// `globe_tile_to_clip` packs (ox, oy, span) into m[2], m[6], m[10]: row 2 of
+// columns 0..2, i.e. `tileToClip[0][2]`, `[1][2]`, `[2][2]` in GLSL.
 // Translation column (m[12]/m[13]): centre lon/lat in degrees.
 
 void main() {
-    float ox = push.tileToClip[2][0];
-    float oy = push.tileToClip[2][1];
+    float ox = push.tileToClip[0][2];
+    float oy = push.tileToClip[1][2];
     float span = push.tileToClip[2][2];
     // Tile-local (u, v) -> normalised world (0..1 across the planet).
     float wx = ox + inPosition.x * span;
@@ -59,19 +57,16 @@ void main() {
     float latR = radians(lat);
     float dLon = radians(lon - cLon);
     float cLatR = radians(cLat);
-    float x1 = cos(latR) * cos(dLon);
-    float z1 = -cos(latR) * sin(dLon);
-    float y1 = sin(latR);
+    // Must match `camera::globe_point`.
     float sy = sin(cLatR);
     float cy = cos(cLatR);
-    float x = x1;
-    float y = y1 * cy - z1 * sy;
-    float z = y1 * sy + z1 * cy;
-    // Globe radius (Dp) from the matrix scale: m[0] = kx * r with kx = 2/width;
-    // half-viewport (Dp) rides in `morph.xy` on the globe branch exactly as the
-    // record path pushes it (see the globe branch in `record.rs`).
-    float hw = push.morph.x;
-    float hh = push.morph.y;
+    float x = cos(latR) * sin(dLon);
+    float y = cy * sin(latR) - sy * cos(latR) * cos(dLon);
+    float z = sy * sin(latR) + cy * cos(latR) * cos(dLon);
+    // Globe radius (Dp) from the matrix scale: m[0] = kx * r with kx = 2/width.
+    // The record path pushes morph = (fade, halfW, r, halfH) on the globe branch.
+    float hw = push.morph.y;
+    float hh = push.morph.w;
     float r = push.morph.z;
     float kx = push.tileToClip[0][0] / max(r, 1e-6);
     float ky = push.tileToClip[1][1] / max(r, 1e-6);
@@ -81,8 +76,7 @@ void main() {
     float sy2 = y * r;
     float cx = kx * sx + (kx * hw - 1.0);
     float cyy = -(ky * sy2) + (ky * hh - 1.0);
-    // Depth: limb (z=0) -> 0, sub-camera point (z=1) -> ~1. Nearer (larger z)
-    // wins LESS: depth = 1 - z mapped in.
+    // Depth: sub-camera point (z=1) -> 0, limb (z=0) -> 1, so nearer wins LESS.
     float depth = clamp(1.0 - z, 0.0, 1.0);
     outZ = z;
     if (z < 0.0) {

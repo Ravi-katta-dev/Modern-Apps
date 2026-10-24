@@ -92,7 +92,7 @@ pub(super) fn terrain_attributes() -> [vk::VertexInputAttributeDescription; 2] {
         vk::VertexInputAttributeDescription::default()
             .location(1)
             .binding(0)
-            .format(vk::Format::R32G32_SFLOAT)
+            .format(vk::Format::R32G32B32_SFLOAT)
             .offset(12),
     ]
 }

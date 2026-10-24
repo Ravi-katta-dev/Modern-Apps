@@ -29,22 +29,23 @@ layout(push_constant) uniform Push {
 
 const float PI = 3.141592653589793;
 
+// Must match `camera::globe_point`.
 vec3 globeOf(float lon, float lat, float cLon, float cLat) {
     float latR = radians(lat);
     float dLon = radians(lon - cLon);
     float cLatR = radians(cLat);
-    float x1 = cos(latR) * cos(dLon);
-    float z1 = -cos(latR) * sin(dLon);
-    float y1 = sin(latR);
     float sy = sin(cLatR);
     float cy = cos(cLatR);
-    return vec3(x1, y1 * cy - z1 * sy, y1 * sy + z1 * cy);
+    return vec3(
+        cos(latR) * sin(dLon),
+        cy * sin(latR) - sy * cos(latR) * cos(dLon),
+        sy * sin(latR) + cy * cos(latR) * cos(dLon));
 }
 
 void main() {
     outUv = inUv;
-    float ox = push.tileToClip[2][0];
-    float oy = push.tileToClip[2][1];
+    float ox = push.tileToClip[0][2];
+    float oy = push.tileToClip[1][2];
     float span = push.tileToClip[2][2];
     // Anchor tile-local -> lon/lat.
     float awx = ox + inAnchor.x * span;
@@ -61,18 +62,14 @@ void main() {
     float ky = push.tileToClip[1][1] / max(r, 1e-6);
     float hw = push.morph.x;
     float hh = push.morph.y;
-    // Screen offset of this corner from its anchor: tile-local delta scaled by
-    // the matrix's flat 2x2. The flat linear part maps tile units to clip; on
-    // the globe branch that 2x2 is the globe scale (kx*r per tile-span unit),
-    // so reuse it directly: off_clip = flat2x2 * delta_tile.
+    // Screen offset of this corner from its anchor. Labels are shaped in flat tile-local
+    // units, where one unit is `tile_span_dp = span * world_size = span * 2r` Dp; the globe
+    // 2x2 is `k * r`, so the delta is scaled by `2 * span` to keep the flat screen size.
     float m00 = push.tileToClip[0][0];
     float m01 = push.tileToClip[0][1];
     float m10 = push.tileToClip[1][0];
     float m11 = push.tileToClip[1][1];
-    // The 2x2 maps normalised-world delta (span-scaled tile delta) to clip:
-    // delta_world = delta_tile * span, clip = 2x2 * delta_world. With the globe
-    // matrix the 2x2 already includes r, so scale by span only.
-    vec2 dTile = (inPosition - inAnchor) * span;
+    vec2 dTile = (inPosition - inAnchor) * (2.0 * span);
     vec2 off = vec2(m00 * dTile.x + m10 * dTile.y, m01 * dTile.x + m11 * dTile.y);
     float ax = kx * (a.x * r) + (kx * hw - 1.0);
     float ay = -(ky * (a.y * r)) + (ky * hh - 1.0);
@@ -81,6 +78,7 @@ void main() {
     if (a.z < 0.0) {
         gl_Position = vec4(ax, ay, 1.0, 1.0);
     } else {
-        gl_Position = vec4(ax + off.x, ay - off.y, depth, 1.0);
+        // Tile +y and clip +y both point down the screen, so the offset adds unflipped.
+        gl_Position = vec4(ax + off.x, ay + off.y, depth, 1.0);
     }
 }

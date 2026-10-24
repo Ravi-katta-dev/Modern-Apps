@@ -8,8 +8,7 @@
 // untouched — `road_surface.frag` logic is shared with the limb discard added
 // (see `road_surface_globe.frag`). `misc`/`morph` keep their flat meaning:
 // tile px in `misc.x`, edge AA in `misc.y`, yellow-centre flag in `misc.z`,
-// fade in `morph.x`, draped-z scale in `morph.z`; half-viewport (Dp) rides in
-// `morph.xy` on the globe branch (radius in `morph.z`, not `.xy`).
+// and `morph` is (fade, halfW, radius, halfH) on the globe branch.
 layout(location = 0) in vec2 inPosition;
 layout(location = 1) in vec2 inNormal;
 layout(location = 2) in float inT;
@@ -36,8 +35,8 @@ void main() {
     vec2 offsetTile = inNormal * (inT * halfWidthPx / tilePx);
     vec2 bent = inPosition + offsetTile;
 
-    float ox = push.tileToClip[2][0];
-    float oy = push.tileToClip[2][1];
+    float ox = push.tileToClip[0][2];
+    float oy = push.tileToClip[1][2];
     float span = push.tileToClip[2][2];
     float wx = ox + bent.x * span;
     float wy = oy + bent.y * span;
@@ -50,19 +49,17 @@ void main() {
     float latR = radians(lat);
     float dLon = radians(lon - cLon);
     float cLatR = radians(cLat);
-    float x1 = cos(latR) * cos(dLon);
-    float z1 = -cos(latR) * sin(dLon);
-    float y1 = sin(latR);
+    // Must match `camera::globe_point`.
     float sy = sin(cLatR);
     float cy = cos(cLatR);
-    float x = x1;
-    float y = y1 * cy - z1 * sy;
-    float z = y1 * sy + z1 * cy;
+    float x = cos(latR) * sin(dLon);
+    float y = cy * sin(latR) - sy * cos(latR) * cos(dLon);
+    float z = sy * sin(latR) + cy * cos(latR) * cos(dLon);
     float r = push.morph.z;
     float kx = push.tileToClip[0][0] / max(r, 1e-6);
     float ky = push.tileToClip[1][1] / max(r, 1e-6);
-    float hw = push.morph.x;
-    float hh = push.morph.y;
+    float hw = push.morph.y;
+    float hh = push.morph.w;
     // Screen point y-up like the CPU anchor math (`halfH - y`): north renders up.
     float cx = kx * (x * r) + (kx * hw - 1.0);
     float cyy = -(ky * (y * r)) + (ky * hh - 1.0);

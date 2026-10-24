@@ -2,7 +2,7 @@
 //! tile-local geometry onto the orthographic sphere.
 //!
 //! Split from `pipelines.rs` (file-length limit). Same vertex formats as the
-//! flat twins; depth 1 - z (limb 0, sub-camera point ~1) with the pass cleared
+//! flat twins; depth 1 - z (sub-camera point 0, limb 1) with the pass cleared
 //! to 1.0, so nearer (larger z) wins the LESS test.
 use super::assemble::build;
 use super::state::{Depth, Stencil};
