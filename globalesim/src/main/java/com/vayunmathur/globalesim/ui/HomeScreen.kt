@@ -138,10 +138,6 @@ fun HomeScreen(
                             "Balance: ${QuoteMath.formatCents(profile.walletUsdCents)}",
                             modifier = Modifier.padding(top = 4.dp),
                         )
-                        Text(
-                            "Works in 200+ countries · credit never expires",
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
                     }
                 }
             }
@@ -227,23 +223,37 @@ private fun TopUpCard(
     }
     val cardOk = amountCents != null && amountCents in 500..2000
     val cryptoOk = amountCents != null && amountCents in 200..2000
+    // Inline validation: only when the field is non-empty and parses.
+    // Card floor is $5, but the message is rail-agnostic per spec —
+    // the card button simply stays disabled below $5.
+    val rangeError: String? = when {
+        amountText.isBlank() || amountCents == null -> null
+        amountCents < 200 -> "Minimum $2 payment."
+        amountCents > 2000 -> "$20 max payment."
+        else -> null
+    }
     // Live bonus preview: 5% of the entered amount.
     val bonusPreview: Long? = amountCents?.let { (it * 105) / 100 - it }?.takeIf { cryptoOk }
     Card(modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("Top up")
-            Text(
-                "Enter any amount. Card: $5 min. Crypto: $2 min, +5% bonus. $20 max.",
-                modifier = Modifier.padding(top = 4.dp),
-            )
             OutlinedTextField(
                 value = amountText,
                 onValueChange = { amountText = it },
                 label = { Text("Amount (USD)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true,
+                isError = rangeError != null,
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
+            if (rangeError != null) {
+                Text(
+                    rangeError,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
             if (bonusPreview != null && bonusPreview > 0) {
                 Text(
                     "Crypto bonus: +${QuoteMath.formatCents(bonusPreview)} extra.",
@@ -262,7 +272,7 @@ private fun TopUpCard(
                     Text("Card topup")
                 }
                 BadgedBox(badge = "+5%", modifier = Modifier.weight(1f)) {
-                    OutlinedButton(
+                    Button(
                         onClick = { onBuyWithCrypto(amountCents!!) },
                         enabled = !loading && cryptoOk,
                         modifier = Modifier.fillMaxWidth(),
