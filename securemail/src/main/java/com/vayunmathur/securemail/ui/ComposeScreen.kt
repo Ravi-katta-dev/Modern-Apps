@@ -39,8 +39,9 @@ fun ComposeScreen(
     initialTo: String,
     initialSubject: String,
     initialBody: String,
-    onSend: (List<String>, String, String, String?) -> Unit,
+    onSend: (List<String>, String, String, String?, (Boolean) -> Unit) -> Unit,
     onBack: () -> Unit,
+    onSent: () -> Unit = {},
     onConsumeMessage: () -> Unit = {},
 ) {
     val messenger = rememberMessenger()
@@ -94,7 +95,9 @@ fun ComposeScreen(
                     Button(
                         onClick = {
                             scope.launch {
-                                onSend(recipients, subject, body, null)
+                                onSend(recipients, subject, body, null) { sent ->
+                                    if (sent) onSent()
+                                }
                             }
                         },
                         enabled = !state.busy && recipients.isNotEmpty() && invalid.isEmpty() && body.isNotBlank(),

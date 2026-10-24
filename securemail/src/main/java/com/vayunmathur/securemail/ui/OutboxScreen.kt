@@ -7,16 +7,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.Card
@@ -27,7 +21,6 @@ import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.securemail.data.MailRepository
 import com.vayunmathur.securemail.data.OutboxMessage
 import com.vayunmathur.securemail.platform.MailUiState
-import com.vayunmathur.securemail.platform.MailViewModel
 
 /** Outbox: queued sends awaiting reconnect, with manual retry. */
 @Composable
@@ -35,12 +28,8 @@ fun OutboxScreen(
     state: MailUiState,
     onRetry: () -> Unit,
     onBack: () -> Unit,
+    pending: List<OutboxMessage> = emptyList(),
 ) {
-    val context = LocalContext.current
-    var pending by remember { mutableStateOf<List<OutboxMessage>>(emptyList()) }
-    LaunchedEffect(Unit) {
-        pending = MailRepository.get(context).outboxDao().all()
-    }
     AppScaffold(title = "Outbox", scrollBehavior = appBarScrollBehavior()) { padding ->
         DesktopMaxWidthContainer(Modifier.padding(padding)) {
             Column(
@@ -72,10 +61,7 @@ fun OutboxScreen(
                         }
                     }
                     Button(
-                        onClick = {
-                            onRetry()
-                            pending = emptyList()
-                        },
+                        onClick = onRetry,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Retry all") }
                 }

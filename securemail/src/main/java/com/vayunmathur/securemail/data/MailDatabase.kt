@@ -97,6 +97,9 @@ interface OutboxDao {
     @Query("SELECT * FROM OutboxMessage ORDER BY createdMillis ASC")
     suspend fun all(): List<OutboxMessage>
 
+    @Query("SELECT * FROM OutboxMessage ORDER BY createdMillis ASC")
+    fun observeAll(): Flow<List<OutboxMessage>>
+
     @Query("SELECT COUNT(*) FROM OutboxMessage")
     fun observeCount(): Flow<Int>
 

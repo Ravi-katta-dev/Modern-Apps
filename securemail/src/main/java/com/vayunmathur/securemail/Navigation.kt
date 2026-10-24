@@ -24,6 +24,7 @@ fun Navigation(viewModel: MailViewModel, initialRoute: Route? = null) {
     val context = LocalContext.current
     val messages by viewModel.messages.collectAsState(emptyList())
     val outbox by viewModel.outboxCount.collectAsState(0)
+    val outboxMessages by viewModel.outboxMessages.collectAsState(emptyList())
     // The stack follows the account flag, not navigation events: once an address
     // is claimed there is no going back to onboarding, and a locked key gates
     // everything. reset() rather than add() for the same reason as backup/.
@@ -87,6 +88,7 @@ fun Navigation(viewModel: MailViewModel, initialRoute: Route? = null) {
                 initialBody = route.body,
                 onSend = viewModel::send,
                 onBack = { backStack.pop() },
+                onSent = { backStack.pop() },
                 onConsumeMessage = viewModel::dismissMessages,
             )
         }
@@ -119,6 +121,7 @@ fun Navigation(viewModel: MailViewModel, initialRoute: Route? = null) {
                 state = state,
                 onRetry = viewModel::retryOutbox,
                 onBack = { backStack.pop() },
+                pending = outboxMessages,
             )
         }
         entry<Route.Settings> {

@@ -69,6 +69,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     val messages = repo.messageDao().observeAll()
     val outboxCount = repo.outboxDao().observeCount()
+    val outboxMessages = repo.outboxDao().observeAll()
 
     /**
      * In-memory S2K passphrase for the PGP secret ring. Set at claim time and
@@ -240,7 +241,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                         return@runCatching
                     }
                     val raw = Base64.decode(stored.blobBase64, Base64.NO_WRAP)
-                    val mime = PgpCrypto.decrypt(raw, keyManager.getSecretArmor(), passphrase)
+                    val pgpBytes = extractPgpPayload(raw) ?: raw
+                    val mime = PgpCrypto.decrypt(pgpBytes, keyManager.getSecretArmor(), passphrase)
                         .toString(Charsets.UTF_8)
                     val (subject, body, from) = parseMime(mime)
                     repo.messageDao().storeDecrypted(id, body, subject, verified = null)
@@ -249,6 +251,36 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }.onFailure { Log.status(TAG, "decryptStored failed", it) }
             }
+        }
+    }
+
+    /**
+     * Extracts the raw PGP bytes from an RFC 3156 multipart/encrypted envelope
+     * (second part, base64 `application/octet-stream`). Returns null when the
+     * input is not such an envelope (legacy bare blobs pass through).
+     */
+    private fun extractPgpPayload(envelope: ByteArray): ByteArray? {
+        return try {
+            val text = envelope.toString(Charsets.UTF_8)
+            if (!text.contains("application/pgp-encrypted")) return null
+            // Split on boundary markers; the data part follows the octet-stream header.
+            val octetIdx = text.indexOf("application/octet-stream")
+            if (octetIdx < 0) return null
+            val bodyStart = text.indexOf("\r\n\r\n", octetIdx).takeIf { it >= 0 }
+                ?: text.indexOf("\n\n", octetIdx).takeIf { it >= 0 }
+                ?: return null
+            val afterHeaders = if (text.startsWith("\r\n\r\n", bodyStart)) {
+                text.substring(bodyStart + 4)
+            } else {
+                text.substring(bodyStart + 2)
+            }
+            // Cut at the closing boundary; de-whitespace the base64.
+            val end = afterHeaders.indexOf("--maemail-").takeIf { it >= 0 } ?: afterHeaders.length
+            val b64 = afterHeaders.substring(0, end).filterNot { it.isWhitespace() }
+            if (b64.isEmpty()) return null
+            android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+        } catch (_: Exception) {
+            null
         }
     }
 
@@ -358,6 +390,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         subject: String,
         body: String,
         inReplyTo: String? = null,
+        onDone: (sent: Boolean) -> Unit = {},
     ) {
         state = state.copy(busy = true, error = null)
         viewModelScope.launch {
@@ -378,7 +411,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                     // Per-recipient encryption: each key-known recipient gets a blob.
                     for (t in encryptedTo) {
                         val cached = repo.keyDao().get(t.address) ?: continue
-                        val blob = PgpCrypto.encrypt(mime, cached.armoredPublic)
+                        val raw = PgpCrypto.encrypt(mime, cached.armoredPublic)
+                        val blob = buildEncryptedBody(raw)
                         val ok = MailSocket.publish(t.address, blob)
                         if (!ok) {
                             queueOutbox(listOf(t.address), subject, body, inReplyTo)
@@ -399,10 +433,14 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             state = outcome.fold(
-                onSuccess = { msg -> state.copy(busy = false, message = msg) },
+                onSuccess = { msg ->
+                    state.copy(busy = false, message = msg)
+                        .also { onDone(true) }
+                },
                 onFailure = {
                     Log.status(TAG, "send failed", it)
                     state.copy(busy = false, error = it.message ?: "Send failed.")
+                        .also { onDone(false) }
                 },
             )
         }
@@ -452,8 +490,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                         for (address in to) {
                             val cached = repo.keyDao().get(address)
                             if (cached != null) {
-                                val blob = PgpCrypto.encrypt(mime, cached.armoredPublic)
-                                if (MailSocket.publish(address, blob)) continue
+                                val raw = PgpCrypto.encrypt(mime, cached.armoredPublic)
+                                if (MailSocket.publish(address, buildEncryptedBody(raw))) continue
                             } else {
                                 if (MailSocket.publish(address, mime, unencrypted = true)) continue
                             }
@@ -557,13 +595,31 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
      * encryption envelopes this whole body; the server relays it opaquely.
      */
     private fun buildMimeBody(subject: String, body: String): ByteArray {
-        val boundary = "maemail-${UUID.randomUUID().toString().take(8)}"
         val safeSubject = subject.replace(Regex("[\\r\\n]"), " ")
         return (
             "From: ${state.address}\r\n" +
                 "Subject: $safeSubject\r\n" +
                 "Message-ID: <${newMessageId()}>\r\n" +
                 "MIME-Version: 1.0\r\n" +
+                "Content-Type: text/plain; charset=utf-8\r\n" +
+                "Content-Transfer-Encoding: 8bit\r\n" +
+                "\r\n" +
+                "$body\r\n"
+            ).toByteArray(Charsets.UTF_8)
+    }
+
+    /**
+     * Wraps raw PGP bytes in the RFC 3156 multipart/encrypted envelope for
+     * federated transport: control part (`application/pgp-encrypted`,
+     * `Version: 1`) + data part (`application/octet-stream`).
+     */
+    private fun buildEncryptedBody(encrypted: ByteArray): ByteArray {
+        val boundary = "maemail-${UUID.randomUUID().toString().take(8)}"
+        val armor = android.util.Base64.encodeToString(encrypted, android.util.Base64.NO_WRAP)
+        // Fold armor at 64 cols per RFC 3156 line-length limits.
+        val folded = armor.chunked(64).joinToString("\r\n")
+        return (
+            "MIME-Version: 1.0\r\n" +
                 "Content-Type: multipart/encrypted; boundary=\"$boundary\"; protocol=\"application/pgp-encrypted\"\r\n" +
                 "\r\n" +
                 "--$boundary\r\n" +
@@ -572,9 +628,11 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                 "Version: 1\r\n" +
                 "\r\n" +
                 "--$boundary\r\n" +
-                "Content-Type: text/plain; charset=utf-8\r\n" +
+                "Content-Type: application/octet-stream; name=\"encrypted.asc\"\r\n" +
+                "Content-Description: OpenPGP encrypted message\r\n" +
+                "Content-Disposition: inline; filename=\"encrypted.asc\"\r\n" +
                 "\r\n" +
-                "$body\r\n" +
+                "$folded\r\n" +
                 "--$boundary--\r\n"
             ).toByteArray(Charsets.UTF_8)
     }
