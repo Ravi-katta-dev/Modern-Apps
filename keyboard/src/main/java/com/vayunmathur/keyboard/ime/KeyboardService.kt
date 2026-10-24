@@ -224,7 +224,11 @@ class KeyboardService : InputMethodService(),
         }
         syncComposer()
         composer?.reset()
+        // After the field kind: the composer follows the effective (possibly
+        // ASCII-forced) layout, not just the user's layout.
         configureForEditor(info)
+        syncComposer()
+        composer?.reset()
         kbState.suggestions = emptyList()
         kbState.emojiQuery = null
         kbState.emojiResults = emptyList()

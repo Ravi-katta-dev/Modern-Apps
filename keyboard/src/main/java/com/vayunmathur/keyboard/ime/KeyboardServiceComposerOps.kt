@@ -13,7 +13,9 @@ import kotlinx.coroutines.launch
 
 /** Point [KeyboardService.composer] at whatever the active layout needs, keeping it across no-op changes. */
 internal fun KeyboardService.syncComposer() {
-    val kind = kbState.settings.activeLayout.composer
+    // An ASCII-forced field falls back to plain Latin, so it never composes — even
+    // when the user's own layout would (pinyin, kana, hangul).
+    val kind = if (kbState.forceAscii) null else kbState.settings.activeLayout.composer
     if (kind == composerKind && (kind == null || composer != null)) return
     composerKind = kind
     composer = when (kind) {
@@ -86,11 +88,14 @@ internal fun KeyboardService.finishComposition(ic: InputConnection) {
 
 /**
  * Composing (word tracking) is needed for either suggestions or autocorrect, and only
- * makes sense for plain text fields (never passwords or the numeric layout). The only
- * dictionary we ship is English, so it also stays off for every other layout rather than
- * offering English words to someone writing Greek.
+ * makes sense for plain text fields (never passwords, ASCII-only or no-suggestion
+ * fields, or the numeric layout). The only dictionary we ship is English, so it also
+ * stays off for every other layout rather than offering English words to someone
+ * writing Greek.
  */
 internal fun KeyboardService.useComposing(): Boolean =
     (kbState.settings.showSuggestions || kbState.settings.autoCorrect) &&
-        !kbState.passwordField && kbState.basePage == KeyboardPage.LETTERS &&
-        kbState.settings.activeLayout.englishDictionary
+        !kbState.passwordField && !kbState.forceAscii &&
+        kbState.textVariation != TextVariation.NO_SUGGESTIONS &&
+        kbState.basePage == KeyboardPage.LETTERS &&
+        kbState.effectiveLayout.englishDictionary

@@ -11,6 +11,7 @@ import androidx.compose.ui.unit.sp
 import com.vayunmathur.keyboard.R
 import com.vayunmathur.keyboard.ime.ImeActions
 import com.vayunmathur.keyboard.ime.KeyboardState
+import com.vayunmathur.keyboard.ime.NumericMode
 import com.vayunmathur.keyboard.util.KeyboardPage
 import com.vayunmathur.keyboard.util.Layouts
 import com.vayunmathur.library.ui.IconBackspace
@@ -66,6 +67,10 @@ internal fun SymbolPage(
  * the 2/5/8 column and every row shares the same left/right edges. Column widths are
  * FUTO's fractions — side keys 0.15, digits 0.2333, comma/period 0.1, the two "grow"
  * keys splitting the remainder — used directly as (relative) row weights.
+ *
+ * Date/time fields swap the side-column operators for their separators (`/`, `-` for
+ * dates, `:` for times) per [NumericMode]; the shared NUMBER pad already carries every
+ * key the number/decimal/signed Compose types need, so it is unchanged.
  */
 @Composable
 internal fun NumericPage(state: KeyboardState, actions: ImeActions, keyHeight: Dp) {
@@ -73,22 +78,31 @@ internal fun NumericPage(state: KeyboardState, actions: ImeActions, keyHeight: D
     val digit = 0.2333f
     val reg = 0.1f
     val grow = 0.1333f
+    // Left-column operators per mode. NUMBER keeps the calculator set; date/time swap
+    // in their separators (both `/` and `-` occur in dates, `:` in times). The
+    // displaced operators stay one tap away on ?123.
+    val leftKeys = when (state.numericMode) {
+        NumericMode.NUMBER -> listOf("+", "-", "*")
+        NumericMode.DATE -> listOf("/", "-", "*")
+        NumericMode.TIME -> listOf(":", "-", "*")
+        NumericMode.DATE_TIME -> listOf("/", ":", "-")
+    }
     Row(Modifier.fillMaxWidth()) {
-        NumFunctionKey("+", side, keyHeight, actions)
+        NumFunctionKey(leftKeys[0], side, keyHeight, actions)
         SymbolKey('1', keyHeight, actions, digit)
         SymbolKey('2', keyHeight, actions, digit)
         SymbolKey('3', keyHeight, actions, digit)
         NumFunctionKey("%", side, keyHeight, actions)
     }
     Row(Modifier.fillMaxWidth()) {
-        NumFunctionKey("-", side, keyHeight, actions)
+        NumFunctionKey(leftKeys[1], side, keyHeight, actions)
         SymbolKey('4', keyHeight, actions, digit)
         SymbolKey('5', keyHeight, actions, digit)
         SymbolKey('6', keyHeight, actions, digit)
         SpecialKey(keyHeight, side, onClick = actions::onSpace) { IconSpaceBar() }
     }
     Row(Modifier.fillMaxWidth()) {
-        NumFunctionKey("*", side, keyHeight, actions)
+        NumFunctionKey(leftKeys[2], side, keyHeight, actions)
         SymbolKey('7', keyHeight, actions, digit)
         SymbolKey('8', keyHeight, actions, digit)
         SymbolKey('9', keyHeight, actions, digit)

@@ -138,7 +138,9 @@ private fun Strip(state: KeyboardState, actions: ImeActions) {
         page == KeyboardPage.MORE_SYMBOLS
     if (!textPage) return
     // Nor do layouts that have nothing to put in it: the one dictionary we ship is English.
-    val layout = state.settings.activeLayout
+    // The effective layout matters here, not the active one: an ASCII-forced field on a
+    // CJK layout shows plain Latin, never candidates.
+    val layout = state.effectiveLayout
     // Candidates are not a suggestion the user can decline — on a Chinese layout they
     // are the only way a character gets typed — so the "show suggestions" preference
     // does not apply to them.

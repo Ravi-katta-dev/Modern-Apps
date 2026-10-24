@@ -12,19 +12,24 @@ import com.vayunmathur.keyboard.util.ShiftState
  * identical, only the decision tree is named per branch.
  */
 internal fun KeyboardService.configureForEditor(info: EditorInfo) {
-    val cls = info.inputType and InputType.TYPE_MASK_CLASS
-    val variation = info.inputType and InputType.TYPE_MASK_VARIATION
-    applyFieldKind(cls, variation)
+    val inputType = info.inputType
+    val cls = inputType and InputType.TYPE_MASK_CLASS
+    val variation = inputType and InputType.TYPE_MASK_VARIATION
+    val flags = inputType and InputType.TYPE_MASK_FLAGS
+    applyFieldKind(cls, variation, flags)
     applyEnterAction(info)
     kbState.shift = ShiftState.OFF
 }
 
-/** Page, variation and password flag from the input class/variation. */
-private fun KeyboardService.applyFieldKind(cls: Int, variation: Int) {
+/** Page, variation and password flag from the input class/variation/flags. */
+private fun KeyboardService.applyFieldKind(cls: Int, variation: Int, flags: Int) {
     kbState.passwordField = isPasswordField(cls, variation)
     // Phone gets its own dial-pad layout (FUTO phone.yaml); number/datetime share the
-    // numeric layout (FUTO number.yaml). Everything else uses letters.
+    // numeric layout (FUTO number.yaml), with the separator set per datetime variation.
+    // Everything else uses letters.
     kbState.textVariation = textVariationFor(cls, variation)
+    kbState.numericMode = numericModeFor(cls, variation)
+    kbState.forceAscii = isAsciiField(cls, variation, flags)
     kbState.basePage = basePageFor(cls)
     kbState.page = kbState.basePage
 }
@@ -45,7 +50,40 @@ private fun textVariationFor(cls: Int, variation: Int): TextVariation {
         InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS,
         InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS -> TextVariation.EMAIL
         InputType.TYPE_TEXT_VARIATION_URI -> TextVariation.URL
+        InputType.TYPE_TEXT_VARIATION_PERSON_NAME -> TextVariation.PERSON_NAME
+        // Phonetic fields must not be autocorrected: the spelling is the point.
+        InputType.TYPE_TEXT_VARIATION_PHONETIC -> TextVariation.NO_SUGGESTIONS
+        // Compose sends Ascii as visible-password (Ascii = "latin characters, visible");
+        // PasswordVisible arrives the same way. Neither is a login secret, so both skip
+        // suggestion/composing and force the ASCII layout rather than masking anything.
+        InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD -> TextVariation.NO_SUGGESTIONS
         else -> TextVariation.NORMAL
+    }
+}
+
+/**
+ * ASCII-only text field: Compose's Ascii (and the matching VisiblePassword form).
+ * No dedicated framework constant exists; what distinguishes them from a real
+ * login-visible-password is TYPE_TEXT_FLAG_NO_SUGGESTIONS, which Compose sets for
+ * both. PasswordVisible the user opted into stays on their own layout.
+ */
+private fun isAsciiField(cls: Int, variation: Int, flags: Int): Boolean {
+    if (cls != InputType.TYPE_CLASS_TEXT) return false
+    return variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD &&
+        (flags and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) != 0
+}
+
+/**
+ * Separator set for the numeric page, from the datetime variation. Number-class
+ * variations (normal/decimal/signed/password) need no split: the pad already
+ * carries `.` `,` `+` `-` on every row set.
+ */
+private fun numericModeFor(cls: Int, variation: Int): NumericMode {
+    if (cls != InputType.TYPE_CLASS_DATETIME) return NumericMode.NUMBER
+    return when (variation) {
+        InputType.TYPE_DATETIME_VARIATION_DATE -> NumericMode.DATE
+        InputType.TYPE_DATETIME_VARIATION_TIME -> NumericMode.TIME
+        else -> NumericMode.DATE_TIME
     }
 }
 

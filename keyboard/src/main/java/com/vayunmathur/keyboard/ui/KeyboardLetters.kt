@@ -25,7 +25,9 @@ import com.vayunmathur.library.ui.IconBackspace
  */
 @Composable
 internal fun LettersPage(state: KeyboardState, actions: ImeActions, keyHeight: Dp) {
-    val layout = state.settings.activeLayout
+    // ASCII-forced fields (Compose Ascii) fall back to plain Latin regardless of the
+    // user's layout; the setting itself is untouched.
+    val layout = state.effectiveLayout
     val rows = layout.rows
     if (state.settings.numberRow && rows.size < 4) {
         Row(Modifier.fillMaxWidth()) {
@@ -43,7 +45,7 @@ internal fun LettersPage(state: KeyboardState, actions: ImeActions, keyHeight: D
     val commaChar = when (state.textVariation) {
         com.vayunmathur.keyboard.ime.TextVariation.EMAIL -> "@"
         com.vayunmathur.keyboard.ime.TextVariation.URL -> "/"
-        com.vayunmathur.keyboard.ime.TextVariation.NORMAL -> layout.comma
+        else -> layout.comma
     }
     BottomRow(
         state, actions, keyHeight,

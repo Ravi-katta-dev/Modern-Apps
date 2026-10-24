@@ -97,12 +97,19 @@ internal fun KeyboardService.updateAutoCapShift() {
     if (kbState.basePage != KeyboardPage.LETTERS) return
     // Shift is a second character layer, not upper case, in scripts like Devanagari or
     // Thai — auto-capitalizing there would silently swap the whole layout.
-    if (!kbState.settings.activeLayout.cased) return
-    if (kbState.passwordField || kbState.textVariation != TextVariation.NORMAL) return
+    if (!kbState.effectiveLayout.cased) return
+    if (kbState.passwordField) return
     if (kbState.shift == ShiftState.CAPS_LOCK) return
     if (!kbState.settings.autoCapitalize) return
     if (composing.isNotEmpty()) return
-    kbState.shift = if (isAtSentenceStart()) ShiftState.SHIFTED else ShiftState.OFF
+    // Email/URL fields never capitalize; name fields capitalize every word, everything
+    // else capitalizes at sentence starts.
+    val atStart = when (kbState.textVariation) {
+        TextVariation.EMAIL, TextVariation.URL -> false
+        TextVariation.PERSON_NAME -> isAtWordStart()
+        else -> isAtSentenceStart()
+    }
+    kbState.shift = if (atStart) ShiftState.SHIFTED else ShiftState.OFF
 }
 
 internal fun KeyboardService.isAtSentenceStart(): Boolean {
@@ -113,6 +120,14 @@ internal fun KeyboardService.isAtSentenceStart(): Boolean {
     if (text.length < 2) return false
     val prev = text[text.length - 2]
     return last == ' ' && (prev == '.' || prev == '?' || prev == '!')
+}
+
+/** True at the start of any word: empty field, after a newline, or after a space. */
+internal fun KeyboardService.isAtWordStart(): Boolean {
+    val text = textBeforeCursor()
+    if (text.isEmpty()) return true
+    val last = text[text.length - 1]
+    return last == '\n' || last == ' '
 }
 
 /**

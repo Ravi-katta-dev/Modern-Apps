@@ -91,6 +91,14 @@ data class KeyboardLayout(
         composer == ComposerKind.PINYIN_TRADITIONAL ||
         composer == ComposerKind.BOPOMOFO
 
+    /**
+     * True when the layout's rows are Latin script (ASCII-forced fields keep these and
+     * fall back to English QWERTY for everything else). Detected from the first row
+     * rather than the id so transliteration layouts (e.g. romaji) count as Latin.
+     */
+    val isLatinScript: Boolean =
+        rows.firstOrNull()?.any { it in 'A'..'Z' || it in 'a'..'z' } == true
+
     /** What the key at [col] of [row] produces in the given shift state. */
     fun charAt(row: Int, col: Int, shifted: Boolean): String {
         val base = rows[row][col]

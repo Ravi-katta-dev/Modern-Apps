@@ -6,6 +6,8 @@ import androidx.compose.runtime.setValue
 import com.vayunmathur.keyboard.platform.VoiceFailure
 import com.vayunmathur.keyboard.util.ClipItem
 import com.vayunmathur.keyboard.util.EmojiData
+import com.vayunmathur.keyboard.util.KeyboardLayout
+import com.vayunmathur.keyboard.util.KeyboardLayouts
 import com.vayunmathur.keyboard.util.KeyboardPage
 import com.vayunmathur.keyboard.util.KeyboardSettings
 import com.vayunmathur.keyboard.util.ShiftState
@@ -15,10 +17,20 @@ enum class EnterAction { RETURN, GO, SEARCH, SEND, NEXT, DONE, PREVIOUS }
 
 /**
  * Text-field flavour that tweaks the letters layout: EMAIL surfaces `@`, URL surfaces
- * `/` (both in place of the comma key), NORMAL keeps punctuation. Number/phone fields
- * use the dedicated numeric page instead (see [KeyboardState.basePage]).
+ * `/` (both in place of the comma key), PERSON_NAME capitalizes each word,
+ * NO_SUGGESTIONS turns composing off for fields autocorrect would corrupt (phonetic).
+ * Everything else keeps punctuation. Number/phone/date-time fields use the dedicated
+ * numeric page instead (see [KeyboardState.basePage]).
  */
-enum class TextVariation { NORMAL, EMAIL, URL }
+enum class TextVariation { NORMAL, EMAIL, URL, PERSON_NAME, NO_SUGGESTIONS }
+
+/**
+ * Which separators the numeric page offers: NUMBER is the calculator-style pad (its
+ * `.` `,` `+` `-` already serve every number/decimal/signed combination), DATE swaps
+ * in `/`, TIME swaps in `:`, DATE_TIME offers both. Covers Compose Number through
+ * DecimalPasswordSigned (same pad, no suggestions) and Date/DateTime/Time.
+ */
+enum class NumericMode { NUMBER, DATE, TIME, DATE_TIME }
 
 /**
  * What voice input is doing, or null when it is idle. An IME has no window of its own to put
@@ -67,8 +79,32 @@ class KeyboardState {
     /** True when the target field is a password field (disables suggestions/composing). */
     var passwordField by mutableStateOf(false)
 
-    /** Field flavour that adapts the letters layout (email/url punctuation). */
+    /** Field flavour that adapts the letters layout (email/url punctuation, name caps). */
     var textVariation by mutableStateOf(TextVariation.NORMAL)
+
+    /** Separator set for the numeric page (date/time fields swap in `/` and `:`). */
+    var numericMode by mutableStateOf(NumericMode.NUMBER)
+
+    /**
+     * True for ASCII-only fields (Compose Ascii and PasswordVisible, both of which arrive
+     * as visible-password). While set the letters page renders a Latin layout regardless
+     * of the user's active layout; the setting itself is untouched and restored after.
+     */
+    var forceAscii by mutableStateOf(false)
+
+    /**
+     * The letter layout actually drawn: the user's layout, except ASCII-forced fields
+     * fall back to English QWERTY unless the active layout is already plain Latin.
+     * Composing layouts are excluded even when their rows are Latin (romaji, pinyin):
+     * their engines output kana/hanzi, which an ASCII-only field cannot take.
+     */
+    val effectiveLayout: KeyboardLayout
+        get() {
+            val active = settings.activeLayout
+            if (!forceAscii) return active
+            if (active.isLatinScript && active.composer == null) return active
+            return KeyboardLayouts.byId("en_qwerty") ?: active
+        }
 
     /**
      * Navigation-bar height in pixels, read from the window by the service. In an IME

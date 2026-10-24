@@ -51,7 +51,7 @@ internal fun BottomRow(
         SpaceKey(
             height = keyHeight,
             weight = 4f,
-            label = state.settings.activeLayout.name,
+            label = state.effectiveLayout.name,
             onSpace = actions::onSpace,
         )
         CharKey(
