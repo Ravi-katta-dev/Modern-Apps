@@ -95,4 +95,21 @@ data class StripeIntentRequest(val accountId: String, val amountCents: Long)
 data class StripeIntentResponse(val clientSecret: String = "")
 
 @Serializable
+data class NowPayInvoiceRequest(val accountId: String, val amountCents: Long)
+
+@Serializable
+data class NowPayInvoiceResponse(
+    val invoiceUrl: String = "",
+    val invoiceId: String = "",
+    /** Extra credit the 5% crypto bonus adds, in USD cents. */
+    val bonusUsdCents: Long = 0,
+)
+
+@Serializable
+data class NowPayStatusRequest(val accountId: String, val invoiceId: String)
+
+@Serializable
+data class NowPayStatusResponse(val status: String = "waiting")
+
+@Serializable
 data class ErrorBody(val error: String = "", val message: String = "")

@@ -1,5 +1,6 @@
 package com.vayunmathur.globalesim.ui
 
+import android.content.Intent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import com.stripe.android.PaymentConfiguration
 import com.stripe.android.paymentsheet.PaymentSheet
 import com.stripe.android.paymentsheet.PaymentSheetResult
@@ -42,6 +44,9 @@ fun HomeScreen(
     onTopUp: (Long) -> Unit,
     onStartCardPurchase: (amountCents: Long, publishableKey: String?, onKey: (String) -> Unit, onSheetReady: () -> Unit) -> Unit,
     onCardPurchaseDone: () -> Unit,
+    onStartCryptoPurchase: (Long) -> Unit,
+    onCheckCryptoStatus: () -> Unit,
+    onClearCryptoInvoice: () -> Unit,
     onOpenInstall: () -> Unit,
     onOpenRates: () -> Unit,
     onOpenBudget: () -> Unit,
@@ -136,6 +141,11 @@ fun HomeScreen(
                             {},
                         )
                     },
+                    onBuyWithCrypto = { cents -> onStartCryptoPurchase(cents) },
+                    pendingInvoiceUrl = state.pendingInvoiceUrl,
+                    pendingBonusCents = state.pendingBonusCents,
+                    onCheckCryptoStatus = onCheckCryptoStatus,
+                    onClearCryptoInvoice = onClearCryptoInvoice,
                     modifier = Modifier.padding(top = 12.dp),
                 )
                 OutlinedButton(
@@ -177,8 +187,15 @@ private fun TopUpCard(
     loading: Boolean,
     onTopUp: (Long) -> Unit,
     onBuyWithCard: (Long) -> Unit,
+    onBuyWithCrypto: (Long) -> Unit,
+    pendingInvoiceUrl: String?,
+    pendingBonusCents: Long,
+    onCheckCryptoStatus: () -> Unit,
+    onClearCryptoInvoice: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val messenger = rememberMessenger()
     Card(modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("Top up credit")
@@ -207,6 +224,56 @@ private fun TopUpCard(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 ) {
                     Text("Buy $label with card")
+                }
+            }
+            Text(
+                "Or pay with crypto and get 5% extra credit free — " +
+                    "e.g. pay $10, get $10.50. No account needed.",
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            if (pendingInvoiceUrl != null) {
+                Text(
+                    "Checkout open in your browser. Come back here when you've paid.",
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                if (pendingBonusCents > 0) {
+                    Text(
+                        "Bonus on this payment: +${QuoteMath.formatCents(pendingBonusCents)}.",
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                Button(
+                    onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, pendingInvoiceUrl.toUri()))
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    Text("Reopen checkout")
+                }
+                OutlinedButton(
+                    onClick = {
+                        onCheckCryptoStatus()
+                        messenger.show("Checking payment…")
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    Text("I've paid — check status")
+                }
+                OutlinedButton(
+                    onClick = onClearCryptoInvoice,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                ) {
+                    Text("Cancel crypto payment")
+                }
+            } else {
+                for ((cents, label) in presets) {
+                    OutlinedButton(
+                        onClick = { onBuyWithCrypto(cents) },
+                        enabled = !loading,
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    ) {
+                        Text("Buy $label with crypto (+5%)")
+                    }
                 }
             }
         }

@@ -23,6 +23,10 @@ data class EsimUiState(
     val transferCode: String? = null,
     val pendingClientSecret: String? = null,
     val pendingAmountCents: Long = 0,
+    /** Pending crypto invoice (url + id + bonus); cleared when paid/closed. */
+    val pendingInvoiceUrl: String? = null,
+    val pendingInvoiceId: String? = null,
+    val pendingBonusCents: Long = 0,
     val error: String? = null,
 )
 
@@ -151,6 +155,58 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
     /** Clear the pending sheet secret after it completes or is cancelled. */
     fun clearPendingPurchase() {
         state = state.copy(pendingClientSecret = null, pendingAmountCents = 0, loading = false)
+    }
+
+    /**
+     * Start a crypto purchase: create a NOWPayments invoice for [amountCents]
+     * face value. The screen opens the hosted checkout URL; the server
+     * credits the budget + 5% bonus via the IPN webhook. [onInvoiceReady]
+     * fires with the checkout URL to open.
+     */
+    fun startCryptoPurchase(amountCents: Long, onInvoiceReady: (String) -> Unit) {
+        viewModelScope.launch {
+            state = state.copy(
+                loading = true, error = null,
+                pendingInvoiceUrl = null, pendingInvoiceId = null, pendingBonusCents = 0,
+            )
+            runCatching { EsimApi.nowPayInvoice(accountId(), amountCents) }
+                .onSuccess {
+                    state = state.copy(
+                        loading = false,
+                        pendingInvoiceUrl = it.invoiceUrl,
+                        pendingInvoiceId = it.invoiceId,
+                        pendingBonusCents = it.bonusUsdCents,
+                        pendingAmountCents = amountCents,
+                    )
+                    onInvoiceReady(it.invoiceUrl)
+                }
+                .onFailure { state = state.copy(loading = false, error = it.message) }
+        }
+    }
+
+    /** Poll the invoice status after the user returns from checkout. */
+    fun checkCryptoStatus(onResult: (String) -> Unit) {
+        val invoiceId = state.pendingInvoiceId ?: return
+        viewModelScope.launch {
+            runCatching { EsimApi.nowPayStatus(accountId(), invoiceId) }
+                .onSuccess {
+                    if (it.status == "finished") {
+                        state = state.copy(pendingInvoiceUrl = null, pendingInvoiceId = null)
+                        refreshBudget()
+                        refreshAll()
+                    }
+                    onResult(it.status)
+                }
+                .onFailure { state = state.copy(error = it.message) }
+        }
+    }
+
+    /** Clear the pending crypto invoice (user closed checkout). */
+    fun clearPendingInvoice() {
+        state = state.copy(
+            pendingInvoiceUrl = null, pendingInvoiceId = null,
+            pendingBonusCents = 0, pendingAmountCents = 0, loading = false,
+        )
     }
 
     fun transferIn(oldAccountId: String, code: String, onDone: () -> Unit) {

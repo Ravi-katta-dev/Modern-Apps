@@ -59,4 +59,10 @@ object EsimApi {
 
     suspend fun stripeIntent(accountId: String, amountCents: Long): StripeIntentResponse =
         post("/esim/v1/stripe-intent", StripeIntentRequest(accountId, amountCents))
+
+    suspend fun nowPayInvoice(accountId: String, amountCents: Long): NowPayInvoiceResponse =
+        post("/esim/v1/nowpay-invoice", NowPayInvoiceRequest(accountId, amountCents))
+
+    suspend fun nowPayStatus(accountId: String, invoiceId: String): NowPayStatusResponse =
+        post("/esim/v1/nowpay-status", NowPayStatusRequest(accountId, invoiceId))
 }
