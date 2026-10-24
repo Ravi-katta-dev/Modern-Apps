@@ -33,6 +33,7 @@ body:
         - findfamily
         - flashcards
         - fooddelivery
+        - globalesim
         - health
         - hub
         - keyboard
