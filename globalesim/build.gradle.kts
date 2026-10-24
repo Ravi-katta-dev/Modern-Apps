@@ -6,7 +6,7 @@ plugins {
 }
 
 launcherIcon {
-    symbol = "travel_explore"
+    symbol = "sim_card_download"
 }
 
 android {
