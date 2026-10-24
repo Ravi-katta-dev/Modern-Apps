@@ -55,6 +55,7 @@ internal fun AddressFormCard(
                 supportingText = if (form.triedSubmit && form.street.isBlank()) {
                     { Text(stringResource(R.string.required)) }
                 } else null,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PostalAddress),
                 modifier = Modifier.fillMaxWidth()
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -66,6 +67,7 @@ internal fun AddressFormCard(
                     supportingText = if (form.triedSubmit && form.city.isBlank()) {
                         { Text(stringResource(R.string.required)) }
                     } else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PostalAddress),
                     modifier = Modifier.weight(1f)
                 )
                 OutlinedTextField(
@@ -76,6 +78,7 @@ internal fun AddressFormCard(
                     supportingText = if (form.triedSubmit && form.state.isBlank()) {
                         { Text(stringResource(R.string.required)) }
                     } else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PostalAddress),
                     modifier = Modifier.width(80.dp)
                 )
             }

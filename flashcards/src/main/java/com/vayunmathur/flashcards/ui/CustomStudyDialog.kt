@@ -10,6 +10,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.flashcards.R
 import com.vayunmathur.library.ui.R as UiR
@@ -42,6 +44,7 @@ fun CustomStudyDialog(
                     onValueChange = { count = it.filter { c -> c.isDigit() } },
                     label = { Text(stringResource(R.string.custom_study_count)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
                 if (mode == StudyMode.AHEAD) {
@@ -50,6 +53,7 @@ fun CustomStudyDialog(
                         onValueChange = { days = it.filter { c -> c.isDigit() } },
                         label = { Text(stringResource(R.string.custom_study_days)) },
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     )
                 }

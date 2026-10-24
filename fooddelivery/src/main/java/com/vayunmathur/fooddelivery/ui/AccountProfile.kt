@@ -18,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.fooddelivery.R
 import com.vayunmathur.library.ui.R as UiR
@@ -183,6 +185,7 @@ internal fun EditProfileDialog(
                     onValueChange = { firstName = it },
                     label = { Text(stringResource(R.string.first_name)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
@@ -191,6 +194,7 @@ internal fun EditProfileDialog(
                     onValueChange = { lastName = it },
                     label = { Text(stringResource(R.string.last_name)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
@@ -199,6 +203,7 @@ internal fun EditProfileDialog(
                     onValueChange = { email = it },
                     label = { Text(stringResource(UiR.string.email)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

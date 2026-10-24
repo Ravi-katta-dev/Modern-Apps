@@ -19,6 +19,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -202,6 +203,7 @@ private fun PassengerForm(
                 onValueChange = { onChange(passenger.copy(givenName = it)) },
                 label = { Text(stringResource(R.string.given_name)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName),
                 modifier = Modifier.fillMaxWidth(),
             )
             OutlinedTextField(
@@ -209,6 +211,7 @@ private fun PassengerForm(
                 onValueChange = { onChange(passenger.copy(familyName = it)) },
                 label = { Text(stringResource(R.string.family_name)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName),
                 modifier = Modifier.fillMaxWidth(),
             )
 

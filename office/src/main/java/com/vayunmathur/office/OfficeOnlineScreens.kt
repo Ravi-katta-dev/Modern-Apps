@@ -29,6 +29,8 @@ import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.R as UiR
@@ -293,7 +295,8 @@ private fun RecipientFields(
         value = dialog.recipient, onValueChange = { dialog.recipient = it; dialog.code = null },
         label =
             { Text(stringResource(R.string.recipient_device_id)) }, singleLine =
-                true, modifier = Modifier.fillMaxWidth()
+                true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                modifier = Modifier.fillMaxWidth()
     )
     RoleMenuRow(dialog)
     Spacer(Modifier.height(SpacingXs))

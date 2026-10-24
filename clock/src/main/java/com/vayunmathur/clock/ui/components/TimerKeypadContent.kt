@@ -21,6 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.clock.R
 import com.vayunmathur.library.ui.IconButton
@@ -64,7 +66,8 @@ fun TimerKeypadContent(
             onValueChange = { timerName = it },
             modifier = Modifier.fillMaxWidth(),
             placeholder = { Text(stringResource(R.string.timer_name_optional)) },
-            singleLine = true
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName),
         )
 
         val appendDigits: (String) -> Unit = { input = (input + it).takeLast(6).trimStart('0') }

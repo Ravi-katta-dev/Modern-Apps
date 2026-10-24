@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -94,8 +95,8 @@ fun StayGuestsPage(
                     )
                 }
             }
-            OutlinedTextField(givenName, { givenName = it }, label = { Text(stringResource(R.string.given_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(familyName, { familyName = it }, label = { Text(stringResource(R.string.family_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(givenName, { givenName = it }, label = { Text(stringResource(R.string.given_name)) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName), modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(familyName, { familyName = it }, label = { Text(stringResource(R.string.family_name)) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName), modifier = Modifier.fillMaxWidth())
             DateField(stringResource(R.string.date_of_birth), bornOn, onDate = { bornOn = it }, dateFormat = DateString::monthDayYear)
             OutlinedTextField(
                 email, { email = it }, label = { Text(stringResource(UiR.string.email)) }, singleLine = true,

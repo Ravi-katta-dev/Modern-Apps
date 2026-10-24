@@ -14,6 +14,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Button
@@ -69,6 +71,7 @@ fun ComposeScreen(
                     onValueChange = { to = it },
                     label = { Text("To (comma separated)") },
                     modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
                 )
                 if (invalid.isNotEmpty()) {
                     Text(
@@ -83,6 +86,7 @@ fun ComposeScreen(
                     label = { Text("Subject") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.EmailSubject),
                 )
                 OutlinedTextField(
                     value = body,

@@ -8,6 +8,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -63,6 +65,7 @@ fun WhatsAppBackupImportScreen(onBack: () -> Unit) {
             onValueChange = { keyHex = it.trim().filter { c -> c.isLetterOrDigit() } },
             label = { Text("64-hex backup key") },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             modifier = Modifier.fillMaxWidth(),
         )
 

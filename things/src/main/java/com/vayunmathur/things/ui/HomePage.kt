@@ -299,7 +299,7 @@ private fun ScaleCard(
                     value = height,
                     onValueChange = onHeightChange,
                     label = { Text(stringResource(R.string.height_cm)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true,
                     modifier = Modifier.weight(1f)
                 )

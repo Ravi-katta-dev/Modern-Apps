@@ -23,6 +23,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.AppScaffold
@@ -100,7 +101,10 @@ internal fun OmniboxEditor(
                 } else null,
                 shape = RoundedCornerShape(28.dp),
                 singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Search,
+                ),
                 keyboardActions = KeyboardActions(onSearch = {
                     if (fieldValue.text.isNotBlank()) {
                         onNavigate(fieldValue.text)

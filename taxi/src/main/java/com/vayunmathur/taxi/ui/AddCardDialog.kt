@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.AlertDialog
 import com.vayunmathur.library.ui.Checkbox
@@ -78,7 +79,8 @@ internal fun AddCardDialog(
                         label = { Text(stringResource(R.string.card_cvc)) },
                         singleLine = true,
                         enabled = !adding,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         modifier = Modifier.weight(1f),
                     )
                 }

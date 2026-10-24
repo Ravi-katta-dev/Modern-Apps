@@ -194,7 +194,7 @@ internal fun MainSheetContent(
                 Modifier.fillMaxWidth(),
                 suffix = { Text(stringResource(R.string.waypoint_range_suffix)) },
                 keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Number
+                    keyboardType = KeyboardType.Decimal
                 ),
                 isError = state.waypointRange.toDoubleOrNull() == null,
                 supportingText = if (state.waypointRange.toDoubleOrNull() == null) {

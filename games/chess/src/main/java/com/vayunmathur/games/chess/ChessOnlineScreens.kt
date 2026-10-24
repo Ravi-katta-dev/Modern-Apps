@@ -20,6 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vayunmathur.games.chess.data.PieceColor
@@ -290,6 +292,7 @@ private fun ChallengeRow(
             onValueChange = onUsernameChange,
             enabled = challenging == null,
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             label = { Text(stringResource(R.string.online_challenge_username)) },
         )
         if (challenging != null) {

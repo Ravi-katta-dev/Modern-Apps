@@ -149,7 +149,7 @@ private fun NumericInput(question: NumericQuestion, enabled: Boolean, onAnswer: 
         enabled = enabled,
         singleLine = true,
         label = { Text(question.unit?.let { stringResource(R.string.answer_1, it) } ?: stringResource(R.string.answer)) },
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
     )
 }
 

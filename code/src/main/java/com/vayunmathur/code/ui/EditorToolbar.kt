@@ -21,6 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.code.R
@@ -214,6 +216,7 @@ internal fun GoToLineDialog(onGo: (Int) -> Unit, onDismiss: () -> Unit) {
                 onValueChange = { new -> value = new.filter { it.isDigit() } },
                 singleLine = true,
                 label = { Text(stringResource(R.string.line)) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             )
         },
         confirmButton = {

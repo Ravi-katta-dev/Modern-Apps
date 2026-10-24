@@ -304,7 +304,8 @@ fun RecurrenceDialog(
                         val v = (new.toLongOrNull() ?: 1L).coerceIn(1L, MAX_RRULE_COUNT)
                         countStr = v.toString()
                         endCondition = RRule.EndCondition.Count(v)
-                    }, label = { Text(stringResource(R.string.count)) })
+                    }, label = { Text(stringResource(R.string.count)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
                 if(endCondition is RRule.EndCondition.Until) {
                     OutlinedTextField(

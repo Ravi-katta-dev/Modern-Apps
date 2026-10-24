@@ -278,7 +278,7 @@ private fun PasswordForm(
                 Text(stringResource(R.string.username_is_not_my_email), style = MaterialTheme.typography.bodyMedium)
             }
             if (useDifferentUsername) {
-                OutlinedTextField(value = username, onValueChange = { username = it.trim() }, label = { Text(stringResource(R.string.username)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = username, onValueChange = { username = it.trim() }, label = { Text(stringResource(R.string.username)) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), modifier = Modifier.fillMaxWidth())
             }
         }
         OutlinedTextField(

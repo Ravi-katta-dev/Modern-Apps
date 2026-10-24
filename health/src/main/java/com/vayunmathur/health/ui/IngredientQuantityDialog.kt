@@ -76,7 +76,7 @@ fun IngredientQuantityDialog(
                     value = quantityStr,
                     onValueChange = { quantityStr = it },
                     label = { Text(stringResource(R.string.quantity)) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth()
                 )
 

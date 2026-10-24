@@ -14,6 +14,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.core.content.ContextCompat
 import com.vayunmathur.euicc.R
 import com.vayunmathur.library.ui.R as UiR
@@ -84,6 +86,7 @@ fun ActivationCodeScreen(backStack: NavBackStack<Route>) {
             label = { Text(stringResource(R.string.activation_code_label)) },
             supportingText = { Text(stringResource(R.string.activation_code_hint)) },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
@@ -92,6 +95,7 @@ fun ActivationCodeScreen(backStack: NavBackStack<Route>) {
             label = { Text(stringResource(R.string.device_imei_label)) },
             supportingText = { Text(stringResource(R.string.device_imei_hint)) },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(

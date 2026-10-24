@@ -91,6 +91,7 @@ fun ParentPage(backStack: NavBackStack<Route>, viewModel: EducationViewModel) {
                 onValueChange = { name = it; viewModel.setName(it) },
                 label = { Text(stringResource(R.string.name)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName),
                 modifier = Modifier.fillMaxWidth(),
             )
 

@@ -8,6 +8,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import com.vayunmathur.euicc.R
 import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.library.ui.IconSim
@@ -57,6 +59,7 @@ fun ConfirmationCodeContent(
             value = code,
             onValueChange = { code = it },
             label = { Text(stringResource(R.string.confirmation_code_label)) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             isError = error,
             supportingText = if (error) {
                 { Text(stringResource(R.string.confirmation_code_wrong)) }

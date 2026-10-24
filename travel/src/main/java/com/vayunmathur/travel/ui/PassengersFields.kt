@@ -13,6 +13,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.DateString
 import com.vayunmathur.library.ui.DropdownMenuItem
@@ -44,6 +46,7 @@ internal fun IdentityDocumentFields(doc: IdentityDocumentDto?, onChange: (Identi
         onValueChange = { onChange(current.copy(uniqueIdentifier = it)) },
         label = { Text(stringResource(R.string.passport_number)) },
         singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         modifier = Modifier.fillMaxWidth(),
     )
     OutlinedTextField(
@@ -51,6 +54,7 @@ internal fun IdentityDocumentFields(doc: IdentityDocumentDto?, onChange: (Identi
         onValueChange = { onChange(current.copy(issuingCountryCode = it.uppercase().take(2))) },
         label = { Text(stringResource(R.string.issuing_country_e_g_gb)) },
         singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
         modifier = Modifier.fillMaxWidth(),
     )
     DateField(
@@ -91,6 +95,7 @@ internal fun LoyaltyFields(
             },
             label = { Text(stringResource(R.string.number)) },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             modifier = Modifier.weight(1f),
         )
     }
@@ -115,6 +120,7 @@ fun AirlineDropdown(
             onValueChange = { onSelect(it.uppercase().take(2)) },
             label = { Text(stringResource(R.string.airline)) },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             modifier = modifier,
         )
         return

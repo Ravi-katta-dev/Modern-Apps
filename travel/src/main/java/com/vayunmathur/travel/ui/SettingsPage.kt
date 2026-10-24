@@ -47,6 +47,8 @@ import com.vayunmathur.travel.util.removeFrequentFlyer
 import com.vayunmathur.travel.util.saveFrequentFlyer
 import com.vayunmathur.travel.util.selectCustomer
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 
 /**
  * App settings. Currently holds saved frequent-flyer accounts, which are applied
@@ -189,6 +191,7 @@ private fun AddCustomerForm(
                 onValueChange = { given = it },
                 label = { Text(stringResource(R.string.first_name)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName),
                 modifier = Modifier.weight(1f),
             )
             OutlinedTextField(
@@ -196,6 +199,7 @@ private fun AddCustomerForm(
                 onValueChange = { family = it },
                 label = { Text(stringResource(R.string.last_name)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName),
                 modifier = Modifier.weight(1f),
             )
         }
@@ -204,6 +208,7 @@ private fun AddCustomerForm(
             onValueChange = { email = it },
             label = { Text(stringResource(UiR.string.email)) },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
@@ -211,6 +216,7 @@ private fun AddCustomerForm(
             onValueChange = { phone = it },
             label = { Text(stringResource(R.string.phone_optional)) },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
             modifier = Modifier.fillMaxWidth(),
         )
         Button(

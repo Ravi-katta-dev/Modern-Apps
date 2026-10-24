@@ -14,6 +14,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.astronomy.R
 import com.vayunmathur.astronomy.Route
@@ -123,8 +125,8 @@ fun SettingsScreen(backStack: NavBackStack<Route>, state: SettingsUiState, actio
 
             SettingsSection(title = stringResource(R.string.location)) {
                 Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = latText, onValueChange = { latText = it }, label = { Text(stringResource(R.string.latitude_deg)) }, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(value = lonText, onValueChange = { lonText = it }, label = { Text(stringResource(R.string.longitude_deg)) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = latText, onValueChange = { latText = it }, label = { Text(stringResource(R.string.latitude_deg)) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.DecimalSigned), modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = lonText, onValueChange = { lonText = it }, label = { Text(stringResource(R.string.longitude_deg)) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.DecimalSigned), modifier = Modifier.fillMaxWidth())
                     Button(onClick = {
                         val lat = latText.toDoubleOrNull(); val lon = lonText.toDoubleOrNull()
                         if (lat != null && lon != null) actions.setManualLocation(lat, lon)

@@ -20,6 +20,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vayunmathur.everysync.R
 import com.vayunmathur.everysync.Route
@@ -81,6 +83,7 @@ fun SettingsScreen(state: SettingsUiState, actions: SettingsActions) {
                 intervalText.toLongOrNull()?.let { m -> actions.setInterval(m) }
             },
             label = { Text(stringResource(R.string.global_interval)) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth(),
         )
         SettingsSwitchRow(

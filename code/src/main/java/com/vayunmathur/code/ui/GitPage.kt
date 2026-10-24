@@ -24,6 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.code.R
@@ -146,6 +149,7 @@ private fun NoRepoSection(viewModel: EditorViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text(stringResource(R.string.clone_url_hint)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             )
             Button(
                 onClick = {
@@ -306,6 +310,8 @@ private fun CredentialsSection(viewModel: EditorViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 label = { Text(stringResource(R.string.git_token)) },
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             )
             OutlinedTextField(
                 value = viewModel.gitAuthorName,
@@ -313,6 +319,7 @@ private fun CredentialsSection(viewModel: EditorViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 label = { Text(stringResource(R.string.git_author_name)) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName),
             )
             OutlinedTextField(
                 value = viewModel.gitAuthorEmail,
@@ -320,6 +327,7 @@ private fun CredentialsSection(viewModel: EditorViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 label = { Text(stringResource(R.string.git_author_email)) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             )
         }
     }

@@ -30,7 +30,7 @@ import kotlinx.coroutines.withContext
 @Composable
 fun AddAccountSection(host: String, onHostChange: (String) -> Unit, port: String, onPortChange: (String) -> Unit, useSsl: Boolean, onSslChange: (Boolean) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(value = host, onValueChange = onHostChange, label = { Text(stringResource(R.string.host_label)) }, singleLine = true, modifier = Modifier.weight(2f))
+        OutlinedTextField(value = host, onValueChange = onHostChange, label = { Text(stringResource(R.string.host_label)) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.weight(2f))
         OutlinedTextField(value = port, onValueChange = onPortChange, label = { Text(stringResource(R.string.port_label)) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
     }
     Row(verticalAlignment = Alignment.CenterVertically) {

@@ -253,6 +253,7 @@ fun ShareOnlineDialog(
                     onValueChange = { recipient = it },
                     label = { Text(stringResource(R.string.recipient_device_id)) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                     modifier = Modifier.fillMaxWidth()
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -283,6 +284,7 @@ fun WorldCreatorScreen(
                 onValueChange = { name = it },
                 label = { Text(stringResource(R.string.world_name)) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName),
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(12.dp))

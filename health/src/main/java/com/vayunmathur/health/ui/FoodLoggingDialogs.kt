@@ -65,7 +65,7 @@ fun LogHydrationDialog(viewModel: HealthViewModel, initialTime: Instant? = null,
                             value = quantityStr,
                             onValueChange = { quantityStr = it },
                             label = { Text(stringResource(R.string.quantity)) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth(),
                             trailingIcon = {
                                 Row(
@@ -205,7 +205,7 @@ fun LogMealDialog(viewModel: HealthViewModel, initialTime: Instant? = null, onDi
                             value = quantityStr,
                             onValueChange = { quantityStr = it },
                             label = { Text(labelText) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                             modifier = Modifier.fillMaxWidth()
                     )
                 }

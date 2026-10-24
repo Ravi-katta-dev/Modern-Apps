@@ -22,6 +22,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.games.hub.R
 import com.vayunmathur.games.hub.BuildConfig
@@ -154,7 +156,7 @@ fun ProfileScreen(
                 title = { Text(stringResource(R.string.edit_profile)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(value = editName, onValueChange = { editName = it }, label = { Text(stringResource(R.string.display_name)) }, singleLine = true)
+                        OutlinedTextField(value = editName, onValueChange = { editName = it }, label = { Text(stringResource(R.string.display_name)) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.PersonName))
                         Text(stringResource(R.string.avatar), style = MaterialTheme.typography.labelMedium)
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(avatarOptions) { sym ->

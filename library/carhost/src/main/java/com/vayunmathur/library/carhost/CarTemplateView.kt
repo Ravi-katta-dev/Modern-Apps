@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.car.app.model.Template
@@ -330,7 +331,10 @@ private fun KeypadRenderer(template: HostTemplate.Keypad, modifier: Modifier = M
             onValueChange = { text = it; template.onNumberChanged?.invoke(it) },
             label = { Text("Number") },
             singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Phone,
+                imeAction = ImeAction.Done,
+            ),
             modifier = Modifier.fillMaxWidth(),
         )
         template.onPrimaryAction?.let { primary ->

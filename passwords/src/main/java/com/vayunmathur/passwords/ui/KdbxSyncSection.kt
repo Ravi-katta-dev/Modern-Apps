@@ -18,6 +18,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.AlertDialog
@@ -251,6 +253,7 @@ private fun VaultPasswordDialog(onDismiss: () -> Unit, onSave: (String) -> Unit)
                 onValueChange = { value = it },
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 label = { Text(stringResource(R.string.sync_vault_password)) },
             )
         },

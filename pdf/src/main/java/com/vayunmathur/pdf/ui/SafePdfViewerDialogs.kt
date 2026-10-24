@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.TextButton
@@ -34,6 +36,7 @@ internal fun SafePdfPasswordPrompt(
                     onValueChange = onPwInput,
                     singleLine = true,
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     placeholder = { Text(stringResource(R.string.password)) },
                 )
             }
@@ -105,6 +108,7 @@ internal fun SafePdfPendingDialogs(
                     onValueChange = { pw = it },
                     singleLine = true,
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     placeholder = { Text(stringResource(R.string.password)) },
                 )
             },

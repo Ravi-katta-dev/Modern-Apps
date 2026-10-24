@@ -9,6 +9,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.email.R
 import com.vayunmathur.email.data.EmailAccount
@@ -98,6 +100,7 @@ fun ComposerHeaderSection(
             label = { Text(stringResource(R.string.to_label)) },
             trailingIcon = { IconButton(onClick = { onPickContact(0) }) { com.vayunmathur.library.ui.IconAdd() } },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             textStyle = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f),
         )
@@ -108,6 +111,7 @@ fun ComposerHeaderSection(
             value = cc, onValueChange = onCcChange, label = { Text(stringResource(R.string.cc)) },
             trailingIcon = { IconButton(onClick = { onPickContact(1) }) { com.vayunmathur.library.ui.IconAdd() } },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             textStyle = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -115,6 +119,7 @@ fun ComposerHeaderSection(
             value = bcc, onValueChange = onBccChange, label = { Text(stringResource(R.string.bcc)) },
             trailingIcon = { IconButton(onClick = { onPickContact(2) }) { com.vayunmathur.library.ui.IconAdd() } },
             singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
             textStyle = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.fillMaxWidth(),
         )

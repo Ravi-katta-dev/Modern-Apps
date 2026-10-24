@@ -127,6 +127,7 @@ fun PasswordEditScreen(
                         onValueChange = { v -> actions.updateDraft { it.copy(password = v) } },
                         label = { Text(stringResource(R.string.label_password)) },
                         modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                         visualTransformation = if (showPassword) androidx.compose.ui.text.input.VisualTransformation.None else androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         trailingIcon = {
                             TextButton(onClick = { showPassword = !showPassword }) { Text(if (showPassword) stringResource(R.string.hide) else stringResource(R.string.show)) }
@@ -138,7 +139,7 @@ fun PasswordEditScreen(
                         onValueChange = { v -> actions.updateDraft { it.copy(totpSecret = v) } },
                         label = { Text(stringResource(R.string.label_totp_secret)) },
                         modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions.Default,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                     )
                 }
             }
@@ -164,7 +165,10 @@ fun PasswordEditScreen(
                         onValueChange = { websiteInput = it },
                         label = { Text(stringResource(R.string.label_add_website)) },
                         modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Uri,
+                            imeAction = ImeAction.Done,
+                        ),
                         keyboardActions = KeyboardActions(onDone = {
                             addWebsiteFromInput()
                             focusManager.clearFocus()
