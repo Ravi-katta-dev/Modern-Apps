@@ -29,15 +29,17 @@ const float MIN_HALF_WIDTH_PX = 0.5;
 const float PI = 3.141592653589793;
 
 void main() {
+    float ox = push.tileToClip[0][2];
+    float oy = push.tileToClip[1][2];
+    float span = push.tileToClip[2][2];
+    // The globe's own px per tile unit: see `line_globe.vert`.
+    float n0 = PI - 2.0 * PI * (oy + inPosition.y * span);
+    float tilePx = max(push.misc.x, 1.0) * PI * max(1.0 / cosh(n0), 0.05);
     float wantHalfPx = push.line.x;
-    float tilePx = max(push.misc.x, 1.0);
     float halfWidthPx = max(wantHalfPx, MIN_HALF_WIDTH_PX);
     vec2 offsetTile = inNormal * (inT * halfWidthPx / tilePx);
     vec2 bent = inPosition + offsetTile;
 
-    float ox = push.tileToClip[0][2];
-    float oy = push.tileToClip[1][2];
-    float span = push.tileToClip[2][2];
     float wx = ox + bent.x * span;
     float wy = oy + bent.y * span;
     float lon = wx * 360.0 - 180.0;

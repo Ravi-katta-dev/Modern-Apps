@@ -36,10 +36,10 @@ void main() {
     // -cos(pitch) once tilted. That distinguishes the two, and they need different z inputs.
     if (abs(push.tileToClip[2][3]) < 1e-6) {
         // Pitch 0: the ortho matrix copies z straight to clip depth and never lets height touch
-        // x/y, so the building already reads as its flat footprint. Feed the small tile-normalised
-        // height (clamped into range) instead of the world-px one, which would fall outside the
-        // [0, w] depth range and clip the whole building away.
-        gl_Position = push.tileToClip * vec4(inPosition.xy, clamp(inPosition.z, 0.0, 0.99), 1.0);
+        // x/y, so the building already reads as its flat footprint. Feed a depth that falls as the
+        // tile-normalised height rises, so where roofs overlap (a tower part inside its podium's
+        // outline) the taller one wins LESS. Kept in [0, 0.99], in front of the terrain's 0.9995.
+        gl_Position = push.tileToClip * vec4(inPosition.xy, 0.99 - clamp(inPosition.z, 0.0, 0.99), 1.0);
     } else {
         // Tilted: the full perspective maps a real world-px height to both the projected rise and a
         // depth inside the near/far range, so buildings extrude and occlude correctly.

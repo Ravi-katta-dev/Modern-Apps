@@ -1,9 +1,12 @@
-//! Globe pipelines: the depth-tested fill/line/ribbon variants that bend
-//! tile-local geometry onto the orthographic sphere.
+//! Globe pipelines: the fill/line/ribbon variants that bend tile-local geometry
+//! onto the orthographic sphere.
 //!
-//! Split from `pipelines.rs` (file-length limit). Same vertex formats as the
-//! flat twins; depth 1 - z (sub-camera point 0, limb 1) with the pass cleared
-//! to 1.0, so nearer (larger z) wins the LESS test.
+//! Split from `pipelines.rs` (file-length limit). Same vertex formats and the
+//! same depth-off state as the flat twins: the visible hemisphere of an
+//! orthographic sphere never overlaps itself on screen and the fragment stages
+//! discard the far side, so layer order composites exactly as on the flat map.
+//! A depth test would only make coplanar layers fight, because each triangle's
+//! interpolated depth is a chord whose sag depends on how it was tessellated.
 use super::assemble::build;
 use super::state::{Depth, Stencil};
 use crate::tess::{fill, stroke};
@@ -49,7 +52,7 @@ pub(super) fn globe_pipelines(
                 (fill::FLOATS_PER_VERTEX * 4) as u32,
                 fill_attributes,
                 Stencil::Ignore,
-                Depth::TestWrite,
+                Depth::Off,
                 cache,
             ),
             build(
@@ -62,7 +65,7 @@ pub(super) fn globe_pipelines(
                 (stroke::FLOATS_PER_VERTEX * 4) as u32,
                 line_attributes,
                 Stencil::Ignore,
-                Depth::TestWrite,
+                Depth::Off,
                 cache,
             ),
             build(
@@ -75,7 +78,7 @@ pub(super) fn globe_pipelines(
                 (crate::tess::ribbon::FLOATS_PER_VERTEX * 4) as u32,
                 ribbon_attributes,
                 Stencil::Ignore,
-                Depth::TestWrite,
+                Depth::Off,
                 cache,
             ),
         )

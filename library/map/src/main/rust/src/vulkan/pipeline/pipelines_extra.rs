@@ -46,20 +46,20 @@ pub struct Pipelines {
     /// vertex shader collapses the grid to the flat footprint, so the overhead map is unchanged.
     pub terrain: vk::Pipeline,
     /// Globe fill: `fill_globe.vert`/`fill_globe.frag` on the fill vertex format,
-    /// depth-tested so the near hemisphere wins over the far side and coarser
-    /// ancestors lose to finer descendants. Drawn instead of [`fill`](Self::fill)
-    /// while the globe is active; the flat pipeline is never bound then.
+    /// depth off like [`fill`](Self::fill) (the fragment stage discards the far
+    /// side). Drawn instead of [`fill`](Self::fill) while the globe is active; the
+    /// flat pipeline is never bound then.
     pub fill_globe: vk::Pipeline,
     /// Globe line: `line_globe.vert`/`line_globe.frag` on the stroke vertex format,
-    /// depth-tested like [`fill_globe`](Self::fill_globe). Drawn instead of
+    /// depth off like [`fill_globe`](Self::fill_globe). Drawn instead of
     /// [`line`](Self::line) while the globe is active.
     pub line_globe: vk::Pipeline,
     /// Globe ribbon: `road_surface_globe.vert`/`.frag` on the ribbon vertex format,
-    /// depth-tested like [`fill_globe`](Self::fill_globe). Drawn instead of
+    /// depth off like [`fill_globe`](Self::fill_globe). Drawn instead of
     /// [`ribbon`](Self::ribbon) while the globe is active.
     pub ribbon_globe: vk::Pipeline,
     /// Globe symbols + icons: `symbol_globe.vert` with the glyph and sprite fragment
-    /// shaders, on the billboard vertex format, depth-tested so far-side labels lose.
+    /// shaders, on the billboard vertex format, depth off like the flat symbols.
     /// Drawn instead of [`symbol`](Self::symbol)/[`icon`](Self::icon) on the globe.
     pub symbol_globe: vk::Pipeline,
     pub icon_globe: vk::Pipeline,

@@ -8,7 +8,7 @@ use super::split::split_t;
 use super::terrain::{drape_vertices, terrain_mesh, tile_ground_width_m};
 use super::traffic::{traffic_meshes, traffic_present};
 use crate::style::{GatedSummary, KindFilter, Layer, LayerKind, LayerToggles, Toggle, ToggleStamp};
-use crate::tess::{fill, ribbon, stroke};
+use crate::tess::{fill, ribbon, stroke, subdivide};
 use crate::tile::select::ANCESTOR_DEPTH;
 use crate::tile::symbol;
 use crate::tile::taper;
@@ -384,6 +384,31 @@ pub fn build_toggled(
             }
         }
 
+        // Globe zooms: the globe shaders bend only vertices, so long edges must be split or
+        // they cut chords through the ball. Before draping, so new vertices get their own height.
+        if z <= crate::camera::GLOBE_FLAT_THRESHOLD as u8 {
+            let max_edge = subdivide::globe_max_edge(z);
+            match layer.kind {
+                LayerKind::Fill => subdivide::subdivide(
+                    &mut vertices,
+                    &mut indices,
+                    fill::FLOATS_PER_VERTEX,
+                    max_edge,
+                ),
+                LayerKind::Line => {
+                    subdivide::subdivide(
+                        &mut vertices,
+                        &mut indices,
+                        stroke::FLOATS_PER_VERTEX,
+                        max_edge,
+                    );
+                    for (_, v, i) in coloured.iter_mut() {
+                        subdivide::subdivide(v, i, stroke::FLOATS_PER_VERTEX, max_edge);
+                    }
+                }
+                LayerKind::Symbol => {}
+            }
+        }
         // Drape the layer's flat geometry onto the relief where the tile carries a
         // heightmap; without one the tessellators' z=0 stands and output is unchanged.
         // Done once per mesh, not per feature, so accumulated vertices are walked once.

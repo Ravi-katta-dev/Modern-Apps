@@ -80,8 +80,9 @@ pub(super) fn symbol_pipelines(
 
 /// Build the (symbol_globe, icon_globe) pair: the globe vertex shader on the
 /// billboard format, paired with the glyph and sprite fragment shaders
-/// respectively, through the atlas layout. Depth-tested so far-side labels
-/// lose to the ball.
+/// respectively, through the atlas layout. Depth off like the flat symbols: a
+/// far-side anchor collapses its quad to a point, and a depth test would clip
+/// overlapping glyph edges and the label beside an icon, which share a depth.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn globe_symbol_pipelines(
     device: &ash::Device,
@@ -107,7 +108,7 @@ pub(super) fn globe_symbol_pipelines(
                 (symbol::FLOATS_PER_VERTEX * 4) as u32,
                 symbol_billboard_attributes,
                 Stencil::Ignore,
-                Depth::TestWrite,
+                Depth::Off,
                 cache,
             ),
             build(
@@ -120,7 +121,7 @@ pub(super) fn globe_symbol_pipelines(
                 (symbol::ICON_FLOATS_PER_VERTEX * 4) as u32,
                 symbol_billboard_attributes,
                 Stencil::Ignore,
-                Depth::TestWrite,
+                Depth::Off,
                 cache,
             ),
         )

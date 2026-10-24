@@ -9,5 +9,6 @@ pub mod fill;
 pub mod ribbon;
 pub mod roof;
 pub mod stroke;
+pub mod subdivide;
 pub mod terrain;
 pub mod text;

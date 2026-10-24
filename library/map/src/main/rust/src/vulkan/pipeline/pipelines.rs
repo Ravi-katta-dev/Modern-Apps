@@ -249,7 +249,7 @@ impl Pipelines {
         );
         // Globe labels + icons: the globe vertex shader on the billboard format,
         // paired with the glyph and sprite fragment shaders respectively, through
-        // the atlas layout. Depth-tested so far-side labels lose to the ball.
+        // the atlas layout. Depth off, like the flat symbols.
         let (symbol_globe, icon_globe) = super::pipelines_symbols::globe_symbol_pipelines(
             device,
             symbol_layout,
@@ -262,12 +262,10 @@ impl Pipelines {
             cache,
         );
 
-        // Globe variants: same vertex formats as their flat twins, depth-tested
-        // (TestWrite, LESS) so the near hemisphere occludes the far side and
-        // coarser ancestors lose to finer descendants drawn later. The globe
-        // shaders bend tile-local geometry onto the ball and write depth =
-        // 1 - z (limb 0, sub-camera point ~1); with the pass cleared to 1.0,
-        // nearer (larger z) wins the LESS test.
+        // Globe variants: same vertex formats and depth-off state as their flat
+        // twins. The shaders bend tile-local geometry onto the ball and discard
+        // the far side, so layer order composites exactly as on the flat map
+        // (see `pipelines_globe`).
         let (fill_globe, line_globe, ribbon_globe) = super::pipelines_globe::globe_pipelines(
             device,
             layout,

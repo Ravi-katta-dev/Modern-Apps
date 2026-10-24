@@ -17,9 +17,9 @@
 // the only fragment difference from `fill.frag`, so opacity, fade and coverage
 // match the flat map exactly. Far-side vertices (z < 0) are emitted at the far
 // plane and the fragment stage discards wherever the interpolated z is negative,
-// so straddling triangles cut cleanly at the limb. Depth is `1 - z`: the
-// sub-camera point is nearest (0), the limb farthest (1). Screen y follows the
-// CPU anchor convention (`halfH - y`, north up).
+// so straddling triangles cut cleanly at the limb. The pipeline is depth-off
+// (layer order composites, as on the flat map), so the depth written below is
+// inert. Screen y follows the CPU anchor convention (`halfH - y`, north up).
 
 layout(location = 0) in vec3 inPosition;
 

@@ -33,9 +33,17 @@ const float MIN_HALF_WIDTH_PX = 0.5;
 const float PI = 3.141592653589793;
 
 void main() {
+    float ox = push.tileToClip[0][2];
+    float oy = push.tileToClip[1][2];
+    float span = push.tileToClip[2][2];
+    // `misc.x` is the flat tile's px span. On the ball (radius = half the flat world width)
+    // Mercator's conformal scale makes one tile unit pi * cos(lat) times longer, in both
+    // directions, so widths and dash lengths convert through the globe's own span.
+    // cos(lat) = 1 / cosh(n) for the Mercator n of this vertex's unbent position.
+    float n0 = PI - 2.0 * PI * (oy + inPosition.y * span);
+    float tilePx = max(push.misc.x, 1.0) * PI * max(1.0 / cosh(n0), 0.05);
     float wantHalfPx = push.line.x;
     float gapHalfPx = push.line.y;
-    float tilePx = max(push.misc.x, 1.0);
     float lateralPx = push.misc.z;
     float halfWidthPx = max(wantHalfPx, MIN_HALF_WIDTH_PX);
     float offsetPx = inExtrude.x * gapHalfPx + inExtrude.y * halfWidthPx + lateralPx;
@@ -44,9 +52,6 @@ void main() {
     vec2 offsetTile = inNormal * (offsetPx / tilePx);
     vec2 bent = inPosition + offsetTile;
 
-    float ox = push.tileToClip[0][2];
-    float oy = push.tileToClip[1][2];
-    float span = push.tileToClip[2][2];
     float wx = ox + bent.x * span;
     float wy = oy + bent.y * span;
     float lon = wx * 360.0 - 180.0;

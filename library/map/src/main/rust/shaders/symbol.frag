@@ -38,7 +38,8 @@ void main() {
     float haloSdf = push.line.y / max(push.line.x, 1.0) * push.line.z;
     float halo = smoothstep(0.5 - haloSdf - aa, 0.5 - haloSdf + aa, dist);
     vec3 haloRgb = push.misc.yzw;
-    vec3 rgb = mix(haloRgb, push.color.rgb, face);
+    // Without a halo the face's own antialiased edge must not pick up the halo colour.
+    vec3 rgb = haloSdf > 0.0 ? mix(haloRgb, push.color.rgb, face) : push.color.rgb;
     float alpha = max(halo * push.color.a, face * push.color.a);
     if (alpha <= 0.001) discard;
     outColor = vec4(rgb, alpha);
