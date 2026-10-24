@@ -55,7 +55,11 @@ fun SearchScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(state.results, key = { "${it.mediaType}:${it.tmdbId}" }) { item ->
-                        MediaCard(item = item, onOpen = { onOpenDetail(item) })
+                        MediaCard(
+                            item = item,
+                            onOpen = { onOpenDetail(item) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }

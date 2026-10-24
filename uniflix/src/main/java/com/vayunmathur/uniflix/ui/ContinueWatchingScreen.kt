@@ -55,6 +55,7 @@ fun ContinueWatchingScreen(onBack: () -> Unit, onResume: (ContinueWatchingEntry)
                         onOpen = {
                             onResume(entry)
                         },
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }

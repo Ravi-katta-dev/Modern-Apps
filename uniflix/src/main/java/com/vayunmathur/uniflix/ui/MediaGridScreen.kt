@@ -3,6 +3,7 @@ package com.vayunmathur.uniflix.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -48,7 +49,11 @@ fun MediaGridScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(items, key = { "${it.mediaType}:${it.tmdbId}" }) { item ->
-                    MediaCard(item = item, onOpen = { onOpenDetail(item) })
+                    MediaCard(
+                        item = item,
+                        onOpen = { onOpenDetail(item) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         }

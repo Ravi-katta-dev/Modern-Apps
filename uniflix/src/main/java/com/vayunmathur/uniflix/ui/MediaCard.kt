@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
@@ -21,8 +22,8 @@ import com.vayunmathur.uniflix.domain.MediaItem
 
 /** A poster card: artwork + title + year, opening detail on tap. */
 @Composable
-fun MediaCard(item: MediaItem, onOpen: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
+fun MediaCard(item: MediaItem, onOpen: () -> Unit, modifier: Modifier = Modifier) {
+    Card(modifier = modifier.clickable(onClick = onOpen)) {
         Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             AsyncImage(
                 model = TmdbImageUrl.poster(item.posterPath),
@@ -44,7 +45,10 @@ fun MediaRow(title: String, items: List<MediaItem>, onOpen: (MediaItem) -> Unit)
         Text(title, style = MaterialTheme.typography.titleMedium)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(items, key = { "${it.mediaType}:${it.tmdbId}" }) { item ->
-                MediaCard(item = item, onOpen = { onOpen(item) })
+                // Fixed width: LazyRow's horizontal constraint is unbounded,
+                // so fillMaxWidth collapses to zero and the aspect-ratio image
+                // measures 0x0 (blank cards with visible titles).
+                MediaCard(item = item, onOpen = { onOpen(item) }, modifier = Modifier.width(120.dp))
             }
         }
     }

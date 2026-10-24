@@ -3,6 +3,7 @@ package com.vayunmathur.uniflix.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -90,6 +91,12 @@ fun DetailScreen(
                     state.episodes.forEach { episode ->
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                AsyncImage(
+                                    model = TmdbImageUrl.still(episode.stillPath),
+                                    contentDescription = episode.name,
+                                    modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
+                                    contentScale = ContentScale.Crop,
+                                )
                                 Text("E${episode.episodeNumber} · ${episode.name}")
                                 Button(onClick = {
                                     onResolve(episode.seasonNumber, episode.episodeNumber)

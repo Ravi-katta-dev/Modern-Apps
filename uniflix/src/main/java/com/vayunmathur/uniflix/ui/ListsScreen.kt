@@ -80,6 +80,7 @@ fun ListsScreen(onBack: () -> Unit, onOpenDetail: (MediaItem) -> Unit) {
                                     onOpen = {
                                         onOpenDetail(mediaItem)
                                     },
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
                                 IconButton(onClick = { vm.deleteItem(item) }) { IconDelete() }
                             }
