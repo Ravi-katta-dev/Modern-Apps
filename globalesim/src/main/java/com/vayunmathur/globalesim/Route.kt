@@ -5,15 +5,11 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 sealed interface Route : NavKey {
-    /** Home: your eSIM status + wallet + top-up. */
+    /** Tab host: Purchase + Pricing. */
     @Serializable
-    data object Home : Route
+    data object Tabs : Route
 
-    /** Per-country rate list (what each GB deducts where you travel). */
-    @Serializable
-    data object Rates : Route
-
-    /** Install detail: QR + handoff (reissues the same activation code). */
+    /** Install: direct LPA handoff (reissues the same activation code). */
     @Serializable
     data object Install : Route
 

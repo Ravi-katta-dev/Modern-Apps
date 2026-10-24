@@ -25,8 +25,6 @@ import com.vayunmathur.globalesim.platform.EsimUiState
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.Card
-import com.vayunmathur.library.ui.IconRefresh
-import com.vayunmathur.library.ui.IconButton
 import com.vayunmathur.library.ui.LoadingIndicator
 import com.vayunmathur.library.ui.OutlinedButton
 import com.vayunmathur.library.ui.Text
@@ -49,10 +47,8 @@ fun HomeScreen(
     onCheckCryptoStatus: () -> Unit,
     onClearCryptoInvoice: () -> Unit,
     onOpenInstall: () -> Unit,
-    onOpenRates: () -> Unit,
     onOpenBudget: () -> Unit,
     onOpenTransfer: () -> Unit,
-    onRefresh: () -> Unit,
     onDismissError: () -> Unit,
 ) {
     val messenger = rememberMessenger()
@@ -94,11 +90,8 @@ fun HomeScreen(
         }
     }
     AppScaffold(
-        title = "Global eSIM",
+        title = "Purchase",
         scrollBehavior = appBarScrollBehavior(),
-        actions = {
-            IconButton(onClick = onRefresh) { IconRefresh() }
-        },
     ) { padding ->
         Column(
             Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
@@ -109,11 +102,17 @@ fun HomeScreen(
                     if (state.loading && profile == null) {
                         LoadingIndicator()
                     } else if (profile == null) {
-                        Text("One global eSIM for 200+ countries.")
+                        Text("One global eSIM for 200+ countries")
                         Text(
-                            "Pay as you go (~$1/GB), credit never expires, " +
-                                "no email needed. Creating your eSIM reserves " +
-                                "it on the network.",
+                            "Pay as you go, credit never expires",
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        Text(
+                            "No email or phone number or KYC required",
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        Text(
+                            "Set up your eSIM now",
                             modifier = Modifier.padding(top = 4.dp),
                         )
                         Button(
@@ -163,12 +162,6 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
                 ) {
                     Text("Install / reinstall eSIM")
-                }
-                OutlinedButton(
-                    onClick = onOpenRates,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) {
-                    Text("Data rates by country")
                 }
                 OutlinedButton(
                     onClick = onOpenBudget,

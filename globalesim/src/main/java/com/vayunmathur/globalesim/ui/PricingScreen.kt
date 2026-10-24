@@ -1,0 +1,158 @@
+package com.vayunmathur.globalesim.ui
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import com.vayunmathur.globalesim.domain.QuoteMath
+import com.vayunmathur.globalesim.platform.EsimUiState
+import com.vayunmathur.library.ui.CommonSearchBar
+import com.vayunmathur.library.ui.EmptyState
+import com.vayunmathur.library.ui.ExpandVisibility
+import com.vayunmathur.library.ui.IconSim
+import com.vayunmathur.library.ui.LazyListScaffold
+import com.vayunmathur.library.ui.ListItem
+import com.vayunmathur.library.ui.ListItemDefaults
+import com.vayunmathur.library.ui.LoadingIndicator
+import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.Surface
+import com.vayunmathur.library.ui.Text
+import com.vayunmathur.library.ui.animatedColor
+import com.vayunmathur.library.ui.animatedDp
+import com.vayunmathur.library.ui.appBarScrollBehavior
+import com.vayunmathur.library.ui.rememberMessenger
+
+/**
+ * Pricing: searchable per-country rate list. Tapping a country expands it
+ * to show every carrier and its per-GB price (cheapest first), in the same
+ * expandable-group style as the contacts groups page. Display-only —
+ * the wallet is charged the local rate automatically as you use data.
+ */
+@Composable
+fun PricingScreen(
+    state: EsimUiState,
+    onDismissError: () -> Unit,
+) {
+    val messenger = rememberMessenger()
+    val error = state.error
+    LaunchedEffect(error) {
+        if (error != null) {
+            messenger.show(error)
+            onDismissError()
+        }
+    }
+    var query by remember { mutableStateOf("") }
+    val expanded = remember { mutableStateListOf<String>() }
+    val filtered = remember(state.rates, query) {
+        if (query.isBlank()) state.rates
+        else state.rates.filter {
+            it.countryName.contains(query, ignoreCase = true) ||
+                it.countryCode.contains(query, ignoreCase = true)
+        }
+    }
+
+    LazyListScaffold(
+        title = "Pricing",
+        horizontalPadding = 8.dp,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        scrollBehavior = appBarScrollBehavior(),
+    ) {
+        item(key = "pricing-search") {
+            CommonSearchBar(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = "Search countries",
+            )
+        }
+        if (filtered.isEmpty()) {
+            item(key = "pricing-empty") {
+                if (state.loading) {
+                    LoadingIndicator(Modifier.padding(16.dp))
+                } else {
+                    EmptyState(
+                        title = if (query.isBlank()) "No rates yet" else "No matches",
+                        message = if (query.isBlank()) "Pull down or reopen to refresh."
+                        else "Try another country name or code.",
+                        icon = { IconSim() },
+                    )
+                }
+            }
+        }
+        filtered.forEach { rate ->
+            val isExpanded = rate.countryCode in expanded
+            val showNetworks = isExpanded && rate.networks.isNotEmpty()
+            item(key = "country-${rate.countryCode}") {
+                val collapsedColor = MaterialTheme.colorScheme.surfaceVariant
+                val expandedColor = MaterialTheme.colorScheme.secondaryContainer
+                val headerColor = animatedColor(if (showNetworks) expandedColor else collapsedColor)
+                val bottomRadius = animatedDp(if (showNetworks) 4.dp else 16.dp)
+                Column {
+                    Surface(
+                        onClick = {
+                            if (isExpanded) expanded.remove(rate.countryCode)
+                            else expanded.add(rate.countryCode)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(
+                            topStart = 16.dp, topEnd = 16.dp,
+                            bottomStart = bottomRadius, bottomEnd = bottomRadius,
+                        ),
+                        color = headerColor,
+                    ) {
+                        ListItem(
+                            content = {
+                                Text(
+                                    text = rate.countryName,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            },
+                            supportingContent = {
+                                Text("from ${QuoteMath.formatCents(rate.pricePerGbUsdCents)} / GB")
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        )
+                    }
+                    ExpandVisibility(visible = showNetworks) {
+                        Column {
+                            Spacer(Modifier.height(2.dp))
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            ) {
+                                Column(Modifier.padding(vertical = 4.dp)) {
+                                    rate.networks.forEach { net ->
+                                        ListItem(
+                                            modifier = Modifier.clickable {},
+                                            content = { Text(net.operator) },
+                                            supportingContent = {
+                                                Text(QuoteMath.formatCents(net.pricePerGbUsdCents) + " / GB")
+                                            },
+                                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

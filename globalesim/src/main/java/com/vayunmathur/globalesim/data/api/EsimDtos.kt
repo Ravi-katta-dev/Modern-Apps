@@ -1,5 +1,6 @@
 package com.vayunmathur.globalesim.data.api
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
@@ -10,106 +11,141 @@ import kotlinx.serialization.Serializable
  * Product model: one global eSIM per anonymous account. The user tops up
  * USD credit; data deducts from the on-SIM wallet at the local per-country
  * rate. Credit never expires.
+ *
+ * Wire format is snake_case (server convention) — every field carries an
+ * explicit @SerialName so client renames can never silently break the
+ * contract (kotlinx.serialization drops unknown keys, so a missing
+ * SerialName decodes to defaults with no error).
  */
 
 @Serializable
-data class RegisterRequest(val accountId: String)
+data class RegisterRequest(@SerialName("account_id") val accountId: String)
 
 @Serializable
-data class RegisterResponse(val ok: Boolean = false)
-
-@Serializable
-data class RateDto(
-    val countryCode: String,
-    val countryName: String,
-    /** Integer USD cents per GB. Integer math only — no float money. */
-    val pricePerGbUsdCents: Long,
+data class RegisterResponse(
+    @SerialName("ok") val ok: Boolean = false,
+    @SerialName("profile") val profile: ProfileDto? = null,
 )
 
 @Serializable
-data class RatesResponse(val rates: List<RateDto> = emptyList())
+data class RateDto(
+    @SerialName("country_code") val countryCode: String,
+    @SerialName("country_name") val countryName: String,
+    /** Integer USD cents per GB. Integer math only — no float money. */
+    @SerialName("price_per_gb_usd_cents") val pricePerGbUsdCents: Long,
+    /** Per-carrier breakdown, cheapest first. */
+    @SerialName("networks") val networks: List<NetworkDto> = emptyList(),
+)
 
 @Serializable
-data class AccountRequest(val accountId: String)
+data class NetworkDto(
+    @SerialName("operator") val operator: String,
+    @SerialName("price_per_gb_usd_cents") val pricePerGbUsdCents: Long,
+)
+
+@Serializable
+data class RatesResponse(@SerialName("rates") val rates: List<RateDto> = emptyList())
+
+@Serializable
+data class AccountRequest(@SerialName("account_id") val accountId: String)
 
 /** The account's single global eSIM (null when not yet provisioned). */
 @Serializable
 data class ProfileDto(
-    val iccid: String,
-    val status: String,
-    val activationCode: String = "",
-    val smdpAddress: String = "",
+    @SerialName("iccid") val iccid: String,
+    @SerialName("status") val status: String,
+    @SerialName("activation_code") val activationCode: String = "",
+    @SerialName("smdp_address") val smdpAddress: String = "",
     /** On-SIM wallet balance in USD cents. */
-    val walletUsdCents: Long = 0,
+    @SerialName("wallet_usd_cents") val walletUsdCents: Long = 0,
 )
 
 @Serializable
-data class StatusResponse(val profile: ProfileDto? = null)
+data class StatusResponse(@SerialName("profile") val profile: ProfileDto? = null)
 
 @Serializable
 data class TopUpRequest(
-    val accountId: String,
+    @SerialName("account_id") val accountId: String,
     /** USD cents to move from budget to the on-SIM wallet. */
-    val amountCents: Long,
+    @SerialName("amount_cents") val amountCents: Long,
     /** Client-minted UUIDv4 per tap; the server dedupes replays. */
-    val idempotencyKey: String,
+    @SerialName("idempotency_key") val idempotencyKey: String,
 )
 
 @Serializable
 data class TopUpResponse(
-    val walletUsdCents: Long = 0,
-    val budgetUsdCents: Long = 0,
+    @SerialName("wallet_usd_cents") val walletUsdCents: Long = 0,
+    @SerialName("budget_usd_cents") val budgetUsdCents: Long = 0,
 )
 
 @Serializable
-data class ManageRequest(val accountId: String, val iccid: String)
+data class ManageRequest(
+    @SerialName("account_id") val accountId: String,
+    @SerialName("iccid") val iccid: String,
+)
 
 @Serializable
-data class ManageResponse(val ok: Boolean = false)
+data class ManageResponse(@SerialName("ok") val ok: Boolean = false)
 
 @Serializable
-data class TransferOutRequest(val accountId: String)
+data class TransferOutRequest(@SerialName("account_id") val accountId: String)
 
 @Serializable
-data class TransferOutResponse(val transferCode: String = "")
+data class TransferOutResponse(@SerialName("transfer_code") val transferCode: String = "")
 
 @Serializable
-data class TransferInRequest(val oldAccountId: String, val code: String, val newAccountId: String)
+data class TransferInRequest(
+    @SerialName("old_account_id") val oldAccountId: String,
+    @SerialName("code") val code: String,
+    @SerialName("new_account_id") val newAccountId: String,
+)
 
 @Serializable
-data class TransferInResponse(val ok: Boolean = false)
+data class TransferInResponse(@SerialName("ok") val ok: Boolean = false)
 
 @Serializable
 data class BudgetResponse(
     /** User-paid credit pool in USD cents. */
-    val budgetUsdCents: Long = 0,
+    @SerialName("budget_usd_cents") val budgetUsdCents: Long = 0,
 )
 
 @Serializable
-data class StripeKeyResponse(val publishableKey: String = "")
+data class StripeKeyResponse(@SerialName("publishable_key") val publishableKey: String = "")
 
 @Serializable
-data class StripeIntentRequest(val accountId: String, val amountCents: Long)
+data class StripeIntentRequest(
+    @SerialName("account_id") val accountId: String,
+    @SerialName("amount_cents") val amountCents: Long,
+)
 
 @Serializable
-data class StripeIntentResponse(val clientSecret: String = "")
+data class StripeIntentResponse(@SerialName("client_secret") val clientSecret: String = "")
 
 @Serializable
-data class NowPayInvoiceRequest(val accountId: String, val amountCents: Long)
+data class NowPayInvoiceRequest(
+    @SerialName("account_id") val accountId: String,
+    @SerialName("amount_cents") val amountCents: Long,
+)
 
 @Serializable
 data class NowPayInvoiceResponse(
-    val invoiceUrl: String = "",
-    val invoiceId: String = "",
+    @SerialName("invoice_url") val invoiceUrl: String = "",
+    @SerialName("invoice_id") val invoiceId: String = "",
     /** Extra credit the 5% crypto bonus adds, in USD cents. */
-    val bonusUsdCents: Long = 0,
+    @SerialName("bonus_usd_cents") val bonusUsdCents: Long = 0,
 )
 
 @Serializable
-data class NowPayStatusRequest(val accountId: String, val invoiceId: String)
+data class NowPayStatusRequest(
+    @SerialName("account_id") val accountId: String,
+    @SerialName("invoice_id") val invoiceId: String,
+)
 
 @Serializable
-data class NowPayStatusResponse(val status: String = "waiting")
+data class NowPayStatusResponse(@SerialName("status") val status: String = "waiting")
 
 @Serializable
-data class ErrorBody(val error: String = "", val message: String = "")
+data class ErrorBody(
+    @SerialName("error") val error: String = "",
+    @SerialName("message") val message: String = "",
+)

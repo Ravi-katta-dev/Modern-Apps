@@ -3,6 +3,7 @@ package com.vayunmathur.globalesim.ui
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
+import com.vayunmathur.globalesim.data.api.NetworkDto
 import com.vayunmathur.globalesim.data.api.ProfileDto
 import com.vayunmathur.globalesim.data.api.RateDto
 import com.vayunmathur.globalesim.platform.EsimUiState
@@ -26,16 +27,29 @@ class MetadataPreviews {
         walletUsdCents = 1250,
     )
     private val demoRates = listOf(
-        RateDto("US", "United States", 100),
-        RateDto("JP", "Japan", 138),
+        RateDto(
+            "US", "United States", 87,
+            networks = listOf(
+                NetworkDto("T-Mobile USA", 87),
+                NetworkDto("AT&T", 128),
+                NetworkDto("Verizon Wireless", 165),
+            ),
+        ),
+        RateDto(
+            "JP", "Japan", 138,
+            networks = listOf(
+                NetworkDto("KDDI Corporation", 138),
+                NetworkDto("Rakuten", 170),
+            ),
+        ),
         RateDto("FR", "France", 52),
         RateDto("GB", "United Kingdom", 95),
     )
 
     @PreviewTest
-    @Preview(name = "1-home", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-purchase", device = PHONE, showSystemUi = true)
     @Composable
-    fun Preview1Home() {
+    fun Preview1Purchase() {
         DynamicTheme(darkTheme = true) {
             HomeScreen(
                 state = EsimUiState(profile = demoProfile, budgetCents = 2000),
@@ -47,24 +61,20 @@ class MetadataPreviews {
                 onCheckCryptoStatus = {},
                 onClearCryptoInvoice = {},
                 onOpenInstall = {},
-                onOpenRates = {},
                 onOpenBudget = {},
                 onOpenTransfer = {},
-                onRefresh = {},
                 onDismissError = {},
             )
         }
     }
 
     @PreviewTest
-    @Preview(name = "2-rates", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-pricing", device = PHONE, showSystemUi = true)
     @Composable
-    fun Preview2Rates() {
+    fun Preview2Pricing() {
         DynamicTheme(darkTheme = true) {
-            RatesScreen(
+            PricingScreen(
                 state = EsimUiState(rates = demoRates),
-                onNavigateBack = {},
-                onRefresh = {},
                 onDismissError = {},
             )
         }
