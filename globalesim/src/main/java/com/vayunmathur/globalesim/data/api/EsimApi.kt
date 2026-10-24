@@ -38,8 +38,6 @@ object EsimApi {
     suspend fun detail(accountId: String, iccid: String): ProfileDto =
         post("/esim/v1/detail", ManageRequest(accountId, iccid))
 
-    suspend fun topUp(req: TopUpRequest): TopUpResponse = post("/esim/v1/topup", req)
-
     suspend fun enable(accountId: String, iccid: String): ManageResponse =
         post("/esim/v1/enable", ManageRequest(accountId, iccid))
 
@@ -51,9 +49,6 @@ object EsimApi {
 
     suspend fun transferIn(oldAccountId: String, code: String, newAccountId: String): TransferInResponse =
         post("/esim/v1/transfer-in", TransferInRequest(oldAccountId, code, newAccountId))
-
-    suspend fun budget(accountId: String): BudgetResponse =
-        post("/esim/v1/budget", AccountRequest(accountId))
 
     suspend fun stripeKey(): StripeKeyResponse = get("/esim/v1/stripe-key")
 

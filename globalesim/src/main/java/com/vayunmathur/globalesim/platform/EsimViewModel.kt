@@ -10,7 +10,6 @@ import com.vayunmathur.globalesim.data.AnonymousIdStore
 import com.vayunmathur.globalesim.data.api.EsimApi
 import com.vayunmathur.globalesim.data.api.ProfileDto
 import com.vayunmathur.globalesim.data.api.RateDto
-import com.vayunmathur.globalesim.data.api.TopUpRequest
 import java.util.UUID
 import kotlinx.coroutines.launch
 
@@ -19,7 +18,6 @@ data class EsimUiState(
     val loading: Boolean = false,
     val profile: ProfileDto? = null,
     val rates: List<RateDto> = emptyList(),
-    val budgetCents: Long? = null,
     val transferCode: String? = null,
     val pendingClientSecret: String? = null,
     val pendingAmountCents: Long = 0,

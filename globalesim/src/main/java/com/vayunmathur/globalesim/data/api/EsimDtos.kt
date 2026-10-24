@@ -64,21 +64,6 @@ data class ProfileDto(
 data class StatusResponse(@SerialName("profile") val profile: ProfileDto? = null)
 
 @Serializable
-data class TopUpRequest(
-    @SerialName("account_id") val accountId: String,
-    /** USD cents to move from budget to the on-SIM wallet. */
-    @SerialName("amount_cents") val amountCents: Long,
-    /** Client-minted UUIDv4 per tap; the server dedupes replays. */
-    @SerialName("idempotency_key") val idempotencyKey: String,
-)
-
-@Serializable
-data class TopUpResponse(
-    @SerialName("wallet_usd_cents") val walletUsdCents: Long = 0,
-    @SerialName("budget_usd_cents") val budgetUsdCents: Long = 0,
-)
-
-@Serializable
 data class ManageRequest(
     @SerialName("account_id") val accountId: String,
     @SerialName("iccid") val iccid: String,
@@ -102,12 +87,6 @@ data class TransferInRequest(
 
 @Serializable
 data class TransferInResponse(@SerialName("ok") val ok: Boolean = false)
-
-@Serializable
-data class BudgetResponse(
-    /** User-paid credit pool in USD cents. */
-    @SerialName("budget_usd_cents") val budgetUsdCents: Long = 0,
-)
 
 @Serializable
 data class StripeKeyResponse(@SerialName("publishable_key") val publishableKey: String = "")
