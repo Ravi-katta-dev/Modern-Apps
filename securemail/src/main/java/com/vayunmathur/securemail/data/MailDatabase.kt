@@ -15,6 +15,18 @@ import com.vayunmathur.library.util.DatabaseMigrations
 import kotlinx.coroutines.flow.Flow
 
 /**
+ * Mail folders. Stored as the enum name in [StoredMessage.folder]; the Outbox
+ * stays a separate queue table, not a folder value. Spam is assigned by the
+ * server verdict at ingest ([InboundStore]); Trash is local-only.
+ */
+enum class MailFolder {
+    INBOX,
+    SENT,
+    SPAM,
+    TRASH,
+}
+
+/**
  * One stored message: envelope metadata plus the opaque PGP/MIME blob exactly
  * as it arrived over the socket (raw bytes, base64 in the DB). The server never
  * sees plaintext; neither does this table — decryption happens in memory only.
@@ -34,6 +46,8 @@ data class StoredMessage(
     val verifiedSigner: String? = null,
     val unencrypted: Boolean = false,
     val isRead: Boolean = false,
+    /** Folder assignment; defaults to INBOX (v2→v3 backfills existing rows). */
+    val folder: MailFolder = MailFolder.INBOX,
 )
 
 /** Cached public key for a recipient (own directory, WKD, or VKS result). */
@@ -64,6 +78,9 @@ interface MessageDao {
     @Query("SELECT * FROM StoredMessage ORDER BY dateMillis DESC")
     fun observeAll(): Flow<List<StoredMessage>>
 
+    @Query("SELECT * FROM StoredMessage WHERE folder = :folder ORDER BY dateMillis DESC")
+    fun observeFolder(folder: MailFolder): Flow<List<StoredMessage>>
+
     @Query("SELECT * FROM StoredMessage WHERE id = :id LIMIT 1")
     suspend fun get(id: String): StoredMessage?
 
@@ -78,6 +95,18 @@ interface MessageDao {
             "verifiedSigner = :verified WHERE id = :id",
     )
     suspend fun storeDecrypted(id: String, body: String, subject: String, verified: String?)
+
+    /** Moves a message to Trash (local vault only — the server copy is unaffected). */
+    @Query("UPDATE StoredMessage SET folder = 'TRASH' WHERE id = :id")
+    suspend fun moveToTrash(id: String)
+
+    /** Restores a trashed message to the Inbox. */
+    @Query("UPDATE StoredMessage SET folder = 'INBOX' WHERE id = :id AND folder = 'TRASH'")
+    suspend fun restoreFromTrash(id: String)
+
+    /** Permanently deletes everything in Trash (local only). */
+    @Query("DELETE FROM StoredMessage WHERE folder = 'TRASH'")
+    suspend fun emptyTrash()
 
     @Query("DELETE FROM StoredMessage WHERE id = :id")
     suspend fun delete(id: String)
@@ -115,7 +144,7 @@ interface OutboxDao {
 
 @Database(
     entities = [StoredMessage::class, CachedKey::class, OutboxMessage::class],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class MailDatabase : RoomDatabase() {
@@ -156,6 +185,14 @@ abstract class MailDatabase : RoomDatabase() {
             it.execSQL("ALTER TABLE OutboxMessage_new RENAME TO OutboxMessage")
         }
 
-        override val migrations: List<Migration> = listOf(MIGRATION_1_2)
+        /**
+         * v2 → v3: adds the `folder` column to StoredMessage (INBOX/SENT/SPAM/
+         * TRASH); existing rows backfill to INBOX. The enum stores its name.
+         */
+        private val MIGRATION_2_3 = Migration(2, 3) {
+            it.execSQL("ALTER TABLE StoredMessage ADD COLUMN folder TEXT NOT NULL DEFAULT 'INBOX'")
+        }
+
+        override val migrations: List<Migration> = listOf(MIGRATION_1_2, MIGRATION_2_3)
     }
 }

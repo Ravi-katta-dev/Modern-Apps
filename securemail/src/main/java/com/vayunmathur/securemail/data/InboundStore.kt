@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Base64
 import com.vayunmathur.securemail.domain.mail.MimeCodec
 import com.vayunmathur.securemail.domain.pgp.PgpCrypto
+import com.vayunmathur.securemail.network.MailSocket
 import com.vayunmathur.securemail.platform.crypto.KeyManager
 import kotlinx.coroutines.flow.first
 
@@ -20,19 +21,22 @@ object InboundStore {
      * Stores one inbound frame. Encrypted frames decrypt on arrival (S2K
      * passphrase loads transparently from Keystore-wrapped storage);
      * unencrypted frames parse their MIME envelope directly; undecryptable
-     * frames persist as locked blobs for later retry.
+     * frames persist as locked blobs for later retry. The server spam verdict
+     * ([MailSocket.MsgFlags.spam]) routes to the Spam folder — independent of
+     * PGP signing (unsigned mail is accepted, not spam).
      */
     suspend fun store(
         context: Context,
         id: String,
-        unencrypted: Boolean,
+        flags: MailSocket.MsgFlags,
         raw: ByteArray,
     ) {
         val app = context.applicationContext
         val repo = MailRepository.get(app)
         val settings = MailConfig(app).settings.first()
         val keyManager = KeyManager(app)
-        if (unencrypted) {
+        val folder = if (flags.spam) MailFolder.SPAM else MailFolder.INBOX
+        if (flags.unencrypted) {
             val (subject, body, from) = MimeCodec.parseMime(raw.toString(Charsets.UTF_8))
             repo.messageDao().upsert(
                 StoredMessage(
@@ -45,6 +49,7 @@ object InboundStore {
                     decryptedBody = body,
                     decryptedSubject = subject,
                     unencrypted = true,
+                    folder = folder,
                 ),
             )
             return
@@ -67,9 +72,9 @@ object InboundStore {
                     keyManager.getSecretArmor(),
                     passphrase,
                 ).toString(Charsets.UTF_8)
-                val (_, _, from) = MimeCodec.parseMime(provisional)
-                val (mime, verified) = if (from.isNotBlank()) {
-                    val senderKey = SenderKeys.resolve(app, from)
+                val (_, _, claimedFrom) = MimeCodec.parseMime(provisional)
+                val (mime, verified) = if (claimedFrom.isNotBlank()) {
+                    val senderKey = SenderKeys.resolve(app, claimedFrom)
                     if (senderKey != null) {
                         val checked = PgpCrypto.decryptVerify(
                             pgpBytes,
@@ -85,10 +90,10 @@ object InboundStore {
                 } else {
                     provisional to null
                 }
-                val (subject, body, resolvedFrom) = MimeCodec.parseMime(mime)
+                val (subject, body, from) = MimeCodec.parseMime(mime)
                 StoredMessage(
                     id = id,
-                    from = resolvedFrom,
+                    from = from,
                     toJson = settings.address,
                     dateMillis = System.currentTimeMillis(),
                     messageId = id,
@@ -97,6 +102,7 @@ object InboundStore {
                     decryptedSubject = subject,
                     verifiedSigner = verified,
                     unencrypted = false,
+                    folder = folder,
                 )
             }.getOrNull()
         } else {
@@ -111,6 +117,7 @@ object InboundStore {
                 messageId = id,
                 blobBase64 = Base64.encodeToString(raw, Base64.NO_WRAP),
                 unencrypted = false,
+                folder = folder,
             ),
         )
     }

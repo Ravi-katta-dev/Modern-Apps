@@ -12,6 +12,7 @@ import com.vayunmathur.library.biometric.unlockDatabaseWithBiometrics
 import com.vayunmathur.library.log.Log
 import com.vayunmathur.securemail.data.CachedKey
 import com.vayunmathur.securemail.data.MailConfig
+import com.vayunmathur.securemail.data.MailFolder
 import com.vayunmathur.securemail.data.MailRepository
 import com.vayunmathur.securemail.data.OutboxMessage
 import com.vayunmathur.securemail.data.SenderKeys
@@ -27,8 +28,10 @@ import com.vayunmathur.securemail.service.MailSocketService
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -69,6 +72,46 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     val messages = repo.messageDao().observeAll()
     val outboxCount = repo.outboxDao().observeCount()
     val outboxMessages = repo.outboxDao().observeAll()
+
+    /**
+     * Selected folder driving the message list (drawer selection). Outbox is
+     * not a folder — it renders from [outboxMessages] directly.
+     */
+    var selectedFolder by mutableStateOf(MailFolder.INBOX)
+        private set
+
+    fun selectFolder(folder: MailFolder) {
+        selectedFolder = folder
+    }
+
+    /** Live messages for the currently selected folder. */
+    val folderMessages = snapshotFlow { selectedFolder }.flatMapLatest { folder ->
+        repo.messageDao().observeFolder(folder)
+    }
+
+    /** Moves a message to Trash (local vault only). */
+    fun moveToTrash(id: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repo.messageDao().moveToTrash(id) }
+        }
+    }
+
+    /** Restores a trashed message to the Inbox. */
+    fun restoreFromTrash(id: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repo.messageDao().restoreFromTrash(id) }
+        }
+    }
+
+    /** Permanently deletes everything in Trash (local only). */
+    fun emptyTrash() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                repo.messageDao().emptyTrash()
+                state = state.copy(message = "Trash emptied.")
+            }
+        }
+    }
 
     /**
      * In-memory S2K passphrase for the PGP secret ring. Sealed in
@@ -445,6 +488,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                             queued++
                         }
                     }
+                    // Sent-folder copy: plaintext (it is our own composition).
+                    storeSent(to, subject, body)
                     if (queued > 0) "Queued $queued message(s) — retry from Outbox when online." else "Sent."
                 }
             }
@@ -458,6 +503,29 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                     state.copy(busy = false, error = it.message ?: "Send failed.")
                         .also { onDone(false) }
                 },
+            )
+        }
+    }
+
+    /**
+     * Records our own composition in the Sent folder (plaintext — it is ours).
+     * Runs inside send()'s IO context; failures are swallowed (send succeeded).
+     */
+    private suspend fun storeSent(to: List<String>, subject: String, body: String) {
+        runCatching {
+            repo.messageDao().upsert(
+                StoredMessage(
+                    id = "sent-${UUID.randomUUID()}",
+                    from = state.address,
+                    toJson = to.joinToString(","),
+                    dateMillis = System.currentTimeMillis(),
+                    messageId = newMessageId(),
+                    blobBase64 = "",
+                    decryptedBody = body,
+                    decryptedSubject = subject.ifBlank { "(no subject)" },
+                    unencrypted = false,
+                    folder = MailFolder.SENT,
+                ),
             )
         }
     }

@@ -49,10 +49,10 @@ class MailSocketService : Service() {
                     if (current.address.isBlank() || current.publicArmor.isBlank()) null
                     else MailSocket.IdentitySnapshot(current.address, current.publicArmor)
                 },
-                onMessage = { id, unencrypted, raw ->
+                onMessage = { id, flags, raw ->
                     // Single choke point (decrypt-on-arrival + vault write),
                     // shared with the background sync worker.
-                    InboundStore.store(this@MailSocketService, id, unencrypted, raw)
+                    InboundStore.store(this@MailSocketService, id, flags, raw)
                 },
             ) {
                 // onBump: socket liveness tick — no-op here; UI polls [MailSocket.connected].

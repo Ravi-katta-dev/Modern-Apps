@@ -32,6 +32,8 @@ import kotlinx.serialization.json.Json
  * ```
  *
  * flags bit0: 0 = encrypted PGP/MIME, 1 = unencrypted fallback (explicit opt-in only).
+ * flags bit1: 0 = ham, 1 = spam (SPF/DKIM/DMARC failed at receipt; independent
+ *   of PGP signing — unsigned mail is accepted, not spam).
  * KEYRESP status: 0 = none, 1 = found (key follows).
  *
  * SUB doubles as registration (address claim + public-key publish), exactly like
@@ -55,6 +57,11 @@ object MailSocket {
     const val OP_FETCH_RESP: Byte = 0x07
 
     const val FLAG_PLAIN: Byte = 0x01
+    /** Spam flag: SPF/DKIM/DMARC verification failed at receipt (routes to Spam). */
+    const val FLAG_SPAM: Byte = 0x02
+
+    /** Decoded MSG frame flags (bit0 = plaintext shape, bit1 = server spam verdict). */
+    data class MsgFlags(val unencrypted: Boolean, val spam: Boolean)
 
     const val KEY_NONE = 0
     const val KEY_FOUND = 1
@@ -102,7 +109,7 @@ object MailSocket {
     fun start(
         scope: CoroutineScope,
         identity: suspend () -> IdentitySnapshot?,
-        onMessage: suspend (id: String, unencrypted: Boolean, raw: ByteArray) -> Unit,
+        onMessage: suspend (id: String, flags: MsgFlags, raw: ByteArray) -> Unit,
         onBump: () -> Unit = {},
     ) {
         if (loop?.isActive == true) return
@@ -201,7 +208,7 @@ object MailSocket {
     private suspend fun WsSession.supervise(
         conn: CoroutineScope,
         outer: CoroutineScope,
-        onMessage: suspend (id: String, unencrypted: Boolean, raw: ByteArray) -> Unit,
+        onMessage: suspend (id: String, flags: MsgFlags, raw: ByteArray) -> Unit,
         onBump: () -> Unit,
     ) {
         var lastInbound = System.currentTimeMillis()
@@ -233,7 +240,7 @@ object MailSocket {
 
     internal suspend fun dispatch(
         buf: ByteArray,
-        onMessage: suspend (id: String, unencrypted: Boolean, raw: ByteArray) -> Unit,
+        onMessage: suspend (id: String, flags: MsgFlags, raw: ByteArray) -> Unit,
     ) {
         when (buf.firstOrNull()) {
             OP_MSG -> {
@@ -294,15 +301,19 @@ object MailSocket {
         return out
     }
 
-    /** MSG: [0x03][flags][u32 blobLen][id UTF-8][raw…] → (id, unencrypted, raw). */
-    internal fun parseMsg(buf: ByteArray): Triple<String, Boolean, ByteArray>? {
+    /** MSG: [0x03][flags][u32 blobLen][id UTF-8][raw…] → (id, flags, raw). */
+    internal fun parseMsg(buf: ByteArray): Triple<String, MsgFlags, ByteArray>? {
         if (buf.size < 1 + 1 + 4 + 2) return null
-        val unencrypted = (buf[1].toInt() and 0xFF) != 0
+        val flags = buf[1].toInt() and 0xFF
+        val parsed = MsgFlags(
+            unencrypted = (flags and FLAG_PLAIN.toInt()) != 0,
+            spam = (flags and FLAG_SPAM.toInt()) != 0,
+        )
         val idLen = readU32(buf, 2)
         if (idLen < 0 || buf.size < 6 + idLen) return null
         val id = buf.copyOfRange(6, 6 + idLen).toString(Charsets.UTF_8)
         val raw = buf.copyOfRange(6 + idLen, buf.size)
-        return Triple(id, unencrypted, raw)
+        return Triple(id, parsed, raw)
     }
 
     /** KEYRESP: [0x05][status][u16 addrLen][address][key…] → (address, key?). */

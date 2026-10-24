@@ -38,8 +38,8 @@ class MailSyncWorker(context: Context, params: WorkerParameters) : CoroutineWork
                 identity = {
                     MailSocket.IdentitySnapshot(settings.address, settings.publicArmor)
                 },
-                onMessage = { id, unencrypted, raw ->
-                    InboundStore.store(applicationContext, id, unencrypted, raw)
+                onMessage = { id, flags, raw ->
+                    InboundStore.store(applicationContext, id, flags, raw)
                 },
             )
             // Give the SUB + backlog drain time to complete within the worker.
