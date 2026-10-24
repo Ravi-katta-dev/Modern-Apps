@@ -18,6 +18,7 @@ android {
 dependencies {
     // First-party backend (api.maproj.org) over pinned TLS roots.
     implementation(project(":library:network"))
+    implementation(project(":library:log"))
     // Anonymous account id persistence.
     implementation(libs.androidx.datastore.preferences)
     // Credit top-ups via Stripe PaymentSheet (server creates the

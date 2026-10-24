@@ -10,6 +10,7 @@ import com.vayunmathur.globalesim.data.AnonymousIdStore
 import com.vayunmathur.globalesim.data.api.EsimApi
 import com.vayunmathur.globalesim.data.api.ProfileDto
 import com.vayunmathur.globalesim.data.api.RateDto
+import com.vayunmathur.library.log.Log
 import java.util.UUID
 import kotlinx.coroutines.launch
 
@@ -34,15 +35,21 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
     var state by mutableStateOf(EsimUiState())
         private set
 
+    /** True once an initial status load completed (success or fail). */
+    private var statusAttempted = false
+
     init {
         viewModelScope.launch {
             // Mint the anonymous id only. Provisioning happens on explicit
             // user action (createEsim) — never on launch, since each
-            // provision is a real $1.75 vendor charge. Rates are public, so
-            // they load immediately; status/budget wait until an eSIM exists
-            // (refreshAll guards on profile presence).
-            idStore.getOrCreate()
+            // provision is a real $1.75 vendor charge. Rates are public;
+            // status loads once to discover an existing eSIM, then only
+            // refreshes when a profile is present (refreshAll guard).
+            // TEMP-DEBUG: log the stored account id. Remove after diagnosis.
+            val id = idStore.getOrCreate()
+            Log.status("Esim", "stored account_id=$id")
             refreshRates()
+            refreshStatus()
         }
     }
 
@@ -72,10 +79,9 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshAll() {
         refreshRates()
-        // No eSIM yet (fresh install, pre-create): status would hit
-        // a nonexistent account, so skip it. createEsim/transferIn call
-        // refreshAll again once the account exists.
-        if (state.profile == null) return
+        // No eSIM and no load attempted yet: status runs once via init.
+        // After that, skip account calls until a profile exists.
+        if (state.profile == null && statusAttempted) return
         refreshStatus()
     }
 
@@ -84,7 +90,16 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
             state = state.copy(loading = true, error = null)
             runCatching { EsimApi.status(accountId()) }
                 .onSuccess { state = state.copy(loading = false, profile = it.profile) }
-                .onFailure { state = state.copy(loading = false, error = it.message) }
+                .onFailure {
+                    // 404 = unknown account = no eSIM created yet. Normal
+                    // state, not an error: show the welcome card, no snackbar.
+                    if (it is EsimApi.ApiError && it.statusCode == 404) {
+                        state = state.copy(loading = false, profile = null)
+                    } else {
+                        state = state.copy(loading = false, error = it.message)
+                    }
+                }
+            statusAttempted = true
         }
     }
 

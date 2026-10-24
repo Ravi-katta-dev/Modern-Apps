@@ -4,6 +4,8 @@ import com.vayunmathur.library.network.NetworkClient
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.serializer
 
+private val HTTP_STATUS = Regex("^HTTP (\\d{3})\\b")
+
 /**
  * Thin client for our own eSIM storefront API (the esim-v1 routes on
  * api.maproj.org, FIRST_PARTY trust). Generic DTOs only — the reseller
@@ -16,16 +18,36 @@ object EsimApi {
 
     fun url(path: String): String = BASE_URL + path
 
+    /** HTTP failure with a parsed status code. NetworkClient surfaces
+     * non-2xx as `IOException("HTTP <code>: ...")`. */
+    class ApiError(val statusCode: Int, message: String) : java.io.IOException(message)
+
+    internal fun parseApiError(e: java.io.IOException): java.io.IOException {
+        if (e is ApiError) return e
+        val code = e.message?.let { HTTP_STATUS.find(it)?.groupValues?.getOrNull(1)?.toIntOrNull() }
+        return if (code != null) ApiError(code, e.message ?: "HTTP $code") else e
+    }
+
+    private suspend inline fun <T> wrapApiErrors(crossinline block: suspend () -> T): T {
+        try {
+            return block()
+        } catch (e: java.io.IOException) {
+            throw parseApiError(e)
+        }
+    }
+
     private suspend inline fun <reified Req, reified Res> post(path: String, body: Req): Res =
-        NetworkClient.callJson(
-            url = url(path),
-            method = "POST",
-            headers = mapOf("Content-Type" to "application/json"),
-            body = json.encodeToString(serializer<Req>(), body),
-        )
+        wrapApiErrors {
+            NetworkClient.callJson(
+                url = url(path),
+                method = "POST",
+                headers = mapOf("Content-Type" to "application/json"),
+                body = json.encodeToString(serializer<Req>(), body),
+            )
+        }
 
     private suspend inline fun <reified Res> get(path: String): Res =
-        NetworkClient.getJson(url(path))
+        wrapApiErrors { NetworkClient.getJson(url(path)) }
 
     suspend fun register(accountId: String): RegisterResponse =
         post("/esim/v1/register", RegisterRequest(accountId))
