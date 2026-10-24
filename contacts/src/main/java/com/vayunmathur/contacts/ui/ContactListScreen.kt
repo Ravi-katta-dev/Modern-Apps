@@ -1,10 +1,7 @@
 package com.vayunmathur.contacts.ui
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -18,7 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.pluralStringResource
@@ -47,10 +43,8 @@ import com.vayunmathur.library.ui.IconPerson
 import com.vayunmathur.library.ui.IconShare
 import com.vayunmathur.library.ui.LazyListScaffold
 import com.vayunmathur.library.ui.LoadingState
-import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.OverflowMenu
 import com.vayunmathur.library.ui.PopVisibility
-import com.vayunmathur.library.ui.Surface
 import com.vayunmathur.library.ui.SwappedTopBar
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.TextButton
@@ -81,6 +75,21 @@ fun ContactListScreen(
             .mapValues { (_, c) -> c.sortedByMode(sortMode) }
             .toSortedMap()
     }
+    // Flat item index of each section header: favorites, then one per letter,
+    // in the same order the list emits them (0 is the empty-state/loading slot).
+    val sectionIndex = remember(favorites.isNotEmpty(), groupedContacts) {
+        buildMap {
+            var i = 1
+            if (favorites.isNotEmpty()) {
+                put(FAVORITES_KEY, 0)
+                i += 1 + favorites.size
+            }
+            for (letter in groupedContacts.keys) {
+                put(letter.toString(), i)
+                i += 1 + (groupedContacts[letter]?.size ?: 0)
+            }
+        }
+    }
 
     val toggleSelection = { id: Long ->
         if (id in selectedIds) selectedIds.remove(id) else selectedIds.add(id)
@@ -90,7 +99,7 @@ fun ContactListScreen(
 
     var isFocusableBySystem by remember { mutableStateOf(false) }
 
-    // Hoisted so the fast-scroller thumb below tracks and drives the same list.
+    // Hoisted so the section rail below tracks and drives the same list.
     val listState = rememberLazyListState()
 
     if (showDeleteConfirmation) {
@@ -124,7 +133,6 @@ fun ContactListScreen(
         selectedIds.clear()
     }
 
-    Box(Modifier.fillMaxSize()) {
     LazyListScaffold(
         state = listState,
         topBar = {
@@ -223,6 +231,14 @@ fun ContactListScreen(
         // between groups at the 16dp it has always been.
         verticalArrangement = Arrangement.spacedBy(2.dp),
         scrollBehavior = appBarScrollBehavior(),
+        overlay = {
+            ContactSectionScroller(
+                state = listState,
+                sectionIndex = sectionIndex,
+                itemCount = listState.layoutInfo.totalItemsCount,
+                modifier = Modifier.align(Alignment.CenterEnd),
+            )
+        },
     ) {
         if (contacts.isEmpty()) {
             item(key = "contacts-empty") {
@@ -309,34 +325,4 @@ fun ContactListScreen(
             }
         }
     }
-    ContactListFastScroller(
-        state = listState,
-        itemCount = listState.layoutInfo.totalItemsCount,
-        modifier = Modifier.align(Alignment.CenterEnd),
-    )
-    }
-}
-
-/**
- * One row of a grouped card, as its own lazy item.
- *
- * The list used to render a whole letter group as a single lazy item wrapping a column of rows, which
- * meant no individual contact was ever a lazy item and `animateItem` had nothing to attach to - so
- * adding or deleting a contact snapped. Splitting them keeps the same rounded-end card look, since
- * only the first and last row of a group are rounded, and [groupShape] already works from an index.
- */
-@Composable
-private fun GroupedContactRow(
-    index: Int,
-    count: Int,
-    modifier: Modifier = Modifier,
-    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
-    content: @Composable () -> Unit,
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = groupShape(index, count),
-        color = containerColor,
-        content = content,
-    )
 }

@@ -3,6 +3,8 @@
 package com.vayunmathur.library.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.calculateEndPadding
@@ -46,6 +48,10 @@ import androidx.compose.ui.unit.dp
  * [paneContentMargin], which is [Spacing.lg] on compact widths; callers that
  * already pass their own margin (e.g. 16.dp) can pass [Spacing.lg] explicitly
  * to stay fixed, or `0.dp` to opt out entirely.
+ *
+ * [overlay] is drawn on top of the list in a [Box] exactly the list's size,
+ * for chrome that must track the viewport itself - e.g. a fast-scroller whose
+ * travel should run along the list, not the whole screen.
  */
 @Composable
 fun LazyListScaffold(
@@ -63,6 +69,7 @@ fun LazyListScaffold(
     expandedWidthPadding: Dp = paneContentMargin(),
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     containerColor: Color = MaterialTheme.colorScheme.background,
+    overlay: @Composable BoxScope.() -> Unit = {},
     content: LazyListScope.() -> Unit,
 ) = Scaffold(
     modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -82,16 +89,19 @@ fun LazyListScaffold(
     // Only the width class above compact adds padding; on phones this is
     // exactly [horizontalPadding], unchanged from before.
     val extra = (expandedWidthPadding - Spacing.lg).coerceAtLeast(0.dp)
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        state = state,
-        contentPadding = PaddingValues(
-            start = pad.calculateStartPadding(dir) + horizontalPadding + extra,
-            end = pad.calculateEndPadding(dir) + horizontalPadding + extra,
-            top = pad.calculateTopPadding(),
-            bottom = pad.calculateBottomPadding(),
-        ),
-        verticalArrangement = verticalArrangement,
-        content = content,
-    )
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = state,
+            contentPadding = PaddingValues(
+                start = pad.calculateStartPadding(dir) + horizontalPadding + extra,
+                end = pad.calculateEndPadding(dir) + horizontalPadding + extra,
+                top = pad.calculateTopPadding(),
+                bottom = pad.calculateBottomPadding(),
+            ),
+            verticalArrangement = verticalArrangement,
+            content = content,
+        )
+        overlay()
+    }
 }
