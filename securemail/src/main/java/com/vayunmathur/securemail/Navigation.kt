@@ -114,6 +114,8 @@ fun Navigation(viewModel: MailViewModel, initialRoute: Route? = null) {
                 },
                 onBack = { backStack.pop() },
                 message = msg,
+                onProvidePassphrase = viewModel::providePassphrase,
+                onRetryDecrypt = { viewModel.decryptStored(route.messageId) },
             )
         }
         entry<Route.Outbox> {

@@ -249,7 +249,15 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                     if (from.isNotBlank()) {
                         repo.messageDao().upsert(stored.copy(from = from))
                     }
-                }.onFailure { Log.status(TAG, "decryptStored failed", it) }
+                }.onFailure {
+                    // Wrong passphrase (or corrupt blob) fails closed here with
+                    // a visible error — not a silent "decrypting…" stall.
+                    state = state.copy(
+                        needsPassphrase = true,
+                        error = "Could not decrypt — wrong passphrase?",
+                    )
+                    Log.status(TAG, "decryptStored failed", it)
+                }
             }
         }
     }

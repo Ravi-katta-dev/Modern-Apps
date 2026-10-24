@@ -7,27 +7,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.Card
 import com.vayunmathur.library.ui.DesktopMaxWidthContainer
 import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.OutlinedTextField
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.securemail.data.StoredMessage
 import com.vayunmathur.securemail.platform.MailUiState
-import com.vayunmathur.securemail.platform.MailViewModel
 
 /** Reader: trust badges (verified signer / plain / locked) + decrypted body. */
 @Composable
@@ -37,8 +32,11 @@ fun ReaderScreen(
     onReply: (StoredMessage) -> Unit,
     onBack: () -> Unit,
     message: StoredMessage? = null,
+    onProvidePassphrase: (String) -> Unit = {},
+    onRetryDecrypt: () -> Unit = {},
 ) {
     val msg = message
+    var passphrase by remember { mutableStateOf("") }
     AppScaffold(title = "Message", scrollBehavior = appBarScrollBehavior()) { padding ->
         DesktopMaxWidthContainer(Modifier.padding(padding)) {
             Column(
@@ -52,6 +50,40 @@ fun ReaderScreen(
                     Text("Message not found.", style = MaterialTheme.typography.bodyMedium)
                 } else {
                     TrustBadge(msg)
+                    if (state.needsPassphrase && msg.decryptedBody == null && !msg.unencrypted) {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(
+                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    "Key passphrase needed",
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                Text(
+                                    "The app restarted and forgot your key passphrase " +
+                                        "(it is never stored). Enter it once to decrypt.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                OutlinedTextField(
+                                    value = passphrase,
+                                    onValueChange = { passphrase = it },
+                                    label = { Text("Key passphrase") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                )
+                                Button(
+                                    onClick = {
+                                        onProvidePassphrase(passphrase)
+                                        passphrase = ""
+                                        onRetryDecrypt()
+                                    },
+                                    enabled = passphrase.isNotBlank(),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Decrypt") }
+                            }
+                        }
+                    }
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier.padding(16.dp).fillMaxWidth(),
