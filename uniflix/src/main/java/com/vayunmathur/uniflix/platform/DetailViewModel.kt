@@ -115,10 +115,7 @@ data class DetailUiState(
     val startPositionMs: Long = 0L,
 )
 
-class DetailViewModel(
-    app: Application,
-    private val registryFactory: RegistryFactory = RegistryFactory.AllInstalled,
-) : AndroidViewModel(app) {
+class DetailViewModel(app: Application) : AndroidViewModel(app) {
     private val api = TmdbApi()
     private val repository = UniflixRepository.get(app)
     private val addonPrefs = AddonPrefs(app)
@@ -126,6 +123,9 @@ class DetailViewModel(
     companion object {
         private const val TAG = "DetailViewModel"
     }
+
+    /** Builds the live registry from installed addons; override in tests. */
+    var registryFactory: RegistryFactory = RegistryFactory.AllInstalled
 
     /** Back-compat hook for tests: bypasses installed addons with a fixed set. */
     var streamProviders: List<StreamProvider>? = null
