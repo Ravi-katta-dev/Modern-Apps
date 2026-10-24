@@ -10,24 +10,35 @@ import com.vayunmathur.globalesim.data.AnonymousIdStore
 import com.vayunmathur.globalesim.data.api.EsimApi
 import com.vayunmathur.globalesim.data.api.ProfileDto
 import com.vayunmathur.globalesim.data.api.RateDto
+import com.vayunmathur.globalesim.data.api.StatusResponse
 import com.vayunmathur.globalesim.domain.upgradeCheckoutUrl
-import com.vayunmathur.library.log.Log
+import java.io.IOException
 import java.util.UUID
+import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
+import kotlin.time.TimeSource
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** UI state for the single-eSIM storefront. */
 data class EsimUiState(
     val loading: Boolean = false,
+    val statusLoaded: Boolean = false,
+    val refreshing: Boolean = false,
+    /** This install's account id, shown to the user as the "SIM ID". */
+    val simId: String? = null,
     val profile: ProfileDto? = null,
     val rates: List<RateDto> = emptyList(),
-    val transferCode: String? = null,
     val pendingClientSecret: String? = null,
-    val pendingAmountCents: Long = 0,
-    /** Pending crypto invoice (url + id + bonus); cleared when paid/closed. */
+    /** Pending crypto checkout; cleared once the credit lands or the user cancels. */
     val pendingInvoiceUrl: String? = null,
-    val pendingInvoiceId: String? = null,
-    val pendingBonusCents: Long = 0,
-    val error: String? = null,
+    /** Paid but not yet in the wallet (eSIM being created, or funding retrying). */
+    val pendingCreditCents: Long = 0,
+    /** The balance shown is last-known; the server couldn't read it live. */
+    val balanceStale: Boolean = false,
+    /** One-shot snackbar text, consumed by the tab host. */
+    val message: String? = null,
 )
 
 class EsimViewModel(app: Application) : AndroidViewModel(app) {
@@ -36,19 +47,15 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
     var state by mutableStateOf(EsimUiState())
         private set
 
-    /** True once an initial status load completed (success or fail). */
-    private var statusAttempted = false
+    private var creditWatch: Job? = null
+    private var creditBaselineCents: Long = 0
+    private var watchingCrypto = false
 
     init {
         viewModelScope.launch {
-            // Mint the anonymous id only. Provisioning happens on explicit
-            // user action (createEsim) — never on launch, since each
-            // provision is a real $1.75 vendor charge. Rates are public;
-            // status loads once to discover an existing eSIM, then only
-            // refreshes when a profile is present (refreshAll guard).
-            // TEMP-DEBUG: log the stored account id. Remove after diagnosis.
-            val id = idStore.getOrCreate()
-            Log.status("Esim", "stored account_id=$id")
+            // Mint the anonymous id only. The server creates the eSIM itself
+            // once the account's first payment lands.
+            state = state.copy(simId = idStore.getOrCreate())
             refreshRates()
             refreshStatus()
         }
@@ -56,79 +63,126 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
 
     private suspend fun accountId(): String = idStore.getOrCreate()
 
-    /**
-     * Explicit user action: provision the account's one eSIM. Each call is
-     * a real vendor charge, so the UI gates this behind a confirmation
-     * button — it is NEVER called on launch. Idempotent server-side:
-     * re-tapping an existing account returns its profile.
-     */
-    fun createEsim() {
-        viewModelScope.launch {
-            state = state.copy(loading = true, error = null)
-            runCatching { EsimApi.register(accountId()) }
-                .onSuccess {
-                    state = state.copy(profile = it.profile)
-                    refreshAll()
-                }
-                .onFailure { state = state.copy(loading = false, error = it.message) }
-        }
-    }
-
-    fun dismissError() {
-        state = state.copy(error = null)
-    }
-
-    fun refreshAll() {
-        refreshRates()
-        // No eSIM and no load attempted yet: status runs once via init.
-        // After that, skip account calls until a profile exists.
-        if (state.profile == null && statusAttempted) return
-        refreshStatus()
+    fun dismissMessage() {
+        state = state.copy(message = null)
     }
 
     fun refreshStatus() {
         viewModelScope.launch {
-            state = state.copy(loading = true, error = null)
-            runCatching { EsimApi.status(accountId()) }
-                .onSuccess { state = state.copy(loading = false, profile = it.profile) }
-                .onFailure {
-                    // 404 = unknown account = no eSIM created yet. Normal
-                    // state, not an error: show the welcome card, no snackbar.
-                    if (it is EsimApi.ApiError && it.statusCode == 404) {
-                        state = state.copy(loading = false, profile = null)
-                    } else {
-                        state = state.copy(loading = false, error = it.message)
-                    }
-                }
-            statusAttempted = true
+            state = state.copy(loading = true)
+            loadStatus()
+            state = state.copy(loading = false)
         }
+    }
+
+    /** Pull-to-refresh: reload status + balance without the full-card spinner. */
+    fun refresh() {
+        viewModelScope.launch {
+            state = state.copy(refreshing = true)
+            loadStatus()
+            state = state.copy(refreshing = false)
+        }
+    }
+
+    private suspend fun loadStatus() {
+        runCatching { EsimApi.status(accountId()) }
+            .onSuccess { if (applyStatus(it)) creditWatch?.cancel() }
+            .onFailure { state = state.copy(message = friendly(it)) }
+        state = state.copy(statusLoaded = true)
+    }
+
+    /**
+     * Apply a status read. The server owns the open crypto checkout and any
+     * credit still on its way, so its view wins: this restores Reopen/Cancel
+     * (and the watcher) after a restart. Returns true when an in-flight
+     * payment watch has nothing left to wait for.
+     */
+    private suspend fun applyStatus(status: StatusResponse): Boolean {
+        if (status.transferred) {
+            onMovedAway()
+            return true
+        }
+        val profile = status.profile
+        val landed = profile != null && !status.balanceStale &&
+            profile.walletUsdCents > creditBaselineCents
+        val serverPending = status.pendingInvoiceUrl?.let(::upgradeCheckoutUrl)
+        state = state.copy(
+            profile = profile,
+            pendingInvoiceUrl = serverPending,
+            pendingCreditCents = status.pendingCreditCents,
+            balanceStale = status.balanceStale,
+        )
+        val stillOwed = status.pendingCreditCents > 0
+        if ((serverPending != null || stillOwed) && creditWatch?.isActive != true) {
+            captureCreditBaseline()
+            watchForCredit(crypto = serverPending != null)
+        }
+        return when {
+            stillOwed -> false
+            landed -> true
+            // Checkout closed with nothing credited: failed, expired, or too small to count.
+            watchingCrypto && serverPending == null -> true
+            else -> false
+        }
+    }
+
+    /** The eSIM was claimed onto another phone: start this install over fresh. */
+    private suspend fun onMovedAway() {
+        val fresh = UUID.randomUUID().toString()
+        idStore.replace(fresh)
+        state = state.copy(
+            simId = fresh,
+            profile = null,
+            pendingInvoiceUrl = null,
+            pendingCreditCents = 0,
+            balanceStale = false,
+            message = "This eSIM was moved to another phone.",
+        )
+    }
+
+    /**
+     * Poll status until the payment shows up in the wallet. Both rails fund
+     * the wallet from a server webhook, and NOWPayments can report `finished`
+     * before that webhook lands, so the balance is the only reliable "paid"
+     * signal. Lives in viewModelScope so polling continues while the user is
+     * in the browser and the balance is current on return.
+     */
+    private fun watchForCredit(crypto: Boolean) {
+        creditWatch?.cancel()
+        watchingCrypto = crypto
+        creditWatch = viewModelScope.launch {
+            try {
+                val started = TimeSource.Monotonic.markNow()
+                while (true) {
+                    if (started.elapsedNow() >= CREDIT_WATCH_TIMEOUT) {
+                        state = state.copy(message = "Payment not detected yet. Pull down to check again later.")
+                        break
+                    }
+                    delay(if (started.elapsedNow() < FAST_POLL_WINDOW) FAST_POLL else SLOW_POLL)
+                    val status = runCatching { EsimApi.status(accountId()) }.getOrNull() ?: continue
+                    // Data usage can drain the wallet mid-watch; track the low so a
+                    // top-up still reads as a rise. Stale reads say nothing.
+                    status.profile?.takeIf { !status.balanceStale }?.let {
+                        creditBaselineCents = minOf(creditBaselineCents, it.walletUsdCents)
+                    }
+                    if (applyStatus(status)) break
+                }
+            } finally {
+                // A replacement watch may already own the flag.
+                if (creditWatch === coroutineContext[Job]) watchingCrypto = false
+            }
+        }
+    }
+
+    private fun captureCreditBaseline() {
+        creditBaselineCents = state.profile?.walletUsdCents ?: 0
     }
 
     fun refreshRates() {
         viewModelScope.launch {
             runCatching { EsimApi.rates() }
                 .onSuccess { state = state.copy(rates = it.rates) }
-                .onFailure { state = state.copy(error = it.message) }
-        }
-    }
-
-    fun setEnabled(iccid: String, enabled: Boolean) {
-        viewModelScope.launch {
-            runCatching {
-                if (enabled) EsimApi.enable(accountId(), iccid)
-                else EsimApi.disable(accountId(), iccid)
-            }
-                .onSuccess { refreshStatus() }
-                .onFailure { state = state.copy(error = it.message) }
-        }
-    }
-
-    fun transferOut() {
-        viewModelScope.launch {
-            state = state.copy(loading = true, error = null, transferCode = null)
-            runCatching { EsimApi.transferOut(accountId()) }
-                .onSuccess { state = state.copy(loading = false, transferCode = it.transferCode) }
-                .onFailure { state = state.copy(loading = false, error = it.message) }
+                .onFailure { state = state.copy(message = friendly(it)) }
         }
     }
 
@@ -136,47 +190,40 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
      * Start a card purchase: fetch the publishable key (once per process)
      * and a PaymentIntent for [amountCents]. The screen presents the
      * PaymentSheet with the resulting client secret; the server credits
-     * the budget via the Stripe webhook, and [onSheetReady] fires so the
-     * screen can present immediately.
+     * the wallet via the Stripe webhook.
      */
-    fun startCardPurchase(amountCents: Long, publishableKey: String?, onKey: (String) -> Unit, onSheetReady: () -> Unit) {
+    fun startCardPurchase(amountCents: Long, publishableKey: String?, onKey: (String) -> Unit) {
         viewModelScope.launch {
-            state = state.copy(loading = true, error = null, pendingClientSecret = null)
+            state = state.copy(loading = true, pendingClientSecret = null)
+            captureCreditBaseline()
             runCatching {
                 val key = publishableKey ?: EsimApi.stripeKey().publishableKey
-                val intent = EsimApi.stripeIntent(accountId(), amountCents)
-                Triple(key, intent.clientSecret, amountCents)
+                key to EsimApi.stripeIntent(accountId(), amountCents).clientSecret
             }
-                .onSuccess { (key, secret, amount) ->
+                .onSuccess { (key, secret) ->
                     onKey(key)
-                    state = state.copy(
-                        loading = false,
-                        pendingClientSecret = secret,
-                        pendingAmountCents = amount,
-                    )
-                    onSheetReady()
+                    state = state.copy(loading = false, pendingClientSecret = secret)
                 }
-                .onFailure { state = state.copy(loading = false, error = it.message) }
+                .onFailure { state = state.copy(loading = false, message = paymentError(it)) }
         }
     }
 
-    /** Clear the pending sheet secret after it completes or is cancelled. */
-    fun clearPendingPurchase() {
-        state = state.copy(pendingClientSecret = null, pendingAmountCents = 0, loading = false)
+    /** Clear the pending sheet secret; on success, watch for the webhook credit. */
+    fun finishCardPurchase(paid: Boolean) {
+        state = state.copy(pendingClientSecret = null, loading = false)
+        if (paid) watchForCredit(crypto = false)
     }
 
     /**
      * Start a crypto purchase: create a NOWPayments invoice for [amountCents]
      * face value. The screen opens the hosted checkout URL; the server
-     * credits the budget + 5% bonus via the IPN webhook. [onInvoiceReady]
-     * fires with the checkout URL to open.
+     * credits the wallet + 5% bonus via the IPN webhook. The server allows
+     * one open checkout per account and hands back that one if it exists.
      */
     fun startCryptoPurchase(amountCents: Long, onInvoiceReady: (String) -> Unit) {
         viewModelScope.launch {
-            state = state.copy(
-                loading = true, error = null,
-                pendingInvoiceUrl = null, pendingInvoiceId = null, pendingBonusCents = 0,
-            )
+            state = state.copy(loading = true)
+            captureCreditBaseline()
             runCatching { EsimApi.nowPayInvoice(accountId(), amountCents) }
                 .onSuccess {
                     // NOWPayments sometimes returns a cleartext http link,
@@ -186,59 +233,77 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
                     state = state.copy(
                         loading = false,
                         pendingInvoiceUrl = secureUrl,
-                        pendingInvoiceId = it.invoiceId,
-                        pendingBonusCents = it.bonusUsdCents,
-                        pendingAmountCents = amountCents,
+                        message = if (it.existing) "Reopened your open crypto checkout." else null,
                     )
+                    watchForCredit(crypto = true)
                     onInvoiceReady(secureUrl)
                 }
-                .onFailure { state = state.copy(loading = false, error = it.message) }
-        }
-    }
-
-    /** Poll the invoice status after the user returns from checkout. */
-    fun checkCryptoStatus(onResult: (String) -> Unit) {
-        val invoiceId = state.pendingInvoiceId ?: return
-        viewModelScope.launch {
-            runCatching { EsimApi.nowPayStatus(accountId(), invoiceId) }
-                .onSuccess {
-                    if (it.status == "finished") {
-                        state = state.copy(pendingInvoiceUrl = null, pendingInvoiceId = null)
-                        refreshStatus()
+                .onFailure {
+                    val message = if (it is EsimApi.ApiError && it.statusCode == 409) {
+                        "A crypto payment is already starting."
+                    } else {
+                        paymentError(it)
                     }
-                    onResult(it.status)
+                    state = state.copy(loading = false, message = message)
                 }
-                .onFailure { state = state.copy(error = it.message) }
         }
     }
 
-    /** Clear the pending crypto invoice (user closed checkout). */
+    /** Cancel the open crypto checkout here and on the server, freeing the slot. */
     fun clearPendingInvoice() {
-        state = state.copy(
-            pendingInvoiceUrl = null, pendingInvoiceId = null,
-            pendingBonusCents = 0, pendingAmountCents = 0, loading = false,
-        )
+        creditWatch?.cancel()
+        state = state.copy(pendingInvoiceUrl = null, loading = false)
+        viewModelScope.launch {
+            runCatching { EsimApi.nowPayCancel(accountId()) }
+                .onFailure { state = state.copy(message = friendly(it)) }
+        }
     }
 
-    fun transferIn(oldAccountId: String, code: String, onDone: () -> Unit) {
+    /** Move the eSIM whose SIM ID was copied from another phone onto this one. */
+    fun claim(simId: String) {
         viewModelScope.launch {
-            state = state.copy(loading = true, error = null)
-            val fresh = UUID.randomUUID().toString()
-            runCatching { EsimApi.transferIn(oldAccountId, code.trim(), fresh) }
+            state = state.copy(loading = true)
+            runCatching { EsimApi.claim(simId.trim(), accountId()) }
                 .onSuccess {
-                    idStore.replace(fresh)
-                    // Claimed account owns the moved eSIM — status/budget are
-                    // valid now. Set a non-null profile first so refreshAll
-                    // doesn't skip them, then overwrite with live data.
+                    creditWatch?.cancel()
                     state = state.copy(
                         loading = false,
-                        transferCode = null,
-                        profile = state.profile ?: ProfileDto(iccid = "", status = "active"),
+                        pendingInvoiceUrl = null,
+                        pendingClientSecret = null,
+                        message = "eSIM moved to this phone.",
                     )
-                    refreshAll()
-                    onDone()
+                    loadStatus()
                 }
-                .onFailure { state = state.copy(loading = false, error = it.message) }
+                .onFailure {
+                    val message = when ((it as? EsimApi.ApiError)?.statusCode) {
+                        400 -> "That doesn't look like a SIM ID."
+                        404 -> "No eSIM found for that SIM ID."
+                        409 -> "This phone already has an eSIM."
+                        else -> friendly(it)
+                    }
+                    state = state.copy(loading = false, message = message)
+                }
         }
+    }
+
+    private fun paymentError(t: Throwable): String = when ((t as? EsimApi.ApiError)?.statusCode) {
+        400 -> "Payments must be between $5 and $20."
+        410 -> "This eSIM moved to another phone."
+        else -> friendly(t)
+    }
+
+    private fun friendly(t: Throwable): String = when (val code = (t as? EsimApi.ApiError)?.statusCode) {
+        null -> if (t is IOException) "No connection. Check your internet and try again." else "Something went wrong."
+        429 -> "Too many requests. Try again in a minute."
+        in 500..599 -> "Service unavailable. Try again shortly."
+        else -> "Request failed ($code)."
+    }
+
+    private companion object {
+        val FAST_POLL = 2.seconds
+        val SLOW_POLL = 10.seconds
+        val FAST_POLL_WINDOW = 2.minutes
+        // Crypto settlement waits on block confirmations.
+        val CREDIT_WATCH_TIMEOUT = 45.minutes
     }
 }

@@ -1,6 +1,5 @@
 package com.vayunmathur.globalesim.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -10,11 +9,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -29,15 +28,14 @@ import com.vayunmathur.library.ui.IconSim
 import com.vayunmathur.library.ui.LazyListScaffold
 import com.vayunmathur.library.ui.ListItem
 import com.vayunmathur.library.ui.ListItemDefaults
-import com.vayunmathur.library.ui.LoadingIndicator
 import com.vayunmathur.library.ui.MaterialTheme
+import com.vayunmathur.library.ui.OutlinedButton
 import com.vayunmathur.library.ui.Surface
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.TopAppBar
 import com.vayunmathur.library.ui.animatedColor
 import com.vayunmathur.library.ui.animatedDp
 import com.vayunmathur.library.ui.appBarScrollBehavior
-import com.vayunmathur.library.ui.rememberMessenger
 
 /**
  * Pricing: searchable per-country rate list with the search field in the
@@ -49,17 +47,9 @@ import com.vayunmathur.library.ui.rememberMessenger
 @Composable
 fun PricingScreen(
     state: EsimUiState,
-    onDismissError: () -> Unit,
+    onRefresh: () -> Unit,
 ) {
-    val messenger = rememberMessenger()
-    val error = state.error
-    LaunchedEffect(error) {
-        if (error != null) {
-            messenger.show(error)
-            onDismissError()
-        }
-    }
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     val expanded = remember { mutableStateListOf<String>() }
     val filtered = remember(state.rates, query) {
         if (query.isBlank()) state.rates
@@ -88,13 +78,17 @@ fun PricingScreen(
     ) {
         if (filtered.isEmpty()) {
             item(key = "pricing-empty") {
-                if (state.loading) {
-                    LoadingIndicator(Modifier.padding(16.dp))
+                if (query.isBlank()) {
+                    EmptyState(
+                        title = "No rates yet",
+                        message = "Rates couldn't be loaded.",
+                        icon = { IconSim() },
+                        action = { OutlinedButton(onClick = onRefresh) { Text("Retry") } },
+                    )
                 } else {
                     EmptyState(
-                        title = if (query.isBlank()) "No rates yet" else "No matches",
-                        message = if (query.isBlank()) "Pull down or reopen to refresh."
-                        else "Try another country name or code.",
+                        title = "No matches",
+                        message = "Try another country name or code.",
                         icon = { IconSim() },
                     )
                 }
@@ -158,7 +152,6 @@ fun PricingScreen(
                                     } else {
                                         rate.networks.forEach { net ->
                                             ListItem(
-                                                modifier = Modifier.clickable {},
                                                 content = { Text(net.operator) },
                                                 supportingContent = {
                                                     Text(QuoteMath.formatCents(net.pricePerGbUsdCents) + " / GB")

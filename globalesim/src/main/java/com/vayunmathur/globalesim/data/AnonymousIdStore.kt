@@ -13,8 +13,8 @@ private val Context.esimAccountStore by preferencesDataStore(name = "esim_accoun
 
 /**
  * Anonymous account id store. The id is a client-minted UUIDv4 — no email,
- * no PII. The same id (+ transfer code) reinstalls the user's eSIMs on a
- * new phone. Auto-registers with the backend on first use.
+ * no PII — minted locally on first use. It is the account's only
+ * credential; the app shows it as the "SIM ID" for claiming on another phone.
  */
 class AnonymousIdStore(private val context: Context) {
     val accountId: Flow<String?> =
@@ -29,7 +29,7 @@ class AnonymousIdStore(private val context: Context) {
         return fresh
     }
 
-    /** Replaces the id (used after a transfer-in adopts the new device id). */
+    /** Replaces the id (after this install's eSIM was claimed onto another phone). */
     suspend fun replace(newId: String) {
         context.esimAccountStore.edit { it[KEY_ACCOUNT_ID] = newId }
     }

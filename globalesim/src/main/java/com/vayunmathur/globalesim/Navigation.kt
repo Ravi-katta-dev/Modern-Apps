@@ -3,21 +3,20 @@ package com.vayunmathur.globalesim
 import android.content.Intent
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
 import com.vayunmathur.globalesim.platform.EsimViewModel
 import com.vayunmathur.globalesim.ui.HomeScreen
 import com.vayunmathur.globalesim.ui.PricingScreen
-import com.vayunmathur.globalesim.ui.TransferScreen
 import com.vayunmathur.library.ui.IconGlobe
 import com.vayunmathur.library.ui.IconSim
 import com.vayunmathur.library.ui.PagerTab
 import com.vayunmathur.library.ui.TabStyle
 import com.vayunmathur.library.ui.TabbedPagerScaffold
+import com.vayunmathur.library.ui.rememberMessenger
 import com.vayunmathur.library.util.MainNavigation
 import com.vayunmathur.library.util.rememberNavBackStack
-import kotlinx.coroutines.launch
 
 @Composable
 fun Navigation(viewModel: EsimViewModel) {
@@ -25,66 +24,46 @@ fun Navigation(viewModel: EsimViewModel) {
 
     MainNavigation(backStack) {
         entry<Route.Tabs> {
-            EsimTabs(
-                viewModel = viewModel,
-                onOpenTransfer = { backStack.add(Route.Transfer) },
-            )
-        }
-        entry<Route.Transfer> {
-            TransferScreen(
-                state = viewModel.state,
-                onTransferOut = viewModel::transferOut,
-                onTransferIn = { oldId, code ->
-                    viewModel.transferIn(oldId, code) { backStack.reset(Route.Tabs) }
-                },
-                onNavigateBack = { backStack.pop() },
-            )
+            EsimTabs(viewModel = viewModel)
         }
     }
 }
 
 /**
  * The two bottom-nav tabs: Purchase (your eSIM + top-ups) and Pricing
- * (searchable per-country rates). Install and Transfer push on top as
- * ordinary routes.
+ * (searchable per-country rates). ViewModel messages are shown here, once,
+ * rather than by each tab (both tabs stay composed in the pager).
  */
 @Composable
-private fun EsimTabs(
-    viewModel: EsimViewModel,
-    onOpenTransfer: () -> Unit,
-) {
+private fun EsimTabs(viewModel: EsimViewModel) {
     val context = LocalContext.current
+    val messenger = rememberMessenger()
+    val message = viewModel.state.message
+    LaunchedEffect(message) {
+        if (message != null) {
+            messenger.show(message)
+            viewModel.dismissMessage()
+        }
+    }
     val pagerState = rememberPagerState(pageCount = { 2 })
     val tabs = listOf(
         PagerTab("Purchase", { IconSim() }) {
             HomeScreen(
                 state = viewModel.state,
-                onCreateEsim = viewModel::createEsim,
                 onStartCardPurchase = viewModel::startCardPurchase,
-                onCardPurchaseDone = {
-                    viewModel.clearPendingPurchase()
-                    viewModel.refreshAll()
-                },
+                onCardPurchaseDone = viewModel::finishCardPurchase,
                 onStartCryptoPurchase = { cents ->
                     viewModel.startCryptoPurchase(cents) { url ->
                         context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
                     }
                 },
-                onCheckCryptoStatus = {
-                    viewModel.checkCryptoStatus { status ->
-                        if (status == "finished") viewModel.refreshAll()
-                    }
-                },
                 onClearCryptoInvoice = viewModel::clearPendingInvoice,
-                onOpenTransfer = onOpenTransfer,
-                onDismissError = viewModel::dismissError,
+                onClaim = viewModel::claim,
+                onRefresh = viewModel::refresh,
             )
         },
         PagerTab("Pricing", { IconGlobe() }) {
-            PricingScreen(
-                state = viewModel.state,
-                onDismissError = viewModel::dismissError,
-            )
+            PricingScreen(state = viewModel.state, onRefresh = viewModel::refreshRates)
         },
     )
     TabbedPagerScaffold(tabs = tabs, pagerState = pagerState, tabStyle = TabStyle.BottomNav)

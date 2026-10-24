@@ -49,28 +49,14 @@ object EsimApi {
     private suspend inline fun <reified Res> get(path: String): Res =
         wrapApiErrors { NetworkClient.getJson(url(path)) }
 
-    suspend fun register(accountId: String): RegisterResponse =
-        post("/esim/v1/register", RegisterRequest(accountId))
-
     suspend fun rates(): RatesResponse = get("/esim/v1/rates")
 
     suspend fun status(accountId: String): StatusResponse =
         post("/esim/v1/status", AccountRequest(accountId))
 
-    suspend fun detail(accountId: String, iccid: String): ProfileDto =
-        post("/esim/v1/detail", ManageRequest(accountId, iccid))
-
-    suspend fun enable(accountId: String, iccid: String): ManageResponse =
-        post("/esim/v1/enable", ManageRequest(accountId, iccid))
-
-    suspend fun disable(accountId: String, iccid: String): ManageResponse =
-        post("/esim/v1/disable", ManageRequest(accountId, iccid))
-
-    suspend fun transferOut(accountId: String): TransferOutResponse =
-        post("/esim/v1/transfer-out", TransferOutRequest(accountId))
-
-    suspend fun transferIn(oldAccountId: String, code: String, newAccountId: String): TransferInResponse =
-        post("/esim/v1/transfer-in", TransferInRequest(oldAccountId, code, newAccountId))
+    /** Move the eSIM whose SIM ID is [simId] onto [accountId] (this phone). */
+    suspend fun claim(simId: String, accountId: String): OkResponse =
+        post("/esim/v1/transfer-in", TransferInRequest(simId, accountId))
 
     suspend fun stripeKey(): StripeKeyResponse = get("/esim/v1/stripe-key")
 
@@ -80,6 +66,6 @@ object EsimApi {
     suspend fun nowPayInvoice(accountId: String, amountCents: Long): NowPayInvoiceResponse =
         post("/esim/v1/nowpay-invoice", NowPayInvoiceRequest(accountId, amountCents))
 
-    suspend fun nowPayStatus(accountId: String, invoiceId: String): NowPayStatusResponse =
-        post("/esim/v1/nowpay-status", NowPayStatusRequest(accountId, invoiceId))
+    suspend fun nowPayCancel(accountId: String): OkResponse =
+        post("/esim/v1/nowpay-cancel", AccountRequest(accountId))
 }

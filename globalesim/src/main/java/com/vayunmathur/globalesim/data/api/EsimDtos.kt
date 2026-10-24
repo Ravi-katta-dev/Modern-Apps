@@ -19,15 +19,6 @@ import kotlinx.serialization.Serializable
  */
 
 @Serializable
-data class RegisterRequest(@SerialName("account_id") val accountId: String)
-
-@Serializable
-data class RegisterResponse(
-    @SerialName("ok") val ok: Boolean = false,
-    @SerialName("profile") val profile: ProfileDto? = null,
-)
-
-@Serializable
 data class RateDto(
     @SerialName("country_code") val countryCode: String,
     @SerialName("country_name") val countryName: String,
@@ -61,32 +52,27 @@ data class ProfileDto(
 )
 
 @Serializable
-data class StatusResponse(@SerialName("profile") val profile: ProfileDto? = null)
-
-@Serializable
-data class ManageRequest(
-    @SerialName("account_id") val accountId: String,
-    @SerialName("iccid") val iccid: String,
+data class StatusResponse(
+    @SerialName("profile") val profile: ProfileDto? = null,
+    /** The account's one open crypto checkout, if any. */
+    @SerialName("pending_invoice_url") val pendingInvoiceUrl: String? = null,
+    /** Paid but not yet in the wallet (eSIM being created, or funding retrying). */
+    @SerialName("pending_credit_cents") val pendingCreditCents: Long = 0,
+    /** The balance is a last-known fallback; the server couldn't read it live. */
+    @SerialName("balance_stale") val balanceStale: Boolean = false,
+    /** This account's eSIM was claimed onto another phone. */
+    @SerialName("transferred") val transferred: Boolean = false,
 )
 
 @Serializable
-data class ManageResponse(@SerialName("ok") val ok: Boolean = false)
+data class OkResponse(@SerialName("ok") val ok: Boolean = false)
 
-@Serializable
-data class TransferOutRequest(@SerialName("account_id") val accountId: String)
-
-@Serializable
-data class TransferOutResponse(@SerialName("transfer_code") val transferCode: String = "")
-
+/** Claim: [oldAccountId] is the SIM ID copied from the other phone. */
 @Serializable
 data class TransferInRequest(
     @SerialName("old_account_id") val oldAccountId: String,
-    @SerialName("code") val code: String,
     @SerialName("new_account_id") val newAccountId: String,
 )
-
-@Serializable
-data class TransferInResponse(@SerialName("ok") val ok: Boolean = false)
 
 @Serializable
 data class StripeKeyResponse(@SerialName("publishable_key") val publishableKey: String = "")
@@ -112,19 +98,7 @@ data class NowPayInvoiceResponse(
     @SerialName("invoice_id") val invoiceId: String = "",
     /** Extra credit the 5% crypto bonus adds, in USD cents. */
     @SerialName("bonus_usd_cents") val bonusUsdCents: Long = 0,
-)
-
-@Serializable
-data class NowPayStatusRequest(
-    @SerialName("account_id") val accountId: String,
-    @SerialName("invoice_id") val invoiceId: String,
-)
-
-@Serializable
-data class NowPayStatusResponse(@SerialName("status") val status: String = "waiting")
-
-@Serializable
-data class ErrorBody(
-    @SerialName("error") val error: String = "",
-    @SerialName("message") val message: String = "",
+    @SerialName("amount_cents") val amountCents: Long = 0,
+    /** True when the server returned the account's already-open checkout. */
+    @SerialName("existing") val existing: Boolean = false,
 )

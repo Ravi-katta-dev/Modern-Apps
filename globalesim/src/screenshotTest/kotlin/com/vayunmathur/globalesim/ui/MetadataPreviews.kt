@@ -52,15 +52,13 @@ class MetadataPreviews {
     fun Preview1Purchase() {
         DynamicTheme(darkTheme = true) {
             HomeScreen(
-                state = EsimUiState(profile = demoProfile),
-                onCreateEsim = {},
-                onStartCardPurchase = { _, _, _, _ -> },
+                state = EsimUiState(statusLoaded = true, simId = "demo", profile = demoProfile),
+                onStartCardPurchase = { _, _, _ -> },
                 onCardPurchaseDone = {},
                 onStartCryptoPurchase = {},
-                onCheckCryptoStatus = {},
                 onClearCryptoInvoice = {},
-                onOpenTransfer = {},
-                onDismissError = {},
+                onClaim = {},
+                onRefresh = {},
             )
         }
     }
@@ -72,7 +70,7 @@ class MetadataPreviews {
         DynamicTheme(darkTheme = true) {
             PricingScreen(
                 state = EsimUiState(rates = demoRates),
-                onDismissError = {},
+                onRefresh = {},
             )
         }
     }

@@ -2,6 +2,7 @@ package com.vayunmathur.globalesim.domain
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 
 class QuoteMathTest {
     @Test
@@ -13,11 +14,15 @@ class QuoteMathTest {
     }
 
     @Test
-    fun mbForFloorsNeverOverpromises() {
-        // $1 wallet at $1.38/GB ≈ 742 MB, floored.
-        assertEquals(742L, QuoteMath.mbFor(138, 100))
-        assertEquals(1024L, QuoteMath.mbFor(100, 100))
-        assertEquals(0L, QuoteMath.mbFor(0, 100))
-        assertEquals(0L, QuoteMath.mbFor(138, 0))
+    fun parsesAmountsIncludingDecimalComma() {
+        assertEquals(1200L, QuoteMath.parseAmountCents("12"))
+        assertEquals(1250L, QuoteMath.parseAmountCents("12.5"))
+        assertEquals(1250L, QuoteMath.parseAmountCents("$12.50"))
+        assertEquals(1234L, QuoteMath.parseAmountCents("12,34"))
+        assertEquals(500L, QuoteMath.parseAmountCents(" 5 "))
+        assertNull(QuoteMath.parseAmountCents("12.345"))
+        assertNull(QuoteMath.parseAmountCents("abc"))
+        assertNull(QuoteMath.parseAmountCents(""))
+        assertNull(QuoteMath.parseAmountCents("1e3"))
     }
 }

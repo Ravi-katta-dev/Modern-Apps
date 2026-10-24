@@ -1,347 +1,254 @@
 package com.vayunmathur.globalesim.ui
 
+import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.os.PersistableBundle
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import com.stripe.android.PaymentConfiguration
 import com.stripe.android.paymentsheet.PaymentSheet
 import com.stripe.android.paymentsheet.PaymentSheetResult
 import com.stripe.android.paymentsheet.rememberPaymentSheet
+import com.vayunmathur.globalesim.data.api.ProfileDto
 import com.vayunmathur.globalesim.domain.QuoteMath
 import com.vayunmathur.globalesim.domain.buildActivationCode
 import com.vayunmathur.globalesim.platform.EsimUiState
 import com.vayunmathur.library.intents.euicc.EsimLink
+import com.vayunmathur.library.ui.AppPullToRefreshBox
 import com.vayunmathur.library.ui.AppScaffold
-import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.Card
 import com.vayunmathur.library.ui.LoadingIndicator
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.OutlinedButton
-import com.vayunmathur.library.ui.OutlinedTextField
-import com.vayunmathur.library.ui.Surface
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.ui.rememberMessenger
-import kotlin.math.roundToLong
 
 /**
- * Home: your global eSIM at a glance — status, wallet balance, one-tap
- * top-up presets, and links to rates / install / budget / transfer.
- * One eSIM per account: no country picking, no per-trip buying.
+ * Purchase tab: your global eSIM at a glance — balance, top-up, install,
+ * and Copy SIM ID for moving to another phone. Without an eSIM it shows
+ * the setup terms, the first top-up, and Claim for an eSIM copied from
+ * another phone. Pull down anywhere to refresh status and balance.
  */
 @Composable
 fun HomeScreen(
     state: EsimUiState,
-    onCreateEsim: () -> Unit,
-    onStartCardPurchase: (amountCents: Long, publishableKey: String?, onKey: (String) -> Unit, onSheetReady: () -> Unit) -> Unit,
-    onCardPurchaseDone: () -> Unit,
+    onStartCardPurchase: (amountCents: Long, publishableKey: String?, onKey: (String) -> Unit) -> Unit,
+    onCardPurchaseDone: (paid: Boolean) -> Unit,
     onStartCryptoPurchase: (Long) -> Unit,
-    onCheckCryptoStatus: () -> Unit,
     onClearCryptoInvoice: () -> Unit,
-    onOpenTransfer: () -> Unit,
-    onDismissError: () -> Unit,
+    onClaim: (simId: String) -> Unit,
+    onRefresh: () -> Unit,
 ) {
     val messenger = rememberMessenger()
-    val error = state.error
-    LaunchedEffect(error) {
-        if (error != null) {
-            messenger.show(error)
-            onDismissError()
-        }
-    }
     val context = LocalContext.current
     var publishableKey by remember { mutableStateOf<String?>(null) }
     var sheetError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(sheetError) {
+        sheetError?.let {
+            messenger.show(it)
+            sheetError = null
+        }
+    }
     val paymentSheet = rememberPaymentSheet { result ->
         when (result) {
             is PaymentSheetResult.Completed -> {
                 messenger.show("Payment complete — credit lands shortly.")
-                onCardPurchaseDone()
+                onCardPurchaseDone(true)
             }
-            is PaymentSheetResult.Canceled -> {
-                onCardPurchaseDone()
-            }
+            is PaymentSheetResult.Canceled -> onCardPurchaseDone(false)
             is PaymentSheetResult.Failed -> {
                 sheetError = result.error.localizedMessage ?: "Payment failed"
-                onCardPurchaseDone()
+                onCardPurchaseDone(false)
             }
         }
     }
-    sheetError?.let { messenger.show(it) }
-    // Present the sheet when the client secret lands. The secret is cleared
-    // on completion/cancel so a recomposition never re-presents.
+    // Present each client secret once. Saved across recreation so a rotation
+    // with the secret still pending doesn't present the sheet a second time.
     val pendingSecret = state.pendingClientSecret
+    var presentedSecret by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(pendingSecret) {
-        if (pendingSecret != null) {
-            paymentSheet.presentWithPaymentIntent(
-                pendingSecret,
-                PaymentSheet.Configuration("Global eSIM"),
-            )
+        if (pendingSecret != null && pendingSecret != presentedSecret) {
+            presentedSecret = pendingSecret
+            paymentSheet.presentWithPaymentIntent(pendingSecret, PaymentSheet.Configuration("Global eSIM"))
         }
     }
     AppScaffold(
         title = "Purchase",
         scrollBehavior = appBarScrollBehavior(),
     ) { padding ->
-        Column(
-            Modifier.padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+        AppPullToRefreshBox(
+            isRefreshing = state.refreshing,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxSize(),
+            topClearance = padding.calculateTopPadding(),
         ) {
-            val profile = state.profile
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    if (state.loading && profile == null) {
-                        LoadingIndicator()
-                    } else if (profile == null) {
-                        Text("One global eSIM for 200+ countries")
-                        Text(
-                            "Pay as you go, credit never expires",
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                        Text(
-                            "No email or phone number or KYC required",
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                        Text(
-                            "Set up your eSIM now",
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
-                        Button(
-                            onClick = onCreateEsim,
-                            enabled = !state.loading,
-                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                        ) {
-                            Text("Create my eSIM")
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(padding).padding(16.dp),
+            ) {
+                val profile = state.profile
+                Card(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        when {
+                            !state.statusLoaded -> LoadingIndicator()
+                            profile == null && state.pendingCreditCents > 0 -> {
+                                Text("Payment received", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "Creating your eSIM. This page updates on its own.",
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                            profile == null -> SetupTerms()
+                            else -> BalanceSummary(profile, state.balanceStale, state.pendingCreditCents)
                         }
-                    } else {
-                        Text("Status: ${profile.status}")
-                        Text(
-                            "Balance: ${QuoteMath.formatCents(profile.walletUsdCents)}",
-                            modifier = Modifier.padding(top = 4.dp),
-                        )
                     }
                 }
-            }
-            if (profile != null) {
-                TopUpCard(
-                    loading = state.loading,
-                    onBuyWithCard = { cents ->
-                        onStartCardPurchase(
-                            cents,
-                            publishableKey,
-                            { key ->
+                if (state.statusLoaded) {
+                    TopUpCard(
+                        busy = state.loading || state.pendingClientSecret != null,
+                        onBuyWithCard = { cents ->
+                            onStartCardPurchase(cents, publishableKey) { key ->
                                 publishableKey = key
                                 PaymentConfiguration.init(context, key)
-                            },
-                            {},
-                        )
-                    },
-                    onBuyWithCrypto = { cents -> onStartCryptoPurchase(cents) },
-                    pendingInvoiceUrl = state.pendingInvoiceUrl,
-                    pendingBonusCents = state.pendingBonusCents,
-                    onCheckCryptoStatus = onCheckCryptoStatus,
-                    onClearCryptoInvoice = onClearCryptoInvoice,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-                OutlinedButton(
-                    onClick = {
-                        // The vendor stores SM-DP+ and matching ID separately;
-                        // the LPA needs the full LPA:1$<smdp>$<code> string.
-                        // A bare matching ID fails validation and lands on a
-                        // blank manual-entry page. The server sometimes fuses
-                        // smdp+code with the `$` missing, so normalize first.
-                        val full = buildActivationCode(profile.activationCode, profile.smdpAddress)
-                        // TEMP-DEBUG: part counts only, never the code itself.
-                        com.vayunmathur.library.log.Log.status(
-                            "Esim",
-                            "install len=${full.length} parts=${full.split('$').size} " +
-                                "smdpLen=${profile.smdpAddress.length} codeLen=${profile.activationCode.length}",
-                        )
-                        val intent = Intent(
-                            Intent.ACTION_VIEW,
-                            EsimLink.provisioningUri(full),
-                        ).setPackage(EsimLink.LPA_PACKAGE)
-                        context.startActivity(intent)
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                ) {
-                    Text("Install / reinstall eSIM")
+                            }
+                        },
+                        onBuyWithCrypto = onStartCryptoPurchase,
+                        pendingInvoiceUrl = state.pendingInvoiceUrl,
+                        onClearCryptoInvoice = onClearCryptoInvoice,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
                 }
-                OutlinedButton(
-                    onClick = onOpenTransfer,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) {
-                    Text("Move to new phone")
+                if (state.statusLoaded && profile == null && state.pendingCreditCents == 0L) {
+                    ClaimCard(
+                        busy = state.loading,
+                        onClaim = onClaim,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
                 }
-            }
-        }
-    }
-}
-
-/**
- * Custom-amount top-up. The user types any dollar amount; two side-by-side
- * buttons pay by card ($5 min) or crypto ($2 min, +5% bonus), both capped
- * at $20. Payment funds the eSIM wallet directly — there is no manual
- * move step and no separate credit pool.
- */
-@Composable
-private fun TopUpCard(
-    loading: Boolean,
-    onBuyWithCard: (Long) -> Unit,
-    onBuyWithCrypto: (Long) -> Unit,
-    pendingInvoiceUrl: String?,
-    pendingBonusCents: Long,
-    onCheckCryptoStatus: () -> Unit,
-    onClearCryptoInvoice: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val context = LocalContext.current
-    val messenger = rememberMessenger()
-    var amountText by remember { mutableStateOf("") }
-    // Parse "$12.34" / "12.34" to integer cents; null while invalid.
-    val amountCents: Long? = remember(amountText) {
-        val cleaned = amountText.trim().removePrefix("$")
-        if (cleaned.isEmpty()) null
-        else cleaned.toDoubleOrNull()?.let { (it * 100).roundToLong() }?.takeIf { it > 0 }
-    }
-    val cardOk = amountCents != null && amountCents in 500..2000
-    val cryptoOk = amountCents != null && amountCents in 200..2000
-    // Inline validation: only when the field is non-empty and parses.
-    // Card floor is $5, but the message is rail-agnostic per spec —
-    // the card button simply stays disabled below $5.
-    val rangeError: String? = when {
-        amountText.isBlank() || amountCents == null -> null
-        amountCents < 200 -> "Minimum $2 payment."
-        amountCents > 2000 -> "$20 max payment."
-        else -> null
-    }
-    // Live bonus preview: 5% of the entered amount.
-    val bonusPreview: Long? = amountCents?.let { (it * 105) / 100 - it }?.takeIf { cryptoOk }
-    Card(modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Text("Top up")
-            OutlinedTextField(
-                value = amountText,
-                onValueChange = { amountText = it },
-                label = { Text("Amount (USD)") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                singleLine = true,
-                isError = rangeError != null,
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-            )
-            if (rangeError != null) {
-                Text(
-                    rangeError,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-            if (bonusPreview != null && bonusPreview > 0) {
-                Text(
-                    "Crypto bonus: +${QuoteMath.formatCents(bonusPreview)} extra.",
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Button(
-                    onClick = { onBuyWithCard(amountCents!!) },
-                    enabled = !loading && cardOk,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text("Card topup")
-                }
-                BadgedBox(badge = "+5%", modifier = Modifier.weight(1f)) {
-                    Button(
-                        onClick = { onBuyWithCrypto(amountCents!!) },
-                        enabled = !loading && cryptoOk,
-                        modifier = Modifier.fillMaxWidth(),
+                if (profile != null) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("Crypto topup")
+                        OutlinedButton(
+                            onClick = {
+                                // The vendor stores SM-DP+ and matching ID separately;
+                                // the LPA needs the full LPA:1$<smdp>$<code> string.
+                                // A bare matching ID fails validation and lands on a
+                                // blank manual-entry page. The server sometimes fuses
+                                // smdp+code with the `$` missing, so normalize first.
+                                val full = buildActivationCode(profile.activationCode, profile.smdpAddress)
+                                val intent = Intent(Intent.ACTION_VIEW, EsimLink.provisioningUri(full))
+                                    .setPackage(EsimLink.LPA_PACKAGE)
+                                try {
+                                    context.startActivity(intent)
+                                } catch (_: ActivityNotFoundException) {
+                                    messenger.show("This phone doesn't have the eSIM installer.")
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Install eSIM")
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                state.simId?.let {
+                                    copySimId(context, it)
+                                    messenger.show("SIM ID copied. Paste it into Claim on your new phone.")
+                                }
+                            },
+                            enabled = state.simId != null,
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Text("Copy SIM ID")
+                        }
                     }
                 }
             }
-            if (pendingInvoiceUrl != null) {
-                Text(
-                    "Checkout open in your browser. Come back here when you've paid.",
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-                if (pendingBonusCents > 0) {
-                    Text(
-                        "Bonus on this payment: +${QuoteMath.formatCents(pendingBonusCents)}.",
-                        modifier = Modifier.padding(top = 4.dp),
-                    )
-                }
-                Button(
-                    onClick = {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, pendingInvoiceUrl.toUri()))
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) {
-                    Text("Reopen checkout")
-                }
-                OutlinedButton(
-                    onClick = {
-                        onCheckCryptoStatus()
-                        messenger.show("Checking payment…")
-                    },
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) {
-                    Text("I've paid — check status")
-                }
-                OutlinedButton(
-                    onClick = onClearCryptoInvoice,
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                ) {
-                    Text("Cancel crypto payment")
-                }
-            }
         }
     }
 }
 
-/** Small pill badge overlapped on the top-end corner of [content]. */
+/** Setup terms for a phone with no eSIM yet. The $3 fee gets its own line. */
 @Composable
-private fun BadgedBox(
-    badge: String,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
-    Box(modifier) {
-        content()
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.tertiaryContainer,
-            modifier = Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-8).dp),
-        ) {
-            Text(
-                badge,
-                style = MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            )
+private fun SetupTerms() {
+    Text("One global eSIM for 200+ countries", style = MaterialTheme.typography.titleMedium)
+    Text(
+        "Pay as you go, credit never expires. No email, phone number or KYC.",
+        modifier = Modifier.padding(top = 4.dp),
+    )
+    Text(
+        "$3 one-time setup fee",
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 12.dp),
+    )
+    Text(
+        "Taken from your first top-up ($5 minimum). A $5 top-up leaves $2 of credit.",
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier.padding(top = 2.dp),
+    )
+}
+
+@Composable
+private fun BalanceSummary(profile: ProfileDto, stale: Boolean, pendingCreditCents: Long) {
+    // A stale read with no history is a placeholder zero, not a real balance.
+    val unknown = stale && profile.status == "unknown" && profile.walletUsdCents == 0L
+    Text(
+        if (unknown) "—" else QuoteMath.formatCents(profile.walletUsdCents),
+        style = MaterialTheme.typography.headlineMedium,
+    )
+    Text(
+        "Balance · ${statusLabel(profile.status)}" + if (stale && !unknown) " · last known" else "",
+        style = MaterialTheme.typography.bodyMedium,
+    )
+    if (pendingCreditCents > 0) {
+        Text(
+            "${QuoteMath.formatCents(pendingCreditCents)} on its way. No need to pay again.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+}
+
+private fun statusLabel(status: String): String = when (status) {
+    "pending" -> "Activating"
+    "active" -> "Active"
+    "suspended" -> "Paused"
+    "terminated" -> "Terminated"
+    "unknown" -> "Checking…"
+    else -> status.replaceFirstChar { it.uppercase() }
+}
+
+/** The SIM ID is the account's only credential: flag the clip as sensitive so it isn't previewed. */
+@SuppressLint("InlinedApi") // Before Android 13 the extra is ignored; the copy still works.
+private fun copySimId(context: Context, simId: String) {
+    val clip = ClipData.newPlainText("SIM ID", simId).apply {
+        description.extras = PersistableBundle().apply {
+            putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
         }
     }
+    context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(clip)
 }
