@@ -48,7 +48,11 @@ fun ReaderScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
-                                "From: ${msg.from.ifBlank { "(encrypted sender)" }}",
+                                if (msg.folder == com.vayunmathur.securemail.data.MailFolder.SENT) {
+                                    "To: ${msg.toJson.ifBlank { "(unknown)" }}"
+                                } else {
+                                    "From: ${msg.from.ifBlank { "(encrypted sender)" }}"
+                                },
                                 style = MaterialTheme.typography.labelMedium,
                             )
                             Text(

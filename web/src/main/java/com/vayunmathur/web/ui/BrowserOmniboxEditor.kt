@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,10 +70,18 @@ internal fun OmniboxEditor(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val effectiveAtBottom = viewModel.searchBarAtBottom && maxHeight >= 480.dp
-        // TextFieldValue so entering the field selects everything: the first
-        // keystroke replaces the URL instead of appending to it.
-        var fieldValue by remember(viewModel.searchDraft) {
+        // Local field state, keyed once: re-creating TextFieldValue on every
+        // keystroke (remember(searchDraft)) pinned the cursor to the end and
+        // reset the internal scroll offset, so mid-URL edits were impossible
+        // and dragging the cursor left never scrolled. External changes
+        // (tab switch) still reset via the LaunchedEffect below.
+        var fieldValue by remember {
             mutableStateOf(TextFieldValue(viewModel.searchDraft, TextRange(viewModel.searchDraft.length)))
+        }
+        LaunchedEffect(viewModel.searchDraft) {
+            if (viewModel.searchDraft != fieldValue.text) {
+                fieldValue = TextFieldValue(viewModel.searchDraft, TextRange(viewModel.searchDraft.length))
+            }
         }
         val omniboxField: @Composable (Modifier) -> Unit = { fieldModifier ->
             OutlinedTextField(

@@ -642,29 +642,57 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                 val ownSecret = keyManager.getSecretArmor()
                 val ownPassphrase = requirePassphrase()
                 for (entry in pending) {
+                    var reason = "relay publish failed"
                     val ok = runCatching {
                         val to = entry.toJson.split(",").map { it.trim() }.filter { it.isNotEmpty() }
                         val mime = buildMimeBody(entry.subject, entry.body)
                         var entryOk = true
                         for (address in to) {
                             val cached = repo.keyDao().get(address)
-                            if (cached != null) {
-                                val raw = PgpCrypto.encryptSigned(
-                                    mime, cached.armoredPublic, ownSecret, ownPassphrase,
-                                )
-                                if (MailSocket.publish(address, buildEncryptedBody(raw))) continue
+                            val published = if (cached != null) {
+                                val raw = try {
+                                    PgpCrypto.encryptSigned(
+                                        mime, cached.armoredPublic, ownSecret, ownPassphrase,
+                                    )
+                                } catch (e: Exception) {
+                                    reason = "encrypt failed: " +
+                                        (e.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName)
+                                    Log.status(TAG, "outbox encrypt failed", e)
+                                    null
+                                }
+                                if (raw == null) {
+                                    false
+                                } else if (MailSocket.publish(address, buildEncryptedBody(raw))) {
+                                    true
+                                } else {
+                                    reason = "publish failed: " +
+                                        (MailSocket.lastPublishError ?: "socket write failed")
+                                    false
+                                }
                             } else {
-                                if (MailSocket.publish(address, mime, unencrypted = true)) continue
+                                if (MailSocket.publish(address, mime, unencrypted = true)) {
+                                    true
+                                } else {
+                                    reason = "publish failed: " +
+                                        (MailSocket.lastPublishError ?: "socket write failed")
+                                    false
+                                }
                             }
-                            entryOk = false
+                            if (!published) entryOk = false
                         }
                         entryOk
+                    }.onFailure {
+                        if (reason == "relay publish failed") {
+                            reason = "outbox error: " +
+                                (it.message?.takeIf { m -> m.isNotBlank() } ?: it.javaClass.simpleName)
+                        }
+                        Log.status(TAG, "outbox entry failed", it)
                     }.getOrDefault(false)
                     if (ok) {
                         repo.outboxDao().delete(entry.rowId)
                         sent++
                     } else {
-                        repo.outboxDao().noteAttempt(entry.rowId, "relay publish failed")
+                        repo.outboxDao().noteAttempt(entry.rowId, reason)
                         failed++
                     }
                 }

@@ -29,6 +29,7 @@ import com.stripe.android.paymentsheet.PaymentSheet
 import com.stripe.android.paymentsheet.PaymentSheetResult
 import com.stripe.android.paymentsheet.rememberPaymentSheet
 import com.vayunmathur.globalesim.domain.QuoteMath
+import com.vayunmathur.globalesim.domain.buildActivationCode
 import com.vayunmathur.globalesim.platform.EsimUiState
 import com.vayunmathur.library.intents.euicc.EsimLink
 import com.vayunmathur.library.ui.AppScaffold
@@ -167,13 +168,15 @@ fun HomeScreen(
                         // The vendor stores SM-DP+ and matching ID separately;
                         // the LPA needs the full LPA:1$<smdp>$<code> string.
                         // A bare matching ID fails validation and lands on a
-                        // blank manual-entry page.
-                        val code = profile.activationCode
-                        val full = if (code.startsWith("LPA:", ignoreCase = true) || '$' in code) {
-                            code
-                        } else {
-                            "LPA:1$${profile.smdpAddress}$code"
-                        }
+                        // blank manual-entry page. The server sometimes fuses
+                        // smdp+code with the `$` missing, so normalize first.
+                        val full = buildActivationCode(profile.activationCode, profile.smdpAddress)
+                        // TEMP-DEBUG: part counts only, never the code itself.
+                        com.vayunmathur.library.log.Log.status(
+                            "Esim",
+                            "install len=${full.length} parts=${full.split('$').size} " +
+                                "smdpLen=${profile.smdpAddress.length} codeLen=${profile.activationCode.length}",
+                        )
                         val intent = Intent(
                             Intent.ACTION_VIEW,
                             EsimLink.provisioningUri(full),

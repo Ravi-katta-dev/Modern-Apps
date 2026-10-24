@@ -35,7 +35,7 @@
 //! frame replace the queued one, so a 60fps gesture presents poses up to a frame
 //! fresher; the on-demand loop queues nothing while idle, so there is no power cost
 //! when the map is still. IMMEDIATE is never picked (tearing), FIFO is the
-//! spec-mandated fallback — see [`chain`](self::chain) for the selection and the
+//! spec-mandated fallback — see [`present`](self::present) for the selection and the
 //! creation-time logcat line naming the negotiated mode.
 //!
 //! # Two hard-won details carried over from `games/voxels`
@@ -64,6 +64,7 @@
 
 mod chain;
 mod msaa;
+mod present;
 mod samples;
 mod stencil;
 

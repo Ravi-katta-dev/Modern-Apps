@@ -1,10 +1,10 @@
-"""Upload any local file to R2 as planet2.mamaps (bucket: maps).
+"""Upload any local file to R2 as planet3.mamaps (bucket: maps).
 
 Usage: python upload_planet.py <local-file>
 Verifies server-side size matches, then deletes nothing local. Progress
 prints every ~1 GB.
 
-Serves https://data.maproj.org/planet2.mamaps, which the apps'
+Serves https://data.maproj.org/planet3.mamaps, which the apps'
 basemap URLs point at (library/map urls.rs, maps MapTileCache.kt).
 
 SECURITY: credentials/config come from ENVIRONMENT VARIABLES, never baked
@@ -27,7 +27,7 @@ import boto3
 from boto3.s3.transfer import TransferConfig
 
 BUCKET = os.environ.get("R2_BUCKET", "maps")
-KEY = "planet2.mamaps"
+KEY = "planet3.mamaps"
 
 PART_SIZE = 100 * 1024 * 1024  # 100 MB parts, 10-way concurrency
 

@@ -60,7 +60,13 @@ internal fun createBrowserWebViewClient(
     context = ctx,
     shieldsFor = { host -> viewModel.shieldsFor(host, isPrivateTab) },
     onBlocked = { _, _ -> viewModel.onRequestBlocked(tabId) },
-    onNavigate = { _, rewritten -> viewModel.onTabUrlChange(tabId, rewritten) },
+    // Load the rewritten URL, not just mirror it: returning true above
+    // cancels the original load, so without this the tab shows the old
+    // page while the omnibox shows the new URL (reads as a scheme flip).
+    onNavigate = { view, rewritten ->
+        viewModel.onTabUrlChange(tabId, rewritten)
+        view.loadUrl(rewritten)
+    },
 ) {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         val scheme = request.url.scheme ?: return false

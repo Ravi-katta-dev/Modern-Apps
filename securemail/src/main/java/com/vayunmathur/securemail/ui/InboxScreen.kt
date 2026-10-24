@@ -102,6 +102,8 @@ fun InboxScreen(
                                 msg = msg,
                                 onOpen = { onOpen(msg.id) },
                                 inTrash = folder == MailFolder.TRASH,
+                                // Sent rows show the destination (From is always us).
+                                showRecipient = folder == MailFolder.SENT,
                                 onTrash = { onTrash(msg.id) },
                                 onRestore = { onRestore(msg.id) },
                             )
@@ -118,6 +120,7 @@ private fun MessageRow(
     msg: StoredMessage,
     onOpen: () -> Unit,
     inTrash: Boolean,
+    showRecipient: Boolean = false,
     onTrash: () -> Unit,
     onRestore: () -> Unit,
 ) {
@@ -128,7 +131,7 @@ private fun MessageRow(
         ) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    msg.from.ifBlank { "(encrypted sender)" },
+                    if (showRecipient) "To: ${msg.toJson.ifBlank { "(unknown)" }}" else msg.from.ifBlank { "(encrypted sender)" },
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )

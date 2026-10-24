@@ -159,12 +159,31 @@ object MailSocket {
 
     /** Publish an already-encrypted PGP/MIME blob to [recipient]. False when offline. */
     suspend fun publish(recipient: String, raw: ByteArray, unencrypted: Boolean = false): Boolean {
-        val s = session ?: return false
+        val s = session
+        if (s == null) {
+            lastPublishError = "no session (relay offline)"
+            return false
+        }
         return runCatching {
             s.send(pubFrame(recipient, raw, unencrypted))
+            lastPublishError = null
             true
-        }.onFailure { Log.status(TAG, "publish failed", it) }.getOrDefault(false)
+        }.onFailure {
+            lastPublishError = it.message?.takeIf { m -> m.isNotBlank() }
+                ?: it.javaClass.simpleName ?: "socket write failed"
+            Log.status(TAG, "publish failed", it)
+        }.getOrDefault(false)
     }
+
+    /**
+     * Cause of the most recent [publish] failure (null after a success).
+     * Read immediately after a `false` return — the next publish overwrites it.
+     * Surfaced to the outbox `lastError` so retry shows the real cause instead
+     * of one generic string.
+     */
+    @Volatile
+    var lastPublishError: String? = null
+        private set
 
     /** Directory lookup over the socket (request/response with timeout). */
     suspend fun getKey(address: String): KeyResult? {

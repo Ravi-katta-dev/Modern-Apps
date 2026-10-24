@@ -10,6 +10,7 @@ import com.vayunmathur.globalesim.data.AnonymousIdStore
 import com.vayunmathur.globalesim.data.api.EsimApi
 import com.vayunmathur.globalesim.data.api.ProfileDto
 import com.vayunmathur.globalesim.data.api.RateDto
+import com.vayunmathur.globalesim.domain.upgradeCheckoutUrl
 import com.vayunmathur.library.log.Log
 import java.util.UUID
 import kotlinx.coroutines.launch
@@ -178,14 +179,18 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
             )
             runCatching { EsimApi.nowPayInvoice(accountId(), amountCents) }
                 .onSuccess {
+                    // NOWPayments sometimes returns a cleartext http link,
+                    // which cleartext blocking rejects — upgrade once here so
+                    // every consumer (state, open callback) is secure.
+                    val secureUrl = upgradeCheckoutUrl(it.invoiceUrl)
                     state = state.copy(
                         loading = false,
-                        pendingInvoiceUrl = it.invoiceUrl,
+                        pendingInvoiceUrl = secureUrl,
                         pendingInvoiceId = it.invoiceId,
                         pendingBonusCents = it.bonusUsdCents,
                         pendingAmountCents = amountCents,
                     )
-                    onInvoiceReady(it.invoiceUrl)
+                    onInvoiceReady(secureUrl)
                 }
                 .onFailure { state = state.copy(loading = false, error = it.message) }
         }
