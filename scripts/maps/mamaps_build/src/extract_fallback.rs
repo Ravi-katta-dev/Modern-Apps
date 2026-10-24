@@ -293,9 +293,12 @@ fn point_on_segment(point: (f64, f64), a: (f64, f64), b: (f64, f64)) -> bool {
     if len2 == 0.0 {
         return (px - a.0).abs() <= EPS && (py - a.1).abs() <= EPS;
     }
-    // Perpendicular distance, scale-aware: |cross| / |segment|.
+    // Perpendicular distance, scale-aware: |cross| / |segment|. Compared
+    // without the square root (|cross|^2 <= EPS^2 * len2, all sides
+    // non-negative) — same predicate, no sqrt per segment on the hottest
+    // inner loop of the link pass.
     let cross = dx * (py - a.1) - dy * (px - a.0);
-    if (cross / len2.sqrt()).abs() > EPS {
+    if cross * cross > EPS * EPS * len2 {
         return false;
     }
     px >= a.0.min(b.0) - EPS
@@ -385,24 +388,59 @@ pub fn extend_region_links_with(
     country_zooms: &mut HashMap<u64, u8>,
     populations: &HashMap<u64, u64>,
 ) -> Result<FallbackStats> {
-    // Pass 1: boundary shapes. Only `region_area` areas (the mask's own shapes, carrying the
-    // admin level in `kind_detail`); border lines enclose nothing.
+    // Pass 1: boundary shapes AND places, in one scan. Only `region_area`
+    // areas (the mask's own shapes, carrying the admin level in `kind_detail`);
+    // border lines enclose nothing. Places are positional, so node,
+    // way-centroided and relation-centroided labels all link by the tagged id
+    // they already carry.
+    //
+    // One scan, not two: the store reader is one sequential cursor over tens
+    // of GB of spill, and both passes filtered it by layer. Collecting both
+    // vectors in a single streaming pass deletes a full decode. Peak is
+    // unchanged — boundaries already lived through place collection.
+    struct PlacePoint {
+        id: u64,
+        point: (f64, f64),
+        kind: Band,
+        kind_name: String,
+    }
     let mut boundaries: Vec<Boundary> = Vec::new();
-    let mut reader = store.reader()?;
-    while let Some(feature) = reader.next()? {
-        if feature.class.layer != LAYER_BOUNDARIES || !feature.class.area {
-            continue;
+    let mut places: Vec<PlacePoint> = Vec::new();
+    {
+        let mut reader = store.reader()?;
+        while let Some(feature) = reader.next()? {
+            if feature.id == ID_NONE {
+                continue;
+            }
+            if feature.class.layer == LAYER_BOUNDARIES && feature.class.area {
+                let Geometry::Polygons(polygons) = feature.geometry else {
+                    continue;
+                };
+                if polygons.is_empty() {
+                    continue;
+                }
+                boundaries.push(Boundary::new(feature.id, feature.class.kind_detail, polygons));
+            } else if feature.class.layer == LAYER_PLACES {
+                let Geometry::Points(points) = feature.geometry else {
+                    continue;
+                };
+                let Some(&point) = points.first() else {
+                    continue;
+                };
+                let Some(kind_name) = place_kind_name(feature.class.kind) else {
+                    continue;
+                };
+                let Some(band) = band_for_place_kind(kind_name) else {
+                    continue;
+                };
+                places.push(PlacePoint {
+                    id: feature.id,
+                    point,
+                    kind: band,
+                    kind_name: kind_name.to_string(),
+                });
+            }
         }
-        if feature.id == ID_NONE {
-            continue;
-        }
-        let Geometry::Polygons(polygons) = feature.geometry else {
-            continue;
-        };
-        if polygons.is_empty() {
-            continue;
-        }
-        boundaries.push(Boundary::new(feature.id, feature.class.kind_detail, polygons));
     }
     boundaries.retain(|b| b.bbox.is_some() && b.area > 0.0);
     let grid = Grid::build(&boundaries);
@@ -426,42 +464,11 @@ pub fn extend_region_links_with(
     // links winning, exactly as the serial loop did. `select_link` returns
     // at most one target per place, so the drain cannot double-insert and
     // the map bytes are identical.
-    struct PlacePoint {
-        id: u64,
-        point: (f64, f64),
-        kind: Band,
-        kind_name: String,
-    }
-    let mut places: Vec<PlacePoint> = Vec::new();
-    {
-        let mut reader = store.reader()?;
-        while let Some(feature) = reader.next()? {
-            if feature.class.layer != LAYER_PLACES {
-                continue;
-            }
-            if feature.id == ID_NONE {
-                continue;
-            }
-            let Geometry::Points(points) = feature.geometry else {
-                continue;
-            };
-            let Some(&point) = points.first() else {
-                continue;
-            };
-            let Some(kind_name) = place_kind_name(feature.class.kind) else {
-                continue;
-            };
-            let Some(band) = band_for_place_kind(kind_name) else {
-                continue;
-            };
-            places.push(PlacePoint {
-                id: feature.id,
-                point,
-                kind: band,
-                kind_name: kind_name.to_string(),
-            });
-        }
-    }
+    //
+    // NOTE: `places` now arrives from the fused pass-1 scan above (same
+    // reader, same filter, same spill order), not from a second scan. What
+    // follows is unchanged: drain order — and therefore every inserted key,
+    // value, stat and country zoom — is identical.
     let mut stats = FallbackStats::default();
     let mut per_kind: HashMap<String, (u64, u64)> = HashMap::new();
     // Member links always win: counted exactly as the serial loop did,

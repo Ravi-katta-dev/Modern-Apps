@@ -287,6 +287,23 @@ fn adopt_thread_budget() {
     });
 }
 
+/// TEMP-PROFILE: reader-thread wall stash for the mapprofile line. The
+/// reader runs on its own thread inside `map_zoom`'s scope; the tally fold
+/// (which prints) runs after the scope joins. A process-wide cell carries
+/// the wall across. Removed with the probes.
+static READER_WALL_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// TEMP-PROFILE: stash the reader wall (millis). Removed with the probes.
+pub(crate) fn stash_reader_wall(_z: u8, wall: std::time::Duration) {
+    READER_WALL_MS.store(wall.as_millis() as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// TEMP-PROFILE: take the stashed reader wall as a Duration. Removed with
+/// the probes.
+pub(crate) fn take_reader_wall() -> std::time::Duration {
+    std::time::Duration::from_millis(READER_WALL_MS.load(std::sync::atomic::Ordering::Relaxed))
+}
+
 /// Per-zoom counts for the build report.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ZoomStats {
@@ -426,6 +443,20 @@ struct Tally {
     features: u64,
     points: u64,
     dropped: u64,
+    // TEMP-PROFILE: per-stage map walls, summed across chunks (durations
+    // add; order irrelevant). Removed with the probes. NOT Copy (Duration
+    // is, but the explicit add below keeps the accounting visible).
+    profile: TallyProfile,
+}
+
+/// TEMP-PROFILE: per-stage map-phase walls carried in the tally. Removed
+/// with the probes.
+#[derive(Debug, Default, Clone, Copy)]
+struct TallyProfile {
+    project: std::time::Duration,
+    annotate: std::time::Duration,
+    filter: std::time::Duration,
+    subdiv: std::time::Duration,
 }
 
 impl Tally {
@@ -433,6 +464,24 @@ impl Tally {
         self.features += other.features;
         self.points += other.points;
         self.dropped += other.dropped;
+        self.profile.project += other.profile.project;
+        self.profile.annotate += other.profile.annotate;
+        self.profile.filter += other.profile.filter;
+        self.profile.subdiv += other.profile.subdiv;
+    }
+
+    /// TEMP-PROFILE: attach this chunk's stage walls. Removed with the probes.
+    fn profile_add(
+        &mut self,
+        project: std::time::Duration,
+        annotate: std::time::Duration,
+        filter: std::time::Duration,
+        subdiv: std::time::Duration,
+    ) {
+        self.profile.project += project;
+        self.profile.annotate += annotate;
+        self.profile.filter += filter;
+        self.profile.subdiv += subdiv;
     }
 }
 

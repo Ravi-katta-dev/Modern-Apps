@@ -343,6 +343,13 @@ fn tile_chunk(
 ) -> (Chunk, Tally) {
     let mut tiles: Chunk = BTreeMap::new();
     let mut tally = Tally::default();
+    // TEMP-PROFILE: per-stage walls inside the map phase. Thread-local (each
+    // worker runs its own `tile_chunk`), summed into the process log at
+    // `map_zoom` end. Removed once the hotspot is measured (CA run).
+    let mut t_project = std::time::Duration::ZERO;
+    let mut t_annotate = std::time::Duration::ZERO;
+    let mut t_filter = std::time::Duration::ZERO;
+    let mut t_subdiv = std::time::Duration::ZERO;
     for feature in features {
         // Country label gating: the score (footprint × headcount) decided in stage A
         // (see `extract_fallback::country_zoom`); this is where it is enforced. A
@@ -363,15 +370,21 @@ fn tile_chunk(
             tally.dropped += 1;
             continue;
         }
+        let t = std::time::Instant::now();
         let mut projected = geom::project_geometry(&feature.geometry, z, EXTENT);
+        t_project += t.elapsed();
         // Significance first, then filter: computed on the whole geometry so a vertex's fate
         // does not depend on which tile it lands in.
+        let t = std::time::Instant::now();
         simplify::annotate(&mut projected);
+        t_annotate += t.elapsed();
         // Buildings live only at z14, where the policy tolerance is 0.0; the floor below
         // keeps only collinear midpoints and sub-pixel jaggies — see `tolerance_for_layer`.
         // Roads take the per-feature floor at z14 (washable classes only).
         let layer_tolerance = tolerance_for_feature(feature, z, tolerance);
+        let t = std::time::Instant::now();
         let thinned = simplify::filter(&projected, layer_tolerance);
+        t_filter += t.elapsed();
         // Near-rectangles digitised by hand gain a cheap varint delta when their edges snap
         // exactly axis-aligned — see `snap_building_rings`. Survivors only, so the measured
         // significance above is never stale; a pure function of the feature, so the archive
@@ -386,6 +399,7 @@ fn tile_chunk(
             tally.dropped += 1;
             continue;
         }
+        let t = std::time::Instant::now();
         subdivide::subdivide(&thinned, z, EXTENT, buffer, &mut |tx, ty, clipped| {
             // The descent prunes on a part surviving at all; this is the stricter test that
             // decides whether a tile is worth writing, and it stays exactly where it was.
@@ -400,7 +414,11 @@ fn tile_chunk(
             tally.features += added.0;
             tally.points += added.1;
         });
+        t_subdiv += t.elapsed();
     }
+    // TEMP-PROFILE: summed per worker; see `map_zoom` for the fold.
+    // Removed with the probes.
+    tally.profile_add(t_project, t_annotate, t_filter, t_subdiv);
     (tiles, tally)
 }
 

@@ -2,23 +2,47 @@
 /// them fans out across the pool exactly as [`materialise_ways`] does. The sink and the conventions
 /// grid are fed from these **in relation order** in the serial drain, which is what keeps the
 /// archive byte-identical: the drain order is the spill order is the archive's.
+///
+/// Geometry arrives spill-encoded ([`EncodedGeom`](crate::store::EncodedGeom)): the pool walks
+/// vertices, the drain appends bytes. The region keep/drop decision is precomputed alongside
+/// (pure per-relation work over the resolved shape), so the drain's only vertex touch is
+/// `conventions.add`'s grid stamp — which must stay serial and ordered anyway (precedence).
 enum BuiltRelation {
     /// A label relation centroided to a point, `None` when it had no locatable members.
     Label(Option<(f64, f64)>),
-    /// A border relation's member lines, already filtered to those with two or more points.
-    Border(Vec<Vec<(f64, f64)>>),
+    /// A border relation's member lines, spill-encoded, already filtered to those with two or
+    /// more points. Borders are never region-filtered (region shapes are always kept), so no
+    /// keep flag rides along. `empty` is the pre-encode shape test (`lines.is_empty()`): an
+    /// encoded empty still carries count bytes, so the drain cannot tell it from content by
+    /// looking at the bytes — and the old drain counted it `geometry_failed` rather than
+    /// pushing an empty record.
+    Border { encoded: Result<crate::store::EncodedGeom>, empty: bool },
     /// An area relation's stitched rings and the ring stats that stitching produced. The stats are
     /// per-relation here and summed into [`Stats::rings`] serially — they are four additive counts,
-    /// so the sum is the same in any order.
-    Area { polygons: Vec<rings::Polygon>, rings: RingStats },
+    /// so the sum is the same in any order. `encoded` is the assembled polygons, spill-ready;
+    /// `polygons` travels alongside for `conventions.add`, which needs rings rather than bytes.
+    /// `empty` is the pre-encode shape test (`polygons.is_empty()`), for the same reason as
+    /// [`BuiltRelation::Border`]'s.
+    Area {
+        polygons: Vec<rings::Polygon>,
+        encoded: Result<crate::store::EncodedGeom>,
+        empty: bool,
+        keep: bool,
+        rings: RingStats,
+    },
 }
 
 /// Build one relation's geometry. Reads only the shared `members` map and the resolved `table`,
 /// both immutable, so it is safe to call across the pool. See [`BuiltRelation`].
+///
+/// `region` joins the pool inputs (shared ref): the buildings-area keep/drop test walks every
+/// vertex (`polygons_touch`), and the drain must not. Labels keep their O(1) `point_touches`
+/// in the drain — no walk to move.
 fn build_relation(
     relation: &Relation,
     members: &MemberWays,
     table: &NodeLocations,
+    region: Option<&osm_ingest::bbox::BBox>,
 ) -> BuiltRelation {
     // A `places` relation (a country, a region) is labelled at its centroid: one point, not a
     // stitched shape. The border itself lives in `boundaries`; this is the name.
@@ -42,7 +66,12 @@ fn build_relation(
             .map(|refs| table.line(refs))
             .filter(|line| line.len() >= 2)
             .collect();
-        return BuiltRelation::Border(lines);
+        // Captured, not `?`: encode counts cannot overflow on real ways, but a
+        // pool panic would abort the build where a channelled error fails it in
+        // spill order. The drain reports the first failure in relation order.
+        let empty = lines.is_empty();
+        let encoded = crate::store::EncodedGeom::live(&Geometry::Lines(lines));
+        return BuiltRelation::Border { encoded, empty };
     }
     let member_ways: Vec<MemberWay> = relation
         .members
@@ -53,7 +82,23 @@ fn build_relation(
         .collect();
     let mut rings = RingStats::default();
     let polygons = rings::assemble(&member_ways, |id| locate(table, id), &mut rings);
-    BuiltRelation::Area { polygons, rings }
+    // Buildings are region-filtered; every other area layer is always kept.
+    // Decided here, on the assembled rings, so the drain never walks vertices.
+    let keep = relation.class.layer != tilecodec::mamaps::dict::LAYER_BUILDINGS
+        || polygons_touch(&polygons, region);
+    let geometry = Geometry::Polygons(polygons);
+    let empty = match &geometry {
+        Geometry::Polygons(polygons) => polygons.is_empty(),
+        // Unreachable: built as Polygons two lines up. The match (rather than
+        // reading `polygons` before the move) keeps the emptiness test next to
+        // the value the drain decides on.
+        _ => unreachable!("just built as Polygons"),
+    };
+    let encoded = crate::store::EncodedGeom::live(&geometry);
+    let Geometry::Polygons(polygons) = geometry else {
+        unreachable!("just built as Polygons");
+    };
+    BuiltRelation::Area { polygons, encoded, empty, keep, rings }
 }
 
 /// Materialise relations; returns the driving-side conventions.
@@ -92,13 +137,16 @@ fn materialise_relations(
         par::install(|| {
             batch
                 .par_iter()
-                .map(|relation| build_relation(relation, members, table))
+                .map(|relation| build_relation(relation, members, table, region))
                 .collect_into_vec(&mut built);
         });
-        for (relation, geometry) in batch.iter().zip(built.drain(..)) {
-            match geometry {
+        for (relation, built) in batch.iter().zip(built.drain(..)) {
+            // `?` in spill order: the first encode failure in relation order,
+            // exactly as inline encoding would report it.
+            match built {
                 BuiltRelation::Label(Some(point)) => {
                     // `poi` labels are region-filtered; `places` always kept.
+                    // O(1) point test, no vertex walk — stays in the drain.
                     if relation.class.layer == tilecodec::mamaps::dict::LAYER_POI
                         && !point_touches(&point, region)
                     {
@@ -107,22 +155,28 @@ fn materialise_relations(
                     }
                     sink.push_named(
                         &relation.class,
-                        &Geometry::Points(vec![point]),
+                        &crate::store::EncodedGeom::live(&Geometry::Points(vec![point]))?,
                         relation.name.as_deref(),
                         tagged_id(relation.id, ELEMENT_RELATION),
                     )?;
                     stats.features += 1;
                 }
                 BuiltRelation::Label(None) => stats.geometry_failed += 1,
-                BuiltRelation::Border(lines) => {
-                    if lines.is_empty() {
+                BuiltRelation::Border { encoded, empty } => {
+                    let encoded = encoded?;
+                    if empty {
                         stats.geometry_failed += 1;
                     } else {
-                        sink.push(&relation.class, &Geometry::Lines(lines))?;
+                        sink.push_named(
+                            &relation.class,
+                            &encoded,
+                            None,
+                            tilecodec::mamaps::body::ID_NONE,
+                        )?;
                         stats.features += 1;
                     }
                 }
-                BuiltRelation::Area { polygons, rings } => {
+                BuiltRelation::Area { polygons, encoded, empty, keep, rings } => {
                     // Accumulated whether or not the stitch produced anything, exactly as the
                     // in-place `&mut stats.rings` did: a failed stitch still counted its unclosed
                     // and orphan rings.
@@ -130,14 +184,13 @@ fn materialise_relations(
                     stats.rings.inner_rings += rings.inner_rings;
                     stats.rings.unclosed += rings.unclosed;
                     stats.rings.orphan_inner += rings.orphan_inner;
-                    if polygons.is_empty() {
+                    let encoded = encoded?;
+                    if empty {
                         stats.geometry_failed += 1;
                     } else {
-                        // Buildings are region-filtered; every other area
-                        // layer is always kept.
-                        if relation.class.layer == tilecodec::mamaps::dict::LAYER_BUILDINGS
-                            && !polygons_touch(&polygons, region)
-                        {
+                        // The buildings keep/drop was decided on the pool; every
+                        // other area layer is always kept.
+                        if !keep {
                             bar.tick("relation(s)");
                             continue;
                         }
@@ -151,12 +204,7 @@ fn materialise_relations(
                         // A multipolygon building carries its S3DB attributes into the building side
                         // table, just as a building way does.
                         if let Some(building) = relation.building {
-                            sink.push_building(
-                                &relation.class,
-                                &Geometry::Polygons(polygons),
-                                None,
-                                building,
-                            )?;
+                            sink.push_building(&relation.class, &encoded, None, building)?;
                         } else {
                             // The country's own shape is also what says how its roads are marked.
                             // Stamped before the shape is moved into the sink, from the assembled
@@ -164,12 +212,7 @@ fn materialise_relations(
                             if let Some(iso) = &relation.iso {
                                 conventions.add(iso, &polygons);
                             }
-                            sink.push_named(
-                                &relation.class,
-                                &Geometry::Polygons(polygons),
-                                None,
-                                id,
-                            )?;
+                            sink.push_named(&relation.class, &encoded, None, id)?;
                         }
                         stats.features += 1;
                     }
@@ -283,80 +326,6 @@ const MAX_NODE_ID: i64 = 48 << 30;
 
 /// The ids pass 3 must resolve, collected the way stage A always did.
 ///
-/// One exactly-sized vector, then [`NodeLocations::new`] sorts and dedups it in place. Sized rather
-/// than grown into because a `Vec` that doubles its way to 200 M ids holds the old and the new
-/// allocation at once across the last realloc -- 1.1 GB plus 2.1 GB, for a length both earlier passes
-/// already know.
-fn collect_needed_in_memory(
-    ways_path: &Path,
-    ways_anon: &Option<std::sync::Arc<tile_build::anon::AnonStore>>,
-    members: &MemberWays,
-    refs_total: usize,
-    timer: &mut crate::timing::PhaseTimer,
-) -> Result<NodeLocations> {
-    let mut needed: Vec<i64> = Vec::with_capacity(refs_total);
-    {
-        let mut reader = open_ways_reader(ways_path, ways_anon)?;
-        let mut refs: Vec<i64> = Vec::new();
-        while reader.next(&mut refs)?.is_some() {
-            needed.extend_from_slice(&refs);
-        }
-    }
-    // A member way that pass 1 also classified already contributed its refs above; `members` adds
-    // the ones — the great majority, since a multipolygon's rings usually carry no tags of their
-    // own — that nothing else asked for.
-    for refs in members.values() {
-        needed.extend_from_slice(refs);
-    }
-    timer.switch("id-index");
-    NodeLocations::new(needed)
-}
-
-/// The same ids, through a bitset over the node id space.
-///
-/// The vector above is `way_refs + member_refs` entries of eight bytes **with duplicates**, then a
-/// sort of all of them. On a north-america extract that is ~19 GB; on a planet one it projects to
-/// ~96 GB and a sort of 12 G elements, which is the second of the two things that stopped a planet
-/// build before anything else got the chance to.
-///
-/// A bit per node id costs `max_id / 8` and **does not scale with the extract**: OSM node ids are
-/// assigned monotonically and top out near 13 G, so this is at most ~1.7 GB for any extract, forever.
-/// Streaming the refs into it and then walking it low to high yields sorted unique ids directly --
-/// which removes the vector *and* the sort in one pass, with no extra I/O.
-///
-/// Not an external merge sort of the ref stream. That is the general answer and needs no assumption
-/// about the ids, and it costs ~96 GB written and ~96 GB read at planet scale to compute what this
-/// gets in one pass. The bound that makes the bitset safe -- monotonic, bounded ids -- is a property
-/// of OSM's data rather than a hope about it, and [`MAX_NODE_ID`] is where that property is enforced.
-fn collect_needed_by_bitset(
-    ways_path: &Path,
-    ways_anon: &Option<std::sync::Arc<tile_build::anon::AnonStore>>,
-    members: &MemberWays,
-    max_ref: i64,
-    timer: &mut crate::timing::PhaseTimer,
-) -> Result<NodeLocations> {
-    let mut bits = NeededBits::new(max_ref)?;
-    {
-        let mut reader = open_ways_reader(ways_path, ways_anon)?;
-        let mut refs: Vec<i64> = Vec::new();
-        while reader.next(&mut refs)?.is_some() {
-            for &id in &refs {
-                bits.set(id)?;
-            }
-        }
-    }
-    for refs in members.values() {
-        for &id in refs {
-            bits.set(id)?;
-        }
-    }
-    timer.switch("id-index");
-    // The bitset's words move into the rank index directly (`from_bitset`), not through `ids()`:
-    // walking them out as ids and re-setting them would hold two ~1.5 GB words arrays at once.
-    let (words, count) = bits.into_words();
-    NodeLocations::from_bitset(words, count)
-}
-
 /// One bit per node id in `0..=max_id`.
 struct NeededBits {
     words: Vec<u64>,
@@ -377,6 +346,42 @@ impl NeededBits {
         // `max_id` is a maximum, not a count, so the space is one larger.
         let bits = max_id.max(0) as usize + 1;
         Ok(NeededBits { words: vec![0u64; bits.div_ceil(64)], bits, count: 0 })
+    }
+
+    /// An unsized bitset that grows as larger ids arrive, for fusing collection
+    /// into pass 1's drain: the maximum is not known until the last way is
+    /// pushed, so the words extend on demand instead. Same guards as [`new`];
+    /// the final size is identical to a sized bitset over the same ids.
+    fn new_growable() -> NeededBits {
+        NeededBits { words: Vec::new(), bits: 0, count: 0 }
+    }
+
+    /// Set a bit, growing the words when the id lands past them.
+    ///
+    /// Refused rather than grown past [`MAX_NODE_ID`], like [`new`]: an id out
+    /// there is not an OSM node and growing for it would size the bitset for
+    /// one corrupt ref.
+    fn set_growable(&mut self, id: i64) -> Result<()> {
+        if id < 0 {
+            return err(format!("node ref {id} is negative"));
+        }
+        if id > MAX_NODE_ID {
+            return err(format!(
+                "node ref {id} is past the {MAX_NODE_ID} this build will size a bitset for"
+            ));
+        }
+        let at = id as usize;
+        if at >= self.bits {
+            self.bits = at + 1;
+            self.words.resize(self.bits.div_ceil(64), 0);
+        }
+        let word = &mut self.words[at / 64];
+        let bit = 1u64 << (at % 64);
+        if *word & bit == 0 {
+            *word |= bit;
+            self.count += 1;
+        }
+        Ok(())
     }
 
     fn set(&mut self, id: i64) -> Result<()> {

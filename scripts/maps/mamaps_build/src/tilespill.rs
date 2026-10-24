@@ -355,6 +355,7 @@ impl ChunkSpill {
             used: 0,
             window: window.max(ENTRY_HEADER_BYTES),
             spare: None,
+            exact_end: true,
         }
     }
 
@@ -437,6 +438,11 @@ pub struct ChunkReader<'a> {
     /// `None` until the merge returns one; a decoded entry is byte-identical whether it was built
     /// from a recycled arena or a fresh one, because the contents are written the same way.
     spare: Option<ChunkEntry>,
+    /// Whether this cursor runs to the chunk's last byte. A range worker's
+    /// segment ends mid-chunk (the next range owns what follows), so only a
+    /// cursor that does reach the end enforces the no-trailing-bytes check —
+    /// any other segment legitimately stops with unread bytes after it.
+    exact_end: bool,
 }
 
 include!("tilespill_part1.rs");

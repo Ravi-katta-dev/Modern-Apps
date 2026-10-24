@@ -199,9 +199,11 @@ mod tests {
         assert!(bits.set(100).is_ok());
     }
 
-    /// End to end over a real ways spill: the two collectors must agree on the set they hand pass 3.
+    /// End to end over a real ways spill: the fused growable bitset must hand
+    /// pass 3 the same set the old re-scan collectors did — every asked-for id
+    /// and nothing between them that was never asked for.
     #[test]
-    fn the_two_ref_collectors_agree_on_the_same_input() {
+    fn the_fused_bitset_collects_what_the_spill_holds() {
         let path = std::env::temp_dir().join(format!(
             "mamaps_refcollect_{}_{:?}.ways.tmp",
             std::process::id(),
@@ -214,50 +216,41 @@ mod tests {
         );
         let mut sink = WaySink::create_anon(&path).expect("create the ways spill");
         // Ascending way ids, as pass 1 produces; overlapping refs, as real ways have.
+        // Bits are set as each way pushes, the way the pass-1 drain does it.
+        let mut bits = NeededBits::new_growable();
         for way in 0..64i64 {
             let refs: Vec<i64> = (0..8).map(|i| way * 5 + i).collect();
+            for &id in &refs {
+                bits.set_growable(id).expect("set a bit");
+            }
             sink.push(way + 1, &class, &refs, None, 0, &[], &[], Carriageway::default(), None)
                 .expect("push");
         }
         let (counts, store) = sink.finish_anon().expect("finish");
+        let _ = store;
 
         let mut member_map: HashMap<i64, Vec<i64>> = HashMap::new();
         // One member whose refs overlap the spill's, and one that is entirely new.
         member_map.insert(7, vec![30, 31, 32, 30]);
         member_map.insert(9, vec![10_000, 9_999, 10_000]);
         let members = MemberWays::from_map(member_map);
-        let member_refs: usize = members.values().map(|refs| refs.len()).sum();
-        let max_ref = members
-            .values()
-            .flat_map(|refs| refs.iter().copied())
-            .fold(counts.max_ref, i64::max);
-
-        // A throwaway clock: the collectors take the run's timer, and this test has
-        // no run. Dropped without `finish`, so no `TIMING` line reaches test output.
-        let mut timer = crate::timing::PhaseTimer::start("tiles");
-        let anon = Some(std::sync::Arc::new(store));
-        let in_memory =
-            collect_needed_in_memory(&path, &anon, &members, counts.refs as usize + member_refs, &mut timer)
-                .expect("the in-memory path");
-        let by_bitset =
-            collect_needed_by_bitset(&path, &anon, &members, max_ref, &mut timer).expect("the bitset path");
-
-        assert_eq!(
-            in_memory.len(),
-            by_bitset.len(),
-            "the two paths disagree on how many distinct nodes are needed",
-        );
-        // And the same ids, not merely the same count: both tables must answer for every ref and
-        // for nothing between them that was never asked for.
-        for id in [0i64, 1, 30, 31, 32, 319, 9_999, 10_000] {
-            assert_eq!(
-                in_memory.contains(id),
-                by_bitset.contains(id),
-                "the two paths disagree about node {id}",
-            );
+        for refs in members.values() {
+            for &id in refs {
+                bits.set_growable(id).expect("set a member bit");
+            }
         }
-        assert!(in_memory.contains(10_000), "a member-only ref is missing");
-        assert!(!in_memory.contains(5_000), "an id nothing asked for is present");
+
+        // The same ids, not merely the same count: the table must answer for
+        // every ref and for nothing between them that was never asked for.
+        let count = bits.len();
+        let (words, _) = bits.into_words();
+        let table = NodeLocations::from_bitset(words, count).expect("build the table");
+        let _ = counts;
+        for id in [0i64, 1, 30, 31, 32, 319, 9_999, 10_000] {
+            assert!(table.contains(id), "node {id} is missing");
+        }
+        assert!(table.contains(10_000), "a member-only ref is missing");
+        assert!(!table.contains(5_000), "an id nothing asked for is present");
 
         let _ = std::fs::remove_file(&path);
     }

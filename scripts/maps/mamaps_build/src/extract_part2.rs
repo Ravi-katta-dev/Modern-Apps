@@ -147,11 +147,8 @@ fn build_resolved_table(
     input: &Path,
     blobs: &[pbf::BlobLoc],
     blob_kinds: &[u8],
-    ways_path: &Path,
-    ways_anon: &Option<std::sync::Arc<tile_build::anon::AnonStore>>,
     members: &MemberWays,
-    way_refs: u64,
-    way_max_ref: i64,
+    needed: NeededBits,
     select: &Select,
     layers: Layers,
     region: Option<&osm_ingest::bbox::BBox>,
@@ -159,20 +156,30 @@ fn build_resolved_table(
     stats: &mut Stats,
     timer: &mut crate::timing::PhaseTimer,
 ) -> Result<NodeLocations> {
-    // --- pass 3: the coordinates those two asked for, plus the label nodes ----------------
-    //
-    // The classified ways are read off disk instead of walked in memory. Order does not matter to
-    // either path below, so this is a plain streaming pass over the spill.
-    let member_refs: usize = members.values().map(|refs| refs.len()).sum();
-    let refs_total = way_refs as usize + member_refs;
-    let max_ref = members
-        .values()
-        .flat_map(|refs| refs.iter().copied())
-        .fold(way_max_ref, i64::max);
-    let table = if refs_total <= REFS_IN_MEMORY {
-        collect_needed_in_memory(&ways_path, ways_anon, &members, refs_total, timer)?
+    // The fused bitset already holds every classified way's refs (set in pass
+    // 1's drain); member ways join here. No ways-spill re-scan: the refs were
+    // decoded and in hand where they were set.
+    let mut needed = needed;
+    for refs in members.values() {
+        for &id in refs {
+            needed.set_growable(id)?;
+        }
+    }
+    // Small extracts take the exact vector; planet-scale takes the bitset the
+    // words move straight into. The threshold now counts distinct ids (the old
+    // one counted duplicates), which only moves borderline extracts toward the
+    // vector path — whose input arrives sorted-unique, so its sort is trivial.
+    let table = if needed.len() <= REFS_IN_MEMORY {
+        let ids: Vec<i64> = needed.ids().collect();
+        timer.switch("id-index");
+        NodeLocations::new(ids)?
     } else {
-        collect_needed_by_bitset(&ways_path, ways_anon, &members, max_ref, timer)?
+        timer.switch("id-index");
+        // The bitset's words move into the rank index directly (`from_bitset`),
+        // not through `ids()`: walking them out as ids and re-setting them
+        // would hold two ~1.5 GB words arrays at once.
+        let (words, count) = needed.into_words();
+        NodeLocations::from_bitset(words, count)?
     };
     timer.switch("coords-resolve");
     stats.nodes_needed = table.len() as u64;
@@ -212,7 +219,9 @@ fn build_resolved_table(
     };
     let drain = |hits: Vec<(Class, f64, f64, Option<String>, u64)>| -> Result<()> {
         for (class, lon, lat, name, id) in hits {
-            sink.push_named(&class, &Geometry::Points(vec![(lon, lat)]), name.as_deref(), id)?;
+            let encoded =
+                crate::store::EncodedGeom::live(&Geometry::Points(vec![(lon, lat)]))?;
+            sink.push_named(&class, &encoded, name.as_deref(), id)?;
             stats.features += 1;
             stats.nodes_classified += 1;
         }
@@ -462,6 +471,41 @@ fn inherit_lane_counts(
     Ok(inherited_lanes)
 }
 
+/// One materialised way, decided on the pool: the serial drain only appends.
+///
+/// `Failed` (no geometry) counts `geometry_failed`; `Dropped` (region-filtered)
+/// counts nothing — exactly the two non-pushed paths the inline drain had.
+/// `Kept` carries the spill record's geometry bytes plus the facts the spill
+/// derives, so the drain does no vertex walk.
+enum BuiltWay {
+    Failed,
+    Dropped,
+    Kept(crate::store::EncodedGeom),
+}
+
+/// Resolve one batch item's fate: geometry, region keep/drop, spill encoding.
+///
+/// Pure over shared tables (`table`, `region`): safe across the pool. The
+/// region test runs here rather than in the drain — it walks every vertex
+/// (`geometry_touches`), and the drain must not. Order-independent: one slot
+/// per batch item, drained positionally.
+fn build_way(
+    class: &Class,
+    geometry: Option<Geometry>,
+    region: Option<&osm_ingest::bbox::BBox>,
+) -> Result<BuiltWay> {
+    let Some(geometry) = geometry else {
+        return Ok(BuiltWay::Failed);
+    };
+    // Region filter: roads, pois and buildings outside the bbox are dropped.
+    // The geometry is resolved by now, so this is a direct touches-box test
+    // on the line the way produced (a centroided point for labels).
+    if is_region_filtered(class.layer) && !geometry_touches(&geometry, region) {
+        return Ok(BuiltWay::Dropped);
+    }
+    Ok(BuiltWay::Kept(crate::store::EncodedGeom::live(&geometry)?))
+}
+
 /// Materialise classified ways off disk, in id order. Moved whole from `extract`.
 ///
 /// `region` filters the built layers (`roads`, `poi`, `buildings`): a way in
@@ -509,7 +553,14 @@ fn materialise_ways(
         Carriageway,
         Option<BuildingAttrs>,
     )> = Vec::with_capacity(MATERIALISE_BATCH);
-    let mut built: Vec<Option<Geometry<(f64, f64)>>> = Vec::with_capacity(MATERIALISE_BATCH);
+    let mut built: Vec<Result<BuiltWay>> = Vec::with_capacity(MATERIALISE_BATCH);
+    // TEMP-PROFILE: split the batch loop into fill / resolve / drain walls.
+    // Removed once the split is measured (naonly run).
+    let mut t_fill = std::time::Duration::ZERO;
+    let mut t_resolve = std::time::Duration::ZERO;
+    let mut t_push = std::time::Duration::ZERO;
+    let mut t_rest = std::time::Duration::ZERO;
+    let mut t0 = std::time::Instant::now();
     loop {
         let more = reader.next(&mut refs)?;
         // Moved out of `more` by value below, so named ways cost no `String` clone and
@@ -560,6 +611,8 @@ fn materialise_ways(
         }
         // Flushed when full, and once more at the end with whatever is left.
         if batch.len() >= MATERIALISE_BATCH || (done && !batch.is_empty()) {
+            t_fill += t0.elapsed();
+            let t1 = std::time::Instant::now();
             built.clear();
             par::install(|| {
                 batch
@@ -568,35 +621,34 @@ fn materialise_ways(
                         let line = table.line(refs);
                         // A label layer's ways are centroided to points: a town mapped as an area
                         // is still one label, not a loop. Everything else keeps its geometry.
-                        if is_label(class.layer) {
+                        let geometry = if is_label(class.layer) {
                             centroid(&line).map(|point| Geometry::Points(vec![point]))
                         } else {
                             way_geometry(&line, class.area)
-                        }
+                        };
+                        build_way(class, geometry, region)
                     })
                     .collect_into_vec(&mut built);
             });
+            t_resolve += t1.elapsed();
+            let t2 = std::time::Instant::now();
+            let push_before = t_push;
             for (
                 (class, name, _, id, lane_count, turn_fwd, turn_bwd, carriageway, building),
-                geometry,
+                built,
             ) in batch.iter().zip(built.drain(..))
             {
-                match geometry {
-                    Some(geometry) => {
-                        // Region filter: roads, pois and buildings outside the
-                        // bbox are dropped. The geometry is resolved by now, so
-                        // this is a direct touches-box test on the line the
-                        // way produced (a centroided point for labels).
-                        if is_region_filtered(class.layer)
-                            && !geometry_touches(&geometry, region)
-                        {
-                            bar.tick("way(s)");
-                            continue;
-                        }
+                // `?` in spill order: the first encode failure in feature order,
+                // exactly as inline encoding would report it.
+                let tp0 = std::time::Instant::now();
+                match built? {
+                    BuiltWay::Failed => stats.geometry_failed += 1,
+                    BuiltWay::Dropped => {}
+                    BuiltWay::Kept(encoded) => {
                         // A building carries its S3DB attributes; a road with lane data carries
                         // those; everything else — and a plain road — goes the plain, named way.
                         if let Some(b) = building {
-                            sink.push_building(class, &geometry, name.as_deref(), *b)?;
+                            sink.push_building(class, &encoded, name.as_deref(), *b)?;
                         } else if *lane_count > 0
                             || !turn_fwd.is_empty()
                             || !turn_bwd.is_empty()
@@ -604,7 +656,7 @@ fn materialise_ways(
                         {
                             sink.push_road(
                                 class,
-                                &geometry,
+                                &encoded,
                                 name.as_deref(),
                                 *lane_count,
                                 turn_fwd,
@@ -612,20 +664,31 @@ fn materialise_ways(
                                 *carriageway,
                             )?;
                         } else {
-                            sink.push_named(class, &geometry, name.as_deref(), *id)?;
+                            sink.push_named(class, &encoded, name.as_deref(), *id)?;
                         }
                         stats.features += 1;
                     }
-                    None => stats.geometry_failed += 1,
                 }
+                t_push += tp0.elapsed();
                 bar.tick("way(s)");
             }
             batch.clear();
+            // Drain wall minus the sink pushes: match + stats + tick + drops.
+            t_rest += t2.elapsed() - (t_push - push_before);
+            t0 = std::time::Instant::now();
         }
         if done {
             break;
         }
     }
+    eprintln!(
+        "  [profile] materialise-ways fill={:.1}s resolve={:.1}s push={:.1}s rest={:.1}s spill={:.2}GB",
+        t_fill.as_secs_f64(),
+        t_resolve.as_secs_f64(),
+        t_push.as_secs_f64(),
+        t_rest.as_secs_f64(),
+        sink.staged_bytes() as f64 / 1e9
+    );
     bar.finish("way(s)");
     // Nothing reads the ways spill after this: the relations below reach their members through
     // `members`, which is why that table is kept at all. The file backend's `.tmp` is removed;

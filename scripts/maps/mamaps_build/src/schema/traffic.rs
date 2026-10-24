@@ -553,7 +553,7 @@ pub fn stream_graph(dir: &Path, sink: &mut Sink) -> Result<u64> {
                     (a_lon as f64 * 1e-7, a_lat as f64 * 1e-7),
                     (b_lon as f64 * 1e-7, b_lat as f64 * 1e-7),
                 ]];
-                sink.push_named(&class, &Geometry::Lines(line), None, component_id)?;
+                sink.push_named(&class, &crate::store::EncodedGeom::live(&Geometry::Lines(line))?, None, component_id)?;
                 emitted += 1;
             }
         }

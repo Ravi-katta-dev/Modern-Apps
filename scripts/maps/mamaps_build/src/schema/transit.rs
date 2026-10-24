@@ -150,7 +150,7 @@ pub fn stream_routes(
                 skipped += 1;
                 continue;
             }
-            sink.push_transit(&class, &Geometry::Lines(vec![line]), color, ordinal, lanes, taper)?;
+            sink.push_transit(&class, &crate::store::EncodedGeom::live(&Geometry::Lines(vec![line]))?, color, ordinal, lanes, taper)?;
             written += 1;
         }
     }

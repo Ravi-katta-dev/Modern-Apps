@@ -83,19 +83,24 @@ pub fn extract(
         way_max_ref,
         ways_anon,
         region_label_nodes,
+        mut needed,
     } = pass1;
-    // The ways spill, shared by refcount with every reader below (collectors,
-    // lanefill scan, materialise). Last use is `materialise_ways`; freed there.
+    // The ways spill, shared by refcount with the readers below (lanefill
+    // scan, materialise). Last use is `materialise_ways`; freed there.
     timer.switch("refs-collect");
+    // Member ways' refs join the fused bitset: the great majority carry no
+    // tags of their own, so nothing else asked for them.
+    for refs in members.values() {
+        for &id in refs {
+            needed.set_growable(id)?;
+        }
+    }
     let table = build_resolved_table(
         input,
         &blobs,
         &blob_kinds,
-        &ways_path,
-        &ways_anon,
         &members,
-        way_refs,
-        way_max_ref,
+        needed,
         &select,
         layers,
         region.as_ref(),
@@ -350,6 +355,10 @@ struct Pass1Out {
     /// `label` wins over `admin_centre` when a relation lists both, since `label` is the place node
     /// the map actually renders.
     region_label_nodes: HashMap<i64, i64>,
+    /// The needed-node bitset, collected during the drain above: every
+    /// classified way's refs plus (set by the caller) the member ways' refs.
+    /// Pass 3 resolves exactly these ids, without re-reading the ways spill.
+    needed: NeededBits,
 }
 
 /// Pass 1 (ways + relations) plus the corridor promotion. Moved whole from
@@ -384,6 +393,11 @@ fn run_pass1(
     // planet extract is most of the file.
     let mut ways = WaySink::create_planned(&ways_path, spill_plan)?;
     let mut relations: Vec<Relation> = Vec::new();
+    // The needed-node bitset, fused into this pass: every classified way sets
+    // its refs here in the drain below, so pass 3 never re-reads the ways
+    // spill to collect them. Grows on demand (the maximum is not known until
+    // the last push); member refs join after the drain.
+    let mut needed = NeededBits::new_growable();
     // `admin_centre`/`label` node member -> boundary relation id (raw), gathered as region shapes
     // are classified below. See [`Pass1Out::region_label_nodes`].
     let mut region_label_nodes: HashMap<i64, i64> = HashMap::new();
@@ -568,6 +582,12 @@ fn run_pass1(
             // leaves the file in ascending id order. `WaySink::push` refuses an id that does not
             // advance rather than letting an unsorted file reorder the archive silently.
             for (id, way) in chunk_ways {
+                // Fused ref collection: the refs are decoded and in hand here,
+                // so the bitset takes them now instead of a later pass
+                // re-reading the spill to find them again.
+                for &node in &way.refs {
+                    needed.set_growable(node)?;
+                }
                 ways.push(
                     id,
                     &way.class,
@@ -613,5 +633,6 @@ fn run_pass1(
         way_max_ref,
         ways_anon,
         region_label_nodes,
+        needed,
     })
 }

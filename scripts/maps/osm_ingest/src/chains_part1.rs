@@ -192,8 +192,8 @@ impl Spill {
     }
 
     /// Sequential reader over `chains.hdr`. Every stage after the chain pass is one
-    /// of these: the degree count for the CSR, the target scatter, and one per
-    /// write round.
+    /// of these: the degree count for the CSR, the target scatter, and the single
+    /// round-assignment scan feeding [`Spill::headers_mapped`](Self::headers_mapped).
     pub fn headers(&self) -> Result<HeaderReader> {
         Ok(HeaderReader {
             src: BufReader::with_capacity(1 << 20, open(&self.hdr)?),
@@ -201,17 +201,27 @@ impl Spill {
         })
     }
 
+    /// Random-access reader over `chains.hdr`, for the write rounds.
+    ///
+    /// Records are fixed-stride (`CHAIN_REC_BYTES` each), so chain `i` starts
+    /// at byte `i * CHAIN_REC_BYTES` — no index, no scan. The write used to
+    /// re-stream the whole file once per round (3 rounds on a continent: 3
+    /// full header passes); now one assignment scan records each chain's
+    /// round and every round gathers only its chains through this mapping.
+    /// Page-cached after the assignment scan, so the gather faults almost
+    /// nothing new.
+    pub fn headers_mapped(&self) -> Result<HeaderMap> {
+        Ok(HeaderMap { map: crate::mem::Mapped::open(&self.hdr).map_err(Error)? })
+    }
+
     /// Random-access reader over `chains.pts`.
     ///
     /// The write rounds visit chains in edge order, not chain order, so this is the
-    /// one place the spill is not read sequentially. Each polyline is contiguous
-    /// and only a few dozen bytes, so it is one seek per edge into a file the page
-    /// cache has largely seen already.
+    /// one place the spill is not read sequentially. The file is mapped once and
+    /// read as slices: one seek per edge into a file the page cache has largely
+    /// seen already became zero syscalls per edge.
     pub fn points(&self) -> Result<PointReader> {
-        Ok(PointReader {
-            file: open(&self.pts)?,
-            buf: Vec::new(),
-        })
+        Ok(PointReader { map: crate::mem::Mapped::open(&self.pts).map_err(Error)? })
     }
 
     #[cfg(test)]
@@ -336,60 +346,91 @@ impl HeaderReader {
     }
 }
 
+/// Random-access view over `chains.hdr`. See [`Spill::headers_mapped`].
+pub(crate) struct HeaderMap {
+    map: crate::mem::Mapped,
+}
+
+impl HeaderMap {
+    /// How many records the mapping holds, from its length alone — the same
+    /// width check [`Spill::chain_count`] applies to the file.
+    pub fn len(&self) -> Result<u64> {
+        let len = self.map.len() as u64;
+        if len % CHAIN_REC_BYTES != 0 {
+            return Err(Error(format!(
+                "chains.hdr is {len} bytes, not a multiple of {CHAIN_REC_BYTES}"
+            )));
+        }
+        Ok(len / CHAIN_REC_BYTES)
+    }
+
+    /// Decode chain `i`. Bounds-checked: a short mapping fails rather than
+    /// slicing past the end.
+    pub fn get(&self, i: u64) -> Result<ChainRec> {
+        let at = i.checked_mul(CHAIN_REC_BYTES).expect("chain index * stride fits u64");
+        let end = at + CHAIN_REC_BYTES;
+        if end > self.map.len() as u64 {
+            return Err(Error(format!("chains.hdr ends before chain {i}")));
+        }
+        let (at, end) = (at as usize, end as usize);
+        let mut rec = [0u8; CHAIN_REC_BYTES as usize];
+        rec.copy_from_slice(&self.map[at..end]);
+        Ok(ChainRec::decode(&rec))
+    }
+}
+
 /// Reads one chain's polyline out of `chains.pts`.
 pub(crate) struct PointReader {
-    file: File,
-    /// Reused across reads: the write rounds call this once per edge, so a fresh
-    /// allocation each time would be a billion of them at planet scale.
-    buf: Vec<u8>,
+    map: crate::mem::Mapped,
+}
+
+/// The shared mapping behind a [`PointReader`]: pool workers read the same
+/// bytes through [`PointReader::read_shared`] with no lock and no cursor.
+pub(crate) fn points_map(reader: &PointReader) -> &crate::mem::Mapped {
+    &reader.map
 }
 
 impl PointReader {
     /// Replace `out` with the `len` points starting at point index `start`.
     ///
-    /// One positional read rather than a seek followed by a read. This is the only
-    /// random read in the graph writer — once per edge that stores a polyline — and
-    /// `osm_ingest/README.md` records that pass as 47 minutes at 21% CPU with 17.8 M
-    /// voluntary context switches, so halving its syscall count is worth the platform
-    /// split.
+    /// A slice of one persistent mapping, not a positional read: the write
+    /// rounds visit chains in edge order, not chain order, so a `File` paid
+    /// one syscall per edge (~300 M at planet scale) for a few dozen bytes
+    /// each. The mapping faults the same pages with zero syscalls, no
+    /// per-edge buffer zeroing, and no cursor to keep — which is also what a
+    /// parallel writer would need first.
     ///
-    /// Still `&mut self`, because `buf` is reused: the writer is sequential, and an
-    /// allocation per edge would cost more than the seek this removes. Making the read
-    /// positional is nonetheless what a parallel writer would need first, since the
-    /// handle's cursor is no longer part of the result.
+    /// Short reads fail exactly as the positional path did (`UnexpectedEof`
+    /// naming the file), so a truncated spill surfaces here rather than as a
+    /// wrong polyline downstream.
     pub fn read(&mut self, start: u64, len: u32, out: &mut Vec<geom::Pt>) -> Result<()> {
+        Self::read_from(&self.map, start, len, out)
+    }
+
+    /// [`read`](Self::read) over an explicit mapping: the shared-read form.
+    ///
+    /// `read` takes `&mut self` for the historical reason that the reader
+    /// used to hold a cursor; the mapping itself is never mutated, so pool
+    /// workers share one `&Mapped` and read through this instead. Same
+    /// slices, same errors, no lock.
+    pub fn read_shared(map: &crate::mem::Mapped, start: u64, len: u32, out: &mut Vec<geom::Pt>) -> Result<()> {
+        Self::read_from(map, start, len, out)
+    }
+
+    fn read_from(map: &crate::mem::Mapped, start: u64, len: u32, out: &mut Vec<geom::Pt>) -> Result<()> {
         out.clear();
         if len == 0 {
             return Ok(());
         }
-        self.buf.clear();
-        self.buf.resize(len as usize * CHAIN_PT_BYTES as usize, 0);
-        read_exact_at(&self.file, &mut self.buf, start * CHAIN_PT_BYTES).map_err(io_err)?;
-        out.extend(self.buf.chunks_exact(CHAIN_PT_BYTES as usize).map(decode_pt));
+        let at = start as u128 * CHAIN_PT_BYTES as u128;
+        let bytes = len as u128 * CHAIN_PT_BYTES as u128;
+        if at + bytes > map.len() as u128 {
+            return Err(Error(format!("chains.pts ended mid-chain")));
+        }
+        let (at, bytes) = (at as usize, bytes as usize);
+        out.extend(map[at..at + bytes].chunks_exact(CHAIN_PT_BYTES as usize).map(decode_pt));
         Ok(())
     }
-}
-
-/// Fill `buf` from `offset` in one call, without moving the file's cursor.
-///
-/// Neither platform's positional read is guaranteed to return everything at once,
-/// hence the loop; in practice it goes round once.
-fn read_exact_at(file: &File, mut buf: &mut [u8], mut offset: u64) -> std::io::Result<()> {
-    while !buf.is_empty() {
-        #[cfg(windows)]
-        let n = std::os::windows::fs::FileExt::seek_read(file, buf, offset)?;
-        #[cfg(unix)]
-        let n = std::os::unix::fs::FileExt::read_at(file, buf, offset)?;
-        if n == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "chains.pts ended mid-chain",
-            ));
-        }
-        buf = &mut buf[n..];
-        offset += n as u64;
-    }
-    Ok(())
 }
 
 fn io_err(e: std::io::Error) -> Error {

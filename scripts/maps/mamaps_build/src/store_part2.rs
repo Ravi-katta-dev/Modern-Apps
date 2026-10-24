@@ -176,10 +176,13 @@ impl Store {
         ));
         let mut sink = Sink::create(&path)?;
         for feature in features {
+            // Test-only path: encode inline (the pool-built path is exercised
+            // by the materialise drains, not here).
+            let encoded = EncodedGeom::live(&feature.geometry)?;
             if feature.transit_color != 0 {
                 sink.push_transit(
                     &feature.class,
-                    &feature.geometry,
+                    &encoded,
                     feature.transit_color,
                     feature.transit_ordinal,
                     feature.transit_lanes,
@@ -188,7 +191,7 @@ impl Store {
             } else if let Some(attrs) = feature.building {
                 sink.push_building(
                     &feature.class,
-                    &feature.geometry,
+                    &encoded,
                     feature.name.as_deref(),
                     attrs,
                 )?;
@@ -199,7 +202,7 @@ impl Store {
             {
                 sink.push_road(
                     &feature.class,
-                    &feature.geometry,
+                    &encoded,
                     feature.name.as_deref(),
                     feature.lane_count,
                     &feature.turn_fwd,
@@ -207,7 +210,7 @@ impl Store {
                     feature.carriageway,
                 )?;
             } else {
-                sink.push_named(&feature.class, &feature.geometry, feature.name.as_deref(), feature.id)?;
+                sink.push_named(&feature.class, &encoded, feature.name.as_deref(), feature.id)?;
             }
         }
         sink.finish(&path)

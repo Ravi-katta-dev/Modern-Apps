@@ -364,7 +364,7 @@ pub fn stream_prepared(
             // One mamaps feature per polygon, not per record: a record can hold several islands, and
             // the tessellator wants one exterior with its own holes.
             for polygon in crate::shapefile::group(rings) {
-                sink.push(&class, &Geometry::Polygons(vec![polygon]))?;
+                sink.push(&class, &crate::store::EncodedGeom::live(&Geometry::Polygons(vec![polygon]))?)?;
                 written += 1;
             }
         }
@@ -403,7 +403,7 @@ pub fn stream_prepared(
                 if polygon.is_empty() || !meets(&polygon, bbox) {
                     continue;
                 }
-                sink.push(&class, &Geometry::Polygons(vec![polygon]))?;
+                sink.push(&class, &crate::store::EncodedGeom::live(&Geometry::Polygons(vec![polygon]))?)?;
                 written += 1;
             }
         }

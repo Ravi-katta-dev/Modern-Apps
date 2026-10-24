@@ -207,6 +207,9 @@ pub struct NormalizedWriter {
     at: u64,
 }
 
+/// DEFLATE level for spill frames. See [`NormalizedWriter::seal_frame`].
+const SPILL_DEFLATE_LEVEL: u8 = 1;
+
 impl NormalizedWriter {
     pub fn create(path: impl Into<PathBuf>) -> Result<NormalizedWriter> {
         let path = path.into();
@@ -310,20 +313,81 @@ impl NormalizedWriter {
         Ok(())
     }
 
+    /// [`push`](Self::push) for a geometry encoded off-thread: the same record
+    /// layout with the geometry bytes supplied instead of encoded here.
+    ///
+    /// The materialise drains resolve + encode + region-test each batch on the
+    /// pool and append the records in order here, so the serial thread does no
+    /// vertex walk. Byte-identical to `push`: `geom_bytes` must be what
+    /// [`encode_geometry`](crate::spill::encode_geometry) produced for the same
+    /// geometry, `kind` its [`GeomKind`], `bounds` its
+    /// [`bounds`](crate::geom::bounds) — all pure functions, so computing them
+    /// on the pool changes no byte. Order, chunk index, sealing and the bounds
+    /// fold are untouched: they happen here, serially, exactly as in `push`.
+    pub fn push_preencoded(
+        &mut self,
+        kind: GeomKind,
+        geom_bytes: &[u8],
+        bounds: Option<crate::geom::Rect>,
+        props: &[(String, Value)],
+    ) -> Result<()> {
+        self.rec.clear();
+        self.rec.resize(NORM_HEADER_BYTES, 0);
+        self.rec.extend_from_slice(geom_bytes);
+        let geom_len = count(geom_bytes.len())?;
+        encode_props(props, &mut self.rec)?;
+        let props_len = count(self.rec.len() - NORM_HEADER_BYTES - geom_len as usize)?;
+        let rec_len = count(self.rec.len())?;
+        self.rec[0..4].copy_from_slice(&rec_len.to_le_bytes());
+        self.rec[4..8].copy_from_slice(&geom_len.to_le_bytes());
+        self.rec[8..12].copy_from_slice(&props_len.to_le_bytes());
+        self.rec[12] = kind.tag();
+        self.pending.extend_from_slice(&self.rec);
+        self.pending_count += 1;
+        if self.summary.count.is_multiple_of(NORM_CHUNK_FEATURES) {
+            self.summary.chunks.push(self.at);
+        }
+        if self.pending_count >= NORM_CHUNK_FEATURES {
+            self.seal_frame()?;
+        }
+
+        if self.summary.geom_kind.is_none() {
+            self.summary.geom_kind = Some(kind);
+        }
+        self.summary.bounds = match (self.summary.bounds, bounds) {
+            (None, b) => b,
+            (a, None) => a,
+            (Some(a), Some(b)) => Some(crate::geom::Rect {
+                min_x: a.min_x.min(b.min_x),
+                min_y: a.min_y.min(b.min_y),
+                max_x: a.max_x.max(b.max_x),
+                max_y: a.max_y.max(b.max_y),
+            }),
+        };
+        self.summary.count += 1;
+        Ok(())
+    }
+
     /// Compress the buffered chunk into one frame and stage it.
     ///
-    /// Level 6: the write happens once (stage A, serial sink) while the reads happen fifteen
-    /// times (parallel prefetch lanes), so ratio matters more than deflate speed -- and inflate
-    /// speed is level-independent. `miniz_oxide` is already this crate's DEFLATE dependency.
-    /// A corrupt frame can only come from a corrupt file (or a killed run's partial write),
-    /// and every reader re-validates: the frame length against the chunk span, the inflate
-    /// itself, then every record header inside.
+    /// Level 1, not 6: the write happens once (stage A, serial sink) while the reads happen
+    /// fifteen times (parallel prefetch lanes), which is what argued for 6 — ratio over deflate
+    /// speed, with level-independent inflate. Measured on California, that argument was wrong:
+    /// level 6 spends ~27 s of a 61 s `materialise-ways` serial drain in DEFLATE while level 1
+    /// spends ~0 s for ~5% more scratch bytes (scratch, deleted on success; the budget gate
+    /// sizes commit with headroom). The drain is serial and order-critical, so its wall is
+    /// Amdahl time; the spill size is not.
+    ///
+    /// The level is a constant, not a knob: the frame header carries no level mark because
+    /// inflate is level-independent, so the choice changes only scratch bytes, never the
+    /// archive — and an operator knob here would trade build minutes for scratch bytes with
+    /// no content effect either way. Re-measure (drain wall + spill GB) before touching it.
     fn seal_frame(&mut self) -> Result<()> {
         if self.pending.is_empty() {
             return Ok(());
         }
         self.sealed.clear();
-        self.sealed = miniz_oxide::deflate::compress_to_vec(&self.pending, 6);
+        self.sealed = miniz_oxide::deflate::compress_to_vec(&self.pending, SPILL_DEFLATE_LEVEL);
         let frame_len = u32::try_from(self.sealed.len())
             .map_err(|_| Error("a spill frame is larger than 4 GiB".to_string()))?;
         let mut staged = Vec::with_capacity(4 + self.sealed.len());
@@ -341,6 +405,13 @@ impl NormalizedWriter {
         self.pending.clear();
         self.pending_count = 0;
         Ok(())
+    }
+
+    /// Compressed bytes staged so far (frames plus file header). For spill-size
+    /// measurement: the budget calibrator (`SPILL_BYTES_PER_FEATURE`) is tuned
+    /// per deflate level, so level experiments report this alongside the wall.
+    pub fn staged_bytes(&self) -> u64 {
+        self.at
     }
 
     /// Flush, and hand back what the pass learned.

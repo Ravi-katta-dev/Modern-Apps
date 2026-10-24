@@ -34,8 +34,13 @@ impl Sink {
         })
     }
 
-    pub fn push(&mut self, class: &Class, geometry: &Geometry) -> Result<()> {
+    pub fn push(&mut self, class: &Class, geometry: &EncodedGeom) -> Result<()> {
         self.push_named(class, geometry, None, tilecodec::mamaps::body::ID_NONE)
+    }
+
+    /// TEMP-PROFILE: compressed spill bytes staged so far. Removed with the probes.
+    pub fn staged_bytes(&self) -> u64 {
+        self.writer.staged_bytes()
     }
 
     /// Push a transit line: like [`Sink::push`], plus the route colour that becomes the body's
@@ -45,7 +50,7 @@ impl Sink {
     pub fn push_transit(
         &mut self,
         class: &Class,
-        geometry: &Geometry,
+        geometry: &EncodedGeom,
         color: u32,
         ordinal: u8,
         lanes: u8,
@@ -76,7 +81,7 @@ impl Sink {
     pub fn push_named(
         &mut self,
         class: &Class,
-        geometry: &Geometry,
+        geometry: &EncodedGeom,
         name: Option<&str>,
         id: u64,
     ) -> Result<()> {
@@ -106,7 +111,7 @@ impl Sink {
     pub fn push_road(
         &mut self,
         class: &Class,
-        geometry: &Geometry,
+        geometry: &EncodedGeom,
         name: Option<&str>,
         lane_count: u8,
         turn_fwd: &[u16],
@@ -152,7 +157,7 @@ impl Sink {
     pub fn push_building(
         &mut self,
         class: &Class,
-        geometry: &Geometry,
+        geometry: &EncodedGeom,
         name: Option<&str>,
         attrs: BuildingAttrs,
     ) -> Result<()> {
@@ -168,9 +173,9 @@ impl Sink {
         self.write_record(class, geometry)
     }
 
-    fn write_record(&mut self, class: &Class, geometry: &Geometry) -> Result<()> {
+    fn write_record(&mut self, class: &Class, geometry: &EncodedGeom) -> Result<()> {
         self.writer
-            .push(geometry, &self.props)
+            .push_preencoded(geometry.kind, &geometry.bytes, geometry.bounds, &self.props)
             .map_err(|e| osm_ingest::proto::Error(e.to_string()))?;
         self.filling = self.filling.min(class.min_zoom);
         self.count += 1;
@@ -180,8 +185,28 @@ impl Sink {
             self.chunk_mins.push(self.filling);
             self.filling = u8::MAX;
         }
-        self.grow(geometry);
+        self.grow_bounds(geometry.ebbx);
         Ok(())
+    }
+
+    /// Extend the bounding box by one geometry's precomputed e7 box.
+    ///
+    /// [`Sink::grow`] walked vertices; the encoder already did on the pool (see
+    /// [`ebbx_of`](crate::store::ebbx_of)). `None` (no vertices at all)
+    /// contributes nothing — identical to the walk visiting nothing.
+    fn grow_bounds(&mut self, ebbx: Option<(i32, i32, i32, i32)>) {
+        let Some((x0, y0, x1, y1)) = ebbx else {
+            return;
+        };
+        match &mut self.bbox {
+            None => self.bbox = Some((x0, y0, x1, y1)),
+            Some(s) => {
+                s.0 = s.0.min(x0);
+                s.1 = s.1.min(y0);
+                s.2 = s.2.max(x1);
+                s.3 = s.3.max(y1);
+            }
+        }
     }
 
     /// Extend the bounding box by a geometry, in degrees times 1e7.

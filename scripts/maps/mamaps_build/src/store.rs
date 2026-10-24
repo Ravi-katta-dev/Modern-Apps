@@ -55,10 +55,11 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use osm_ingest::proto::{err, zigzag, Error, Result};
-use tile_build::geom::Geometry;
+use tile_build::geom::{bounds as geom_bounds, Geometry, Rect};
 use tile_build::mvt::Value;
 use tile_build::spill::{
-    NormalizedChunks, NormalizedReader, NormalizedWriter, NORM_CHUNK_FEATURES,
+    encode_geometry, GeomKind, NormalizedChunks, NormalizedReader, NormalizedWriter,
+    NORM_CHUNK_FEATURES,
 };
 
 use crate::extract::Feature;
@@ -239,6 +240,69 @@ fn unpack(bits: u64) -> Class {
         min_zoom: ((bits >> 45) & 0b11111) as u8,
         min_area_px: ((bits >> 50) & 0xff) as f64,
     }
+}
+
+/// A geometry encoded for the feature spill, plus the two facts the spill
+/// derives from it.
+///
+/// Built on the pool by the materialise drains (`EncodedGeom::live` is pure:
+/// [`encode_geometry`](tile_build::spill::encode_geometry),
+/// [`GeomKind::of`](tile_build::spill::GeomKind::of), [`bounds`](tile_build::geom::bounds)
+/// and the e7 box below touch nothing shared), appended in order by the serial
+/// drain. Byte-identical to encoding in the sink: all four are pure functions
+/// of the same geometry.
+pub struct EncodedGeom {
+    kind: GeomKind,
+    bytes: Vec<u8>,
+    bounds: Option<Rect>,
+    ebbx: Option<(i32, i32, i32, i32)>,
+}
+
+impl EncodedGeom {
+    /// Encode a live geometry: what the sink always did inline, exposed so
+    /// callers with no pool pass the same shape the pool-built path does.
+    /// One path, two speeds.
+    pub fn live(geometry: &Geometry) -> Result<EncodedGeom> {
+        let mut bytes = Vec::new();
+        encode_geometry(geometry, &mut bytes)
+            .map_err(|e| osm_ingest::proto::Error(e.to_string()))?;
+        Ok(EncodedGeom {
+            kind: GeomKind::of(geometry),
+            bytes,
+            bounds: geom_bounds(geometry),
+            ebbx: ebbx_of(geometry),
+        })
+    }
+}
+
+/// The sink bbox's e7 box for one geometry: min/max over ALL vertices with
+/// [`Sink::grow`]'s exact conversion.
+///
+/// `bounds` above skips non-finite vertices (matching
+/// [`tile_build::geom::bounds`]); this must not: the old per-vertex walk
+/// folded `(NaN * 1e7) as i32` — which saturates to 0 — so a NaN vertex
+/// contributed 0 to the box. Reproducing the walk exactly (rather than
+/// converting `bounds`' corners) keeps the box identical even where a
+/// shapefile-derived coordinate misbehaves. `None` only when the geometry
+/// holds no vertices at all, in which case the old walk visited nothing and
+/// the box was unchanged.
+fn ebbx_of(geometry: &Geometry) -> Option<(i32, i32, i32, i32)> {
+    let mut acc: Option<(i32, i32, i32, i32)> = None;
+    let mut visit = |&(lon, lat): &(f64, f64)| {
+        let (x, y) = ((lon * 1e7) as i32, (lat * 1e7) as i32);
+        acc = Some(match acc {
+            None => (x, y, x, y),
+            Some(b) => (b.0.min(x), b.1.min(y), b.2.max(x), b.3.max(y)),
+        });
+    };
+    match geometry {
+        Geometry::Points(points) => points.iter().for_each(&mut visit),
+        Geometry::Lines(lines) => lines.iter().flatten().for_each(&mut visit),
+        Geometry::Polygons(polygons) => {
+            polygons.iter().flatten().flatten().for_each(&mut visit)
+        }
+    }
+    acc
 }
 
 /// Accumulates features into a file, tracking the bounding box as it goes.

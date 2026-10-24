@@ -75,7 +75,7 @@
 //! divergence rather than asserting it away.
 
 use crate::clip::clip_geometry;
-use crate::geom::{self, Geometry, Rect, Vertex};
+use crate::geom::{self, Geometry, Pt, Rect, Vertex};
 
 /// Clip `g` into every tile of zoom `z` it reaches, calling `emit` once per tile.
 ///
@@ -157,13 +157,156 @@ fn walk<V, F>(
         emit(cx, cy, g);
         return;
     }
+    // One bbox for the four child clips below: each child whose rect misses
+    // the box clips to empty without walking a vertex, and a child
+    // containing the whole box clips to a copy of `g` (see `clip_child`).
+    // Concentrated geometries — the common case below the top levels — pay
+    // one walk plus one real clip per level instead of four full clips.
+    let box_ = geom::bounds(g);
     for (dx, dy) in [(0u64, 0u64), (1, 0), (0, 1), (1, 1)] {
         let (nx, ny) = (cx * 2 + dx, cy * 2 + dy);
-        let clipped = clip_geometry(g, &cell_rect(level + 1, nx, ny, z, extent, buffer));
+        let clipped = clip_child(g, box_.as_ref(), &cell_rect(level + 1, nx, ny, z, extent, buffer));
         if is_empty(&clipped) {
             continue;
         }
         walk(&clipped, level + 1, nx, ny, z, extent, buffer, emit);
+    }
+}
+
+/// Whether `outer` contains `inner` wholly (boundary-inclusive, matching the
+/// clipper's own `>=`/`<=` comparisons).
+fn contains_rect(outer: &Rect, inner: &Rect) -> bool {
+    outer.min_x <= inner.min_x
+        && inner.max_x <= outer.max_x
+        && outer.min_y <= inner.min_y
+        && inner.max_y <= outer.max_y
+}
+
+/// A vertex is finite iff both coordinates are.
+fn finite_pt((x, y): Pt) -> bool {
+    x.is_finite() && y.is_finite()
+}
+
+/// Clip `g` to one child cell, short-circuiting the two decided cases.
+///
+/// `box_` is `g`'s bbox (computed once per level by the caller, not per
+/// child): a child the box misses clips to empty, and a child containing the
+/// whole box clips to a copy. Both are exact — see below — and both skip the
+/// per-vertex clip walk.
+///
+/// Exactness: `clip_geometry` invents vertices only at boundary crossings
+/// (Liang-Barsky interpolates only moved endpoints; Sutherland-Hodgman pushes
+/// only crossings plus surviving vertices), and drops only non-finite
+/// vertices. With every vertex strictly inside the rect there are no
+/// crossings to invent; with the box missing the rect there is nothing to
+/// keep. The boundary-inclusive tests below (`contains_rect` uses `<=`, the
+/// miss test negates `intersects`) match the clipper's own inclusive
+/// comparisons (`inside` uses `>=`/`<=`, `clip_segment` keeps `q >= 0`), so
+/// a vertex exactly on a child edge takes the general path — where the
+/// crossing arithmetic (not the fast path) decides, exactly as before.
+fn clip_child<V>(g: &Geometry<V>, box_: Option<&Rect>, rect: &Rect) -> Geometry<V>
+where
+    V: Vertex,
+{
+    match box_ {
+        // No finite vertex at all: every clip path drops everything.
+        // `clip_geometry` on points filters to empty; lines partition into
+        // nothing; rings fail the 3-vertex floor. Same empty, no walk.
+        None => empty_like(g),
+        Some(b) => {
+            if !b.intersects(rect) {
+                return empty_like(g);
+            }
+            if contains_rect(rect, b) {
+                // Every finite vertex strictly inside: clone. Non-finite
+                // vertices are NOT cloned along — `clip_geometry` drops them
+                // (`finite` filter in every path), so keeping them would
+                // invent vertices the clip removes. The filter walk is O(V)
+                // like the bbox was, but allocation-free for the common
+                // all-finite case... it still walks. Cheaper than the clip's
+                // interpolations + allocs, and correct where clone is not.
+                return clone_finite(g);
+            }
+            clip_geometry(g, rect)
+        }
+    }
+}
+
+/// An empty geometry of `g`'s variant: what `clip_geometry` returns when
+/// nothing survives (empty vec, same variant — the drain tests part counts,
+/// never the variant... it tests `is_empty`, which is variant-agnostic, but
+/// matching the variant keeps the shape identical anyway).
+fn empty_like<V>(g: &Geometry<V>) -> Geometry<V>
+where
+    V: Vertex,
+{
+    match g {
+        Geometry::Points(_) => Geometry::Points(Vec::new()),
+        Geometry::Lines(_) => Geometry::Lines(Vec::new()),
+        Geometry::Polygons(_) => Geometry::Polygons(Vec::new()),
+    }
+}
+
+/// `g` with non-finite vertices dropped, otherwise verbatim.
+///
+/// What `clip_geometry` reduces to when every finite vertex sits inside the
+/// rect: no crossings invented (nothing crosses a boundary it never meets),
+/// nothing kept that the filter would drop.
+///
+/// Per-variant because the clip's drop granularity differs per path:
+/// - Points: the filter IS the clip (kept or dropped whole). Exact.
+/// - Lines: an all-inside line survives whole — `clip_line` welds one
+///   gapless run back into itself, and lines under 2 vertices never survive
+///   its push gates. Replicated below, including the degenerate floors.
+/// - Polygons: delegated to the real clip (see below).
+///
+/// The all-finite check rides the same walk as the filter: one pass, no
+/// second scan. When anything drops, lines still return the filtered form
+/// directly (exact, per above); only polygons delegate.
+fn clone_finite<V>(g: &Geometry<V>) -> Geometry<V>
+where
+    V: Vertex,
+{
+    match g {
+        Geometry::Points(pts) => {
+            // The filter is the whole clip for points: kept whole or dropped.
+            Geometry::Points(pts.iter().copied().filter(|p| finite_pt(p.xy())).collect())
+        }
+        Geometry::Lines(lines) => {
+            let mut out = Vec::with_capacity(lines.len());
+            for line in lines {
+                let kept: Vec<V> =
+                    line.iter().copied().filter(|p| finite_pt(p.xy())).collect();
+                // `clip_line`'s floors, replicated: a run under 2 vertices is
+                // never pushed (windows(2) yields nothing; the trailing push
+                // needs len > 1). An all-inside line is one gapless run, so
+                // the kept vec IS the clip output — no welding needed, since
+                // no gap ever opens.
+                if kept.len() >= 2 {
+                    out.push(kept);
+                }
+                // 0 or 1 surviving vertices: dropped, exactly as the clip's
+                // `len() > 1` gates drop them (a lone vertex never forms a
+                // segment, and `current` never reaches pushable length).
+            }
+            Geometry::Lines(out)
+        }
+        Geometry::Polygons(polys) => {
+            // Rings need the clip's own normalisation (explicit-close
+            // handling and consecutive-duplicate dedup interact with
+            // filtering in ways a hand replica would get subtly wrong), and
+            // rings hold a minority of map vertices (lines dominate:
+            // boundaries, roads, rivers). So polygons always take the
+            // general path. (Revisit with measurements if rings dominate a
+            // profile: replicate `clip_ring`'s normalisation on filtered
+            // rings, pinned by the shape tests below.)
+            clip_geometry(g, &Rect {
+                min_x: f64::NEG_INFINITY,
+                min_y: f64::NEG_INFINITY,
+                max_x: f64::INFINITY,
+                max_y: f64::INFINITY,
+            })
+        }
     }
 }
 

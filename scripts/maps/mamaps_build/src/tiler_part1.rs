@@ -123,19 +123,148 @@ fn tile_zooms(
         // remembered. A `BTreeMap` per chunk and a heap across them is the same guarantee the
         // single-threaded `BTreeMap` gave; the maps now live on disk and the guarantee does not
         // change, because a chunk's bytes are written in its key order and read back in file order.
-        let mut merged = merge(&chunks, &spill);
-        // Merge, encode and append have no total to count against -- the tile count is only known once
-        // the merge has produced it -- so the merge bar counts tiles merged and the encode line below
-        // counts tiles written. Two numbers that converge at the end of the zoom. Still the difference
-        // between forty silent minutes and a number that moves: the merge is single-threaded and is
-        // where a zoom's wall clock goes. Count shape (no percent: the total is unknowable until the
-        // merge ends), with elapsed so a stalled merge is visible.
-        let zoom_start = std::time::Instant::now();
-        let mut merged_tiles = 0usize;
-        let mut merge_shown = 0usize;
-        let mut written = 0usize;
-        let mut shown = 0usize;
-        loop {
+        //
+        // Range-parallel merge when the zoom repays planning: one worker k-way merges each
+        // cost-balanced tile range (see `tiler_part3::merge_parallel`), drained in order by the
+        // same consume loop below — sequence-identical to serial, so batches, prune and append
+        // are untouched. Small zooms stay serial: planning costs more than it saves there. So do
+        // z0–z3, whose tile spans (1–64) don't divide by the 256 cost buckets — the bucket table
+        // can't invert those edges exactly (see `parallel_merge_supported`).
+        //
+        // The choice is `merge_gate` below, hardcoded: no environment override.
+        // Operator control arrives through `--threads`/`MAPS_THREADS` (which sizes the
+        // worker count) exactly like every other parallel stage in this tree.
+        let merge_parallel = merge_gate(&chunks, z);
+        if merge_parallel {
+            let merge_workers = par::threads().min(crate::tiler::PARALLEL_MERGE_MAX_WORKERS);
+            // One worker owns the whole tile space on a one-thread box, which is
+            // the serial sequence by construction — correctness never depends on
+            // the count, only speed does.
+            let merge_workers = merge_workers.max(1);
+            // Timed as its own subphase: the planning scan is a serial
+            // skip-walk over every chunk, and at z14 it is large enough to
+            // matter against the merge it parallelises.
+            timer.switch("merge-plan");
+            let planning = std::time::Instant::now();
+            let plan = crate::tiler::plan_ranges(&chunks, &spill, z, merge_workers)?;
+            stats.merge_ms += planning.elapsed().as_millis() as u64;
+            // One line per zoom on the parallel path: per-range cost estimates
+            // from the planning histogram. The coordinator drains ranges in
+            // order, so the slowest range sets the merge wall — a lopsided
+            // split here names the balancer, not the workers, as the limit.
+            // `hot` is the costliest single tile: ranges assign whole tiles,
+            // so the wall cannot go below it however the ranges split.
+            eprintln!(
+                "  [merge] z{z}: {} range(s), cost {:?}, hot tile {} at {}, entries {}",
+                merge_workers,
+                plan.range_cost,
+                plan.hot_tile,
+                plan.hot_cost,
+                plan.remaining
+                    .iter()
+                    .map(|row| row.iter().sum::<u64>())
+                    .sum::<u64>(),
+            );
+            std::thread::scope(|s| -> Result<()> {
+                let mut receivers = Vec::with_capacity(merge_workers);
+                // Shared refs are `Copy`: each spawned closure gets its own
+                // copy rather than moving `chunks`/`spill` on first use.
+                let chunks_ref = &chunks;
+                let spill_ref = &spill;
+                for r in 0..merge_workers {
+                    let (tx, rx) =
+                        std::sync::mpsc::sync_channel(crate::tiler::RANGE_QUEUE_BOUND);
+                    receivers.push(rx);
+                    let range_plan = &plan;
+                    s.spawn(move || {
+                        crate::tiler::merge_range_into(
+                            chunks_ref,
+                            spill_ref,
+                            range_plan,
+                            r,
+                            tx,
+                        );
+                    });
+                }
+                let mut stream =
+                    crate::tiler::MergeStream::Parallel(crate::tiler::ParallelMerge::new(
+                        receivers,
+                    ));
+                consume_merged(
+                    &mut stream,
+                    &mut stats,
+                    z,
+                    timer,
+                    &settings.dem,
+                    store.conventions(),
+                    &settings.region_links,
+                    writer,
+                )?;
+                Ok(())
+            })?;
+        } else {
+            let mut stream = crate::tiler::MergeStream::Serial(merge(&chunks, &spill));
+            consume_merged(
+                &mut stream,
+                &mut stats,
+                z,
+                timer,
+                &settings.dem,
+                store.conventions(),
+                &settings.region_links,
+                writer,
+            )?;
+        }
+        // Reserved, written, on disk and read back must agree. A chunk that quietly lost entries
+        // would produce an archive with holes in it and nothing downstream could tell.
+        spill.check_books()?;
+        per_zoom.push(stats);
+    }
+
+    Ok(per_zoom)
+}
+
+/// The entry gate for the range-parallel merge: big supported zoom on a
+/// multi-thread box.
+///
+/// Split out so the call site reads as intent rather than inline conditions.
+/// z0–z3 stay serial however threaded: they can't invert their bucket edges
+/// exactly, so they have one path and no divergence to compare.
+fn merge_gate(chunks: &[ChunkRef], z: u8) -> bool {
+    let total_entries: u64 = chunks.iter().map(|c| c.entries).sum();
+    let merge_workers = par::threads().min(crate::tiler::PARALLEL_MERGE_MAX_WORKERS);
+    total_entries >= crate::tiler::PARALLEL_MERGE_MIN_ENTRIES
+        && merge_workers > 1
+        && crate::tiler::parallel_merge_supported(z)
+}
+
+/// Merge → encode → prune → append for one zoom, over any tile-ordered merge
+/// iterator.
+///
+/// Extracted whole from the zoom loop so serial and range-parallel merges share
+/// it: batches are contiguous pulls in merge order, `encode_batch` preserves
+/// tile order, and prune/append see the identical sequence either way — which
+/// is why the archive does not move between the two paths.
+#[allow(clippy::too_many_arguments)]
+fn consume_merged(
+    merged: &mut impl Iterator<Item = Result<(u64, Vec<ChunkEntry>)>>,
+    stats: &mut ZoomStats,
+    z: u8,
+    timer: &mut crate::timing::PhaseTimer,
+    dem: &crate::dem::Dem,
+    conventions: &crate::schema::boundaries::Conventions,
+    region_links: &std::collections::HashMap<u64, u64>,
+    writer: &mut tilecodec::mamaps::write::StreamWriter,
+) -> Result<()> {
+    // Merge, encode and append have no total to count against -- the tile count is only known once
+    // the merge has produced it -- so the merge bar counts tiles merged and the encode line below
+    // counts tiles written.
+    let zoom_start = std::time::Instant::now();
+    let mut merged_tiles = 0usize;
+    let mut merge_shown = 0usize;
+    let mut written = 0usize;
+    let mut shown = 0usize;
+    loop {
             // Cost-batched rather than count-batched: z14 has tiles whose merged geometry is tens
             // of MB (a dense city tile's whole layer set) beside rural tiles worth bytes. A
             // fixed `batch_len()` of those holds ~GB of merged tiles plus their encoded copies
@@ -160,7 +289,7 @@ fn tile_zooms(
             // `collect` into a `Result`, because a truncated scratch file must fail the build rather
             // than end the zoom early and publish a short archive.
             let batch: Vec<(u64, Vec<ChunkEntry>)> =
-                merge_batch(&mut merged, par::batch_len())?;
+                merge_batch(&mut *merged, par::batch_len())?;
             stats.merge_ms += merging.elapsed().as_millis() as u64;
             if batch.is_empty() {
                 break;
@@ -180,7 +309,7 @@ fn tile_zooms(
             // Per-zoom `encode`: repeat visits merge into one total at `finish`.
             timer.switch("encode");
             let encoding = std::time::Instant::now();
-            let mut done = encode_batch(batch, &settings.dem, store.conventions(), &settings.region_links)?;
+            let mut done = encode_batch(batch, dem, conventions, region_links)?;
             stats.encode_ms += encoding.elapsed().as_millis() as u64;
             // Phase B: prune barren subtrees. A tile whose four children all came back
             // empty (`None` — genuinely featureless, or full-bleed water background) is
@@ -232,14 +361,7 @@ fn tile_zooms(
                 tile_build::progress::hms(zoom_start.elapsed().as_secs_f64()),
             );
         }
-        // Reserved, written, on disk and read back must agree. A chunk that quietly lost entries
-        // would produce an archive with holes in it and nothing downstream could tell.
-        drop(merged);
-        spill.check_books()?;
-        per_zoom.push(stats);
-    }
-
-    Ok(per_zoom)
+    Ok(())
 }
 
 /// One merge pull, capped by merged-geometry cost rather than by tile count.
@@ -256,7 +378,7 @@ fn tile_zooms(
 /// split across a batch boundary — and only the first case prunes, which keeps the archive
 /// independent of where the batcher cut.
 fn merge_batch(
-    merged: &mut Merged<'_>,
+    merged: &mut impl Iterator<Item = Result<(u64, Vec<ChunkEntry>)>>,
     max_tiles: usize,
 ) -> Result<Vec<(u64, Vec<ChunkEntry>)>> {
     let mut batch: Vec<(u64, Vec<ChunkEntry>)> = Vec::new();
@@ -435,9 +557,17 @@ fn map_zoom(
     let failed = std::sync::atomic::AtomicBool::new(false);
 
     std::thread::scope(|scope| -> Result<()> {
+        // TEMP-PROFILE: reader wall (feed rate). The reader thread returns
+        // its wall clock alongside its result; compared against the zoom's
+        // map wall it answers feed-bound vs worker-bound. Removed with the
+        // probes.
+        let reader_start = std::time::Instant::now();
         let reader = std::thread::Builder::new()
             .name("mamaps-read".to_string())
-            .spawn_scoped(scope, move || read_chunks(store, z, send))
+            .spawn_scoped(scope, move || {
+                let r = read_chunks(store, z, send);
+                (r, reader_start.elapsed())
+            })
             .map_err(|e| tile_build::proto::Error(format!("cannot start the store reader: {e}")))?;
 
         // One worker runs on this thread whatever happens, so a machine that will not give us
@@ -464,9 +594,13 @@ fn map_zoom(
                 tile_build::proto::Error("a tiling thread panicked".to_string())
             })?;
         }
-        reader.join().map_err(|_| {
+        let (reader_result, reader_wall) = reader.join().map_err(|_| {
             tile_build::proto::Error("the store reader thread panicked".to_string())
-        })?
+        })?;
+        // TEMP-PROFILE: stash the reader wall where the tally fold prints
+        // it. Removed with the probes.
+        crate::tiler::stash_reader_wall(z, reader_wall);
+        reader_result
     })?;
 
     if failed.load(Ordering::Relaxed) {
@@ -485,6 +619,20 @@ fn map_zoom(
     for (_, _, chunk_tally) in &chunks {
         tally.add(*chunk_tally);
     }
+    // TEMP-PROFILE: per-stage map walls, summed across chunks (CPU time, so
+    // the sum exceeds wall on 64 threads — ratios, not walls, are the read),
+    // plus the reader thread's own wall (feed rate) and the map wall implied
+    // by the caller. `reader_ms` vs the zoom's `map_ms` answers feed-bound
+    // vs worker-bound: a reader wall near the map wall means workers starved.
+    // Removed with the probes.
+    eprintln!(
+        "  [mapprofile] z{z}: project={:.1}s annotate={:.1}s filter={:.1}s subdiv={:.1}s reader={:.1}s",
+        tally.profile.project.as_secs_f64(),
+        tally.profile.annotate.as_secs_f64(),
+        tally.profile.filter.as_secs_f64(),
+        tally.profile.subdiv.as_secs_f64(),
+        crate::tiler::take_reader_wall().as_secs_f64()
+    );
     Ok((chunks.into_iter().map(|(_, at, _)| at).collect(), tally))
 }
 

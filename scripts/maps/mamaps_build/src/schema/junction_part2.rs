@@ -269,7 +269,7 @@ pub fn stream_junctions(dir: &Path, conventions: &Conventions, sink: &mut Sink) 
         });
         for node_geoms in built.drain(..) {
             for points in node_geoms {
-                sink.push(&class, &Geometry::Lines(vec![points]))?;
+                sink.push(&class, &crate::store::EncodedGeom::live(&Geometry::Lines(vec![points]))?)?;
                 emitted += 1;
             }
             bar.tick("node(s)");

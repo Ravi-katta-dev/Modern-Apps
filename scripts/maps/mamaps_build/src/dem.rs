@@ -20,6 +20,8 @@ use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::path::Path;
 
+use rayon::prelude::*;
+use tile_build::par;
 use tilecodec::mamaps::body::Heightmap;
 use tilecodec::pmtiles::tile_id;
 use tilecodec::proto::{err, Error, Result};
@@ -91,14 +93,29 @@ pub struct Dem {
 
 impl Dem {
     /// Read and parse a `.mdem` dataset from disk.
+    ///
+    /// Mapped, not read: the 13 GB world file would otherwise cost a
+    /// single-threaded `fs::read` plus a full copy before parsing starts.
+    /// The mapping faults pages in on the pool's 64 threads during the
+    /// parallel parse below, and the bytes are never copied — each tile's
+    /// samples land directly in its grid `Vec`. The mapping drops on return;
+    /// the `Dem` owns its grids.
     pub fn load(path: &Path) -> Result<Dem> {
-        let bytes = std::fs::read(path)
-            .map_err(|e| Error(format!("reading the DEM dataset {}: {e}", path.display())))?;
-        Dem::parse(&bytes)
+        let mapped = osm_ingest::mem::Mapped::open(path).map_err(Error)?;
+        Dem::parse(&mapped)
     }
 
     /// Parse a `.mdem` dataset: a 12-byte header (`MDEM`, version, out_zoom, `dim` u16, tile count
     /// u32), then per tile a `u64` tile id and its `dim * dim` `u16` samples, little-endian.
+    ///
+    /// Tiles parse on the pool: records are fixed-stride (`8 + cells * 2` bytes), so tile `i`
+    /// starts at `12 + i * stride` with no dependency on any other tile. Each worker decodes a
+    /// contiguous run into owned `(id, samples)` pairs; the single-threaded fold inserts them in
+    /// file order. Same pairs as the serial loop — the map holds the same contents, and nothing
+    /// ever iterates it (only `heightmap_for`'s `.get`), so no byte can move. The 13 GB world
+    /// dataset's per-sample `u16::from_le_bytes` + per-tile alloc + hash insert runs ~50 s
+    /// serially on every build regardless of region; fanning out the decode leaves only the
+    /// `fs::read` and the inserts.
     fn parse(bytes: &[u8]) -> Result<Dem> {
         if bytes.len() < 12 {
             return err("a .mdem dataset is shorter than its 12-byte header");
@@ -118,21 +135,43 @@ impl Dem {
         let cells = dim as usize * dim as usize;
         // One tile: an 8-byte id then `cells` little-endian u16 samples.
         let stride = 8 + cells * 2;
-        let mut at = 12usize;
+        if bytes.len() < 12 + count.saturating_mul(stride) {
+            return err("a .mdem dataset ends before its tile count");
+        }
+        // Decoded tile indices, not tiles: the byte slices borrow `bytes`, so the
+        // pool maps indices to owned pairs and the fold inserts in file order.
+        // Chunks of 1024 tiles balance scheduling against per-task overhead
+        // (~170 KB of samples per chunk at dim 9 — L2-resident working set).
+        const PARSE_CHUNK_TILES: usize = 1024;
+        let chunks = count.div_ceil(PARSE_CHUNK_TILES);
+        let mut pairs: Vec<Vec<(u64, Vec<u16>)>> = Vec::with_capacity(chunks);
+        par::install(|| {
+            (0..chunks)
+                .into_par_iter()
+                .map(|chunk| {
+                    let lo = chunk * PARSE_CHUNK_TILES;
+                    let hi = (lo + PARSE_CHUNK_TILES).min(count);
+                    let mut out = Vec::with_capacity(hi - lo);
+                    for i in lo..hi {
+                        let at = 12 + i * stride;
+                        let id =
+                            u64::from_le_bytes(bytes[at..at + 8].try_into().expect("8 bytes"));
+                        let mut samples = Vec::with_capacity(cells);
+                        for c in 0..cells {
+                            let o = at + 8 + c * 2;
+                            samples.push(u16::from_le_bytes([bytes[o], bytes[o + 1]]));
+                        }
+                        out.push((id, samples));
+                    }
+                    out
+                })
+                .collect_into_vec(&mut pairs);
+        });
         let mut grids = HashMap::with_capacity(count);
-        for _ in 0..count {
-            if at + stride > bytes.len() {
-                return err("a .mdem tile runs past the end of the dataset");
+        for chunk in pairs.drain(..) {
+            for (id, samples) in chunk {
+                grids.insert(id, samples);
             }
-            let id = u64::from_le_bytes(bytes[at..at + 8].try_into().expect("8 bytes"));
-            at += 8;
-            let mut samples = Vec::with_capacity(cells);
-            for i in 0..cells {
-                let o = at + i * 2;
-                samples.push(u16::from_le_bytes([bytes[o], bytes[o + 1]]));
-            }
-            at += cells * 2;
-            grids.insert(id, samples);
         }
         Ok(Dem { out_zoom, dim, grids })
     }

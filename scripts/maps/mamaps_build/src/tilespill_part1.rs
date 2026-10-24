@@ -1,12 +1,116 @@
 impl ChunkReader<'_> {
-    /// The next entry, or `None` at the end of the chunk.
+    /// Skip one entry without decoding it, returning its key and merge cost.
+    ///
+    /// Byte-for-byte the same cursor movement as [`next`](Self::next) —
+    /// header, fixed arenas, name lengths, turn counts, building and
+    /// carriageway sections — minus every allocation, UTF-8 check and struct
+    /// build. The range planner uses it to walk chunks cheaply (cost histogram
+    /// + boundary offsets); the merge workers then decode for real. A corrupt
+    /// entry errors here exactly as `next` would surface it, so planning fails
+    /// fast rather than handing workers a desynced stream.
+    ///
+    /// Never touches the spill's read counters: planning reads are not
+    /// decoded entries, and `check_books` must see each entry counted once —
+    /// by the worker that decodes it.
+    pub fn skip_entry(&mut self) -> Result<Option<((u64, u8), u64)>> {
+        if self.left == 0 {
+            return Ok(None);
+        }
+        self.fill(ENTRY_HEADER_BYTES)?;
+        let head: &[u8; ENTRY_HEADER_BYTES] = self.buf[self.used..self.used + ENTRY_HEADER_BYTES]
+            .try_into()
+            .expect("a header's worth of bytes");
+        let header = entry_header(head)?;
+        let fixed =
+            payload_bytes(header.features, header.parts, header.coords, header.ids) as usize;
+        self.fill(ENTRY_HEADER_BYTES + fixed)?;
+        self.used += ENTRY_HEADER_BYTES + fixed;
+        for _ in 0..header.names {
+            self.fill(4)?;
+            let len = u32::from_le_bytes(
+                self.buf[self.used..self.used + 4].try_into().expect("4 bytes"),
+            ) as usize;
+            if len > 1 << 20 {
+                return err("a tile chunk entry names a megabyte-plus string".to_string());
+            }
+            self.fill(4 + len)?;
+            self.used += 4 + len;
+        }
+        if header.has_turns {
+            for _ in 0..header.features {
+                self.fill(2)?;
+                let (fwd, bwd) =
+                    (self.buf[self.used] as usize, self.buf[self.used + 1] as usize);
+                let bytes = 2 + 2 * (fwd + bwd);
+                self.fill(bytes)?;
+                self.used += bytes;
+            }
+        }
+        if header.has_buildings {
+            let bytes = BUILDING_BYTES * header.features;
+            self.fill(bytes)?;
+            self.used += bytes;
+        }
+        if header.has_carriageways {
+            let bytes = CARRIAGEWAY_RECORD_LEN * header.features;
+            self.fill(bytes)?;
+            self.used += bytes;
+        }
+        self.left -= 1;
+        // Same cost unit the merge batches by (`tile_cost`): features plus
+        // coordinates, the proxy the encode pass balances tasks by.
+        let cost = header.features as u64 + header.coords as u64;
+        Ok(Some(((header.tile, header.layer_id), cost)))
+    }
+
+    /// File offset of the next unread byte: what a range worker seeks to.
+    ///
+    /// `at` is the first byte not yet buffered, so the unread position is
+    /// behind it by exactly the buffered-but-unconsumed span.
+    pub fn position(&self) -> u64 {
+        self.at - (self.buf.len() - self.used) as u64
+    }
+
+    /// The next entry's tile id without consuming it.
+    ///
+    /// A range worker seeks to a bucket edge (coarser than its tile bound),
+    /// then advances past entries below the bound with [`skip_entry`](Self::skip_entry)
+    /// — counted down from `left` like any consumed entry, uncounted in the
+    /// spill books like any skip. `None` past the last entry (no trailing
+    /// check here; [`next`](Self::next) owns that).
+    pub fn peek_tile(&mut self) -> Result<Option<u64>> {
+        if self.left == 0 {
+            return Ok(None);
+        }
+        self.fill(ENTRY_HEADER_BYTES)?;
+        let head: &[u8; ENTRY_HEADER_BYTES] = self.buf[self.used..self.used + ENTRY_HEADER_BYTES]
+            .try_into()
+            .expect("a header's worth of bytes");
+        Ok(Some(entry_header(head)?.tile))
+    }
+
+    /// Reposition a reader at a planned offset with a planned entry count.
+    ///
+    /// The buffer is discarded (its bytes belong to another range now and
+    /// will be re-read through the window); `end` is unchanged. `exact_end`
+    /// says whether this segment runs to the chunk's last byte: only then
+    /// does [`next`](Self::next) enforce the no-trailing-bytes check, since
+    /// any other segment legitimately ends mid-chunk with the next range's
+    /// bytes after it.
+    pub fn seek_to(&mut self, offset: u64, remaining: u64, exact_end: bool) {
+        self.buf.clear();
+        self.used = 0;
+        self.at = offset;
+        self.left = remaining;
+        self.exact_end = exact_end;
+    }
     ///
     /// Fallible, and that matters: a truncated scratch file must fail the build rather than silently
     /// shorten the archive.
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Option<((u64, u8), ChunkEntry)>> {
         if self.left == 0 {
-            if self.used < self.buf.len() || self.at < self.end {
+            if self.exact_end && (self.used < self.buf.len() || self.at < self.end) {
                 return err(format!(
                     "a tile chunk in {} holds bytes past its last entry",
                     self.spill.path.display()

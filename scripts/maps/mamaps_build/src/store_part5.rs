@@ -14,7 +14,7 @@ mod tests {
             let kind = i.max(1);
             let class = Class::line(dict::LAYER_ROADS, kind, min_zoom);
             let line = vec![(-120.0 + i as f64 * 0.001, 35.0), (-119.9, 35.1)];
-            sink.push(&class, &Geometry::Lines(vec![line])).expect("push");
+            sink.push(&class, &EncodedGeom::live(&Geometry::Lines(vec![line])).expect("encode")).expect("push");
             for z in min_zoom as usize..15 {
                 expected_by_zoom[z].push(kind);
             }
@@ -148,7 +148,7 @@ mod tests {
         let class = Class::line(dict::LAYER_ROADS, schema::kind("highway"), 0);
         for i in 0..count {
             let (x, y) = at(i);
-            sink.push(&class, &Geometry::Lines(vec![vec![(x, y), (x, y + 0.0001)]]))
+            sink.push(&class, &EncodedGeom::live(&Geometry::Lines(vec![vec![(x, y), (x, y + 0.0001)]])).expect("encode"))
                 .expect("push");
         }
         let store = sink.finish(&path).expect("finish");
@@ -190,8 +190,8 @@ mod tests {
         ]];
         let lake = Class::area(dict::LAYER_LANDTYPE, schema::kind("lake"), 6);
         let road = Class::line(dict::LAYER_ROADS, schema::kind("highway"), 3);
-        sink.push(&lake, &Geometry::Polygons(vec![square.clone()])).expect("push");
-        sink.push(&road, &Geometry::Lines(vec![vec![(-120.0, 35.0), (-119.5, 35.5)]]))
+        sink.push(&lake, &EncodedGeom::live(&Geometry::Polygons(vec![square.clone()])).expect("encode")).expect("push");
+        sink.push(&road, &EncodedGeom::live(&Geometry::Lines(vec![vec![(-120.0, 35.0), (-119.5, 35.5)]])).expect("encode"))
             .expect("push");
         let store = sink.finish(&path).expect("finish");
 
