@@ -38,6 +38,7 @@
 
 pub mod boolean;
 pub mod anon;
+pub mod churn;
 pub mod clip;
 pub mod geojson;
 pub mod geojson_extra;

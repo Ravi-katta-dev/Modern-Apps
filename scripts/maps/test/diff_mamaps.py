@@ -72,6 +72,57 @@ def dump_command(explicit: Path | None) -> list[str]:
     ]
 
 
+def run_churn(before: Path, after: Path, budget_gb: float | None) -> bool:
+    """Print the byte-level overlay budget; True when the budget gate fails."""
+    cmd = churn_command(None)
+    proc = subprocess.run(cmd + [str(before), str(after)], capture_output=True, text=True)
+    if proc.returncode != 0:
+        sys.stderr.write(proc.stderr)
+        raise SystemExit(f"mamaps_churn failed on {before} vs {after}")
+    overlay_bytes = None
+    for line in proc.stdout.splitlines():
+        print(f"churn: {line}")
+        if line.startswith("OVERLAY_BYTES="):
+            overlay_bytes = int(line.split("=", 1)[1])
+    if budget_gb is not None:
+        if overlay_bytes is None:
+            raise SystemExit("mamaps_churn printed no OVERLAY_BYTES line")
+        budget_bytes = int(budget_gb * 1024**3)
+        if overlay_bytes > budget_bytes:
+            print(
+                f"churn: OVERLAY {overlay_bytes / 1024**3:.2f} GiB "
+                f"exceeds budget {budget_gb:.2f} GiB"
+            )
+            return True
+        print(
+            f"churn: OVERLAY {overlay_bytes / 1024**3:.2f} GiB "
+            f"within budget {budget_gb:.2f} GiB"
+        )
+    return False
+
+
+def churn_command(explicit: Path | None) -> list[str]:
+    if explicit:
+        return [str(explicit)]
+    for name in ("mamaps_churn", "mamaps_churn.exe"):
+        built = CRATE / "target" / "release" / name
+        if built.exists():
+            return [str(built)]
+    # Falling back to `cargo run` keeps this usable on a clean checkout, at the
+    # cost of a build on first use.
+    return [
+        "cargo",
+        "run",
+        "--release",
+        "--quiet",
+        "--manifest-path",
+        str(CRATE / "Cargo.toml"),
+        "--bin",
+        "mamaps_churn",
+        "--",
+    ]
+
+
 class Row:
     """One (tile, layer)'s measures, as `mamaps_dump --mode geometry` prints them."""
 
@@ -174,7 +225,26 @@ def main() -> int:
         default=20,
         help="how many failures to print before summarising (default 20)",
     )
+    ap.add_argument(
+        "--churn",
+        action="store_true",
+        help="also report the byte-level overlay budget via mamaps_churn "
+        "(stored-body churn, per-zoom split, sidecar moves). The picture "
+        "check above still gates; this is the Phase 0 sizing signal.",
+    )
+    ap.add_argument(
+        "--churn-budget-gb",
+        type=float,
+        default=None,
+        help="fail when the mamaps_churn OVERLAY_BYTES estimate exceeds this "
+        "many GiB (requires --churn). The increment fails closed when a "
+        "monthly overlay would not fit the budget.",
+    )
     args = ap.parse_args()
+
+    churn_failed = False
+    if args.churn or args.churn_budget_gb is not None:
+        churn_failed = run_churn(args.before, args.after, args.churn_budget_gb)
 
     cmd = dump_command(args.dump)
     before = run_dump(cmd, args.before, args.layer)
@@ -297,7 +367,7 @@ def main() -> int:
     print()
     if not failures:
         print(f"OK: {len(shared):,} (tile, layer) pair(s) hold the same picture")
-        return 0
+        return 1 if churn_failed else 0
     print(f"FAIL ({len(failures):,}):")
     for f in failures[: args.max_report]:
         print(f"  {f}")

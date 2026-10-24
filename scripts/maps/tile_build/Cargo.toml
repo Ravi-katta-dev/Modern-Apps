@@ -37,6 +37,9 @@ path = "src/bin/mamaps_dump.rs"
 [[bin]]
 name = "mamaps_pack"
 path = "src/bin/mamaps_pack.rs"
+[[bin]]
+name = "mamaps_churn"
+path = "src/bin/mamaps_churn.rs"
 [dependencies]
 # The PMTiles + MVT codec, shared with the Android renderer in `:library:map`.
 # Member of the repo-root workspace; path + `write` feature select the writer.
