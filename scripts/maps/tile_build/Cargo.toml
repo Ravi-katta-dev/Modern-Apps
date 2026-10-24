@@ -40,12 +40,16 @@ path = "src/bin/mamaps_pack.rs"
 [[bin]]
 name = "mamaps_churn"
 path = "src/bin/mamaps_churn.rs"
+[[bin]]
+name = "mamaps_overlay"
+path = "src/bin/mamaps_overlay.rs"
 [dependencies]
 # The PMTiles + MVT codec, shared with the Android renderer in `:library:map`.
 # Member of the repo-root workspace; path + `write` feature select the writer.
 tilecodec = { workspace = true, features = ["write"] }
 miniz_oxide.workspace = true
 rayon.workspace = true
+sha2.workspace = true
 # Anonymous pagefile-backed mappings for the spill backends (see `anon`): already
 # in the tree via osm_ingest, so this adds a name to link, not a crate to fetch.
 memmap2.workspace = true
