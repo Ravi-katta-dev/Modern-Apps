@@ -89,7 +89,13 @@ fun Navigation(viewModel: MailViewModel, initialRoute: Route? = null) {
             entry<Route.Onboarding> {
                 OnboardingScreen(
                     state = state,
-                    onClaim = viewModel::claimAddress,
+                    onClaim = { localPart, passphrase ->
+                        viewModel.claimAddress(localPart, passphrase) {
+                            // Protection enrolls immediately after claim: run the
+                            // biometric gate as soon as the Lock screen lands.
+                            (context as? FragmentActivity)?.let { viewModel.unlock(it) }
+                        }
+                    },
                     onDismissMessages = viewModel::dismissMessages,
                 )
             }

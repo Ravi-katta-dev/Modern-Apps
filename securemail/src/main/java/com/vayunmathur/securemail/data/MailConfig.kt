@@ -20,9 +20,18 @@ data class MailSettings(
 
 private val Context.mailDataStore by preferencesDataStore(name = "securemail_config")
 
-/** DataStore-backed persistence for [MailSettings] (non-secret fields only). */
-class MailConfig(private val context: Context) {
-    val settings: Flow<MailSettings> = context.mailDataStore.data.map { p ->
+/**
+ * DataStore-backed persistence for [MailSettings] (non-secret fields only).
+ *
+ * The DataStore instance is process-wide (held on the application context):
+ * a per-[Context] delegate would give the service and the activity SEPARATE
+ * DataStore objects on the same file, and the service's copy caches the
+ * pre-claim empty state forever ("claimed but offline"). All readers/writers
+ * go through [shared] so there is exactly one cache.
+ */
+class MailConfig(context: Context) {
+    private val dataStore = store(context)
+    val settings: Flow<MailSettings> = dataStore.data.map { p ->
         MailSettings(
             address = p[KEY_ADDRESS] ?: "",
             publicArmor = p[KEY_PUBLIC] ?: "",
@@ -32,7 +41,7 @@ class MailConfig(private val context: Context) {
     }
 
     suspend fun setIdentity(address: String, publicArmor: String, fingerprintHex: String) {
-        context.mailDataStore.edit {
+        dataStore.edit {
             it[KEY_ADDRESS] = address
             it[KEY_PUBLIC] = publicArmor
             it[KEY_FINGERPRINT] = fingerprintHex
@@ -40,14 +49,23 @@ class MailConfig(private val context: Context) {
     }
 
     suspend fun setLastSync(epochMillis: Long) {
-        context.mailDataStore.edit { it[KEY_LAST_SYNC] = epochMillis }
+        dataStore.edit { it[KEY_LAST_SYNC] = epochMillis }
     }
 
     suspend fun clear() {
-        context.mailDataStore.edit { it.clear() }
+        dataStore.edit { it.clear() }
     }
 
     companion object {
+        @Volatile
+        private var sharedStore: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences>? =
+            null
+
+        private fun store(app: Context): androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences> =
+            sharedStore ?: synchronized(this) {
+                sharedStore ?: app.applicationContext.mailDataStore.also { sharedStore = it }
+            }
+
         private val KEY_ADDRESS = stringPreferencesKey("address")
         private val KEY_PUBLIC = stringPreferencesKey("public_armor")
         private val KEY_FINGERPRINT = stringPreferencesKey("fingerprint_hex")

@@ -63,8 +63,12 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     var state by mutableStateOf(
         MailUiState(
-            onboarded = keyManager.hasIdentity(),
-            locked = keyManager.hasIdentity(),
+            // Single source of truth is the DataStore settings flow below
+            // (address present = onboarded). Keystore alone must NOT imply
+            // onboarded: a present key with no address is a broken state
+            // (backup skew) that must land on Onboarding, not Lock.
+            onboarded = false,
+            locked = false,
         ),
     )
         private set
@@ -203,8 +207,16 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     // Identity: claim + unlock
     // ------------------------------------------------------------------
 
-    /** Generates the PGP identity, claims the address over the socket, persists. */
-    fun claimAddress(localPart: String, passphrase: String) {
+    /**
+     * Generates the PGP identity, claims the address over the socket, persists.
+     * On success the caller must run the biometric gate immediately ([onClaimed]
+     * → `unlockIfReady`): protection enrolls at setup, not on next launch.
+     */
+    fun claimAddress(
+        localPart: String,
+        passphrase: String,
+        onClaimed: () -> Unit = {},
+    ) {
         val address = AddressValidator.canonicalAddress(localPart)
         if (address == null) {
             state = state.copy(error = "Use 3–64 lowercase letters, digits, dots or dashes.")
@@ -237,10 +249,13 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
             }
             state = outcome.fold(
                 onSuccess = {
+                    // Land LOCKED, not open: Navigation routes to Lock, whose
+                    // Unlock button runs the biometric gate immediately — the
+                    // user enrolls protection at setup, not next launch.
                     state.copy(
-                        busy = false, locked = false, onboarded = true,
-                        message = "Address $it claimed. Share your public key from Settings.",
-                    )
+                        busy = false, locked = true, onboarded = true,
+                        message = "Address $it claimed. Unlock to protect your key.",
+                    ).also { onClaimed() }
                 },
                 onFailure = {
                     Log.status(TAG, "claim failed", it)
