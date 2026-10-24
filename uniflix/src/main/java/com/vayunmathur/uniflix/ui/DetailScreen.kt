@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -73,37 +74,45 @@ fun DetailScreen(
                     modifier = Modifier.fillMaxWidth(),
                     contentScale = ContentScale.FillWidth,
                 )
-                Text(detail.overview, style = MaterialTheme.typography.bodyMedium)
-                detail.year?.let { Text("Year: $it") }
-                detail.runtimeMinutes?.let { Text("Runtime: $it min") }
+                if (detail.mediaType == MediaType.MOVIE) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        AsyncImage(
+                            model = TmdbImageUrl.poster(detail.posterPath),
+                            contentDescription = detail.title,
+                            modifier = Modifier.width(120.dp).aspectRatio(2f / 3f),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(detail.overview, style = MaterialTheme.typography.bodyMedium)
+                            detail.year?.let { Text("Year: $it") }
+                            detail.runtimeMinutes?.let { Text("Runtime: $it min") }
+                        }
+                    }
+                } else {
+                    Text(detail.overview, style = MaterialTheme.typography.bodyMedium)
+                    detail.year?.let { Text("Year: $it") }
+                    detail.runtimeMinutes?.let { Text("Runtime: $it min") }
+                }
                 OutlinedButton(onClick = onToggleWatchlist, modifier = Modifier.fillMaxWidth()) {
                     Text(if (state.watchlisted) "Remove from watchlist" else "Add to watchlist")
                 }
                 if (detail.mediaType == MediaType.TV) {
-                    Text("Seasons", style = MaterialTheme.typography.titleMedium)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        detail.seasons.filter { it.seasonNumber > 0 }.forEach { season ->
-                            OutlinedButton(
-                                onClick = { onSeasonChange(season.seasonNumber) },
-                            ) { Text("${season.seasonNumber}") }
-                        }
-                    }
+                    SeasonDropdown(
+                        seasons = detail.seasons,
+                        selectedSeason = state.selectedSeason,
+                        onSelect = onSeasonChange,
+                    )
                     state.episodes.forEach { episode ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                AsyncImage(
-                                    model = TmdbImageUrl.still(episode.stillPath),
-                                    contentDescription = episode.name,
-                                    modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f),
-                                    contentScale = ContentScale.Crop,
-                                )
-                                Text("E${episode.episodeNumber} · ${episode.name}")
-                                Button(onClick = {
-                                    onResolve(episode.seasonNumber, episode.episodeNumber)
-                                    onPlay(episode.seasonNumber, episode.episodeNumber)
-                                }) { Text("Play") }
-                            }
-                        }
+                        EpisodeCard(episode = episode, onPlay = {
+                            onResolve(episode.seasonNumber, episode.episodeNumber)
+                            onPlay(episode.seasonNumber, episode.episodeNumber)
+                        })
                     }
                 } else {
                     Button(
