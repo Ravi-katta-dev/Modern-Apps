@@ -10,7 +10,6 @@ import androidx.fragment.app.FragmentActivity
 import com.vayunmathur.library.util.MainNavigation
 import com.vayunmathur.library.util.rememberNavBackStack
 import com.vayunmathur.securemail.platform.MailViewModel
-import com.vayunmathur.securemail.service.PendingInbox
 import com.vayunmathur.securemail.ui.ComposeScreen
 import com.vayunmathur.securemail.ui.InboxScreen
 import com.vayunmathur.securemail.ui.LockScreen
@@ -68,12 +67,6 @@ fun Navigation(viewModel: MailViewModel, initialRoute: Route? = null) {
             )
         }
         entry<Route.Inbox> {
-            // Drain frames that arrived while no UI was alive.
-            LaunchedEffect(Unit) {
-                for (p in PendingInbox.drain()) {
-                    viewModel.onInboundMessage(p.id, p.unencrypted, p.raw)
-                }
-            }
             InboxScreen(
                 state = state,
                 onOpen = { backStack.add(Route.Reader(it)) },

@@ -362,12 +362,18 @@ object KeyLookupHttp {
      * Fetches a WKD key record (binary OpenPGP key, possibly armored) and
      * returns it as canonical armor text via the native normalizer. WKD
      * responses are the raw key bytes, not JSON.
+     *
+     * Bounded at 10s connect / 15s read: most domains have no WKD at all and
+     * a hanging lookup must not stall the send path (which falls through to
+     * the explicit unencrypted opt-in).
      */
     suspend fun fetchWkdKey(url: String): String? {
         return try {
             val r = NetworkClient.execute(
                 url = url,
                 useSystemTrust = true,
+                connectTimeoutMs = 10_000L,
+                readTimeoutMs = 15_000L,
             )
             if (!r.isSuccess || r.bytes.isEmpty()) return null
             runCatching { com.vayunmathur.e2ee.Pgp.normalizeKey(r.bytes) }.getOrNull()

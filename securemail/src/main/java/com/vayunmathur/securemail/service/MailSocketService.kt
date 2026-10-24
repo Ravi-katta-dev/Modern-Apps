@@ -8,8 +8,8 @@ import com.vayunmathur.library.log.Log
 import com.vayunmathur.library.util.ensureNotificationChannel
 import com.vayunmathur.securemail.data.MailConfig
 import com.vayunmathur.securemail.data.MailRepository
+import com.vayunmathur.securemail.data.StoredMessage
 import com.vayunmathur.securemail.network.MailSocket
-import com.vayunmathur.securemail.platform.MailViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,11 +51,26 @@ class MailSocketService : Service() {
                     else MailSocket.IdentitySnapshot(current.address, current.publicArmor)
                 },
                 onMessage = { id, unencrypted, raw ->
-                    // Decrypt path needs the ViewModel's key gate; store first.
-                    MailRepository.get(this@MailSocketService)
-                    // The ViewModel is activity-scoped, so route through a process
-                    // holder: store the blob now, decrypt on next UI open.
-                    PendingInbox.store(this@MailSocketService, id, unencrypted, raw)
+                    // Write straight to the Room vault: the UI observes it as a
+                    // Flow, so mail appears live whether the UI is open or not,
+                    // and survives process death (unlike the old in-memory hop).
+                    // Decryption still happens in the ViewModel on open.
+                    val repo = MailRepository.get(this@MailSocketService)
+                    val settings =
+                        MailConfig(this@MailSocketService).settings.first()
+                    repo.messageDao().upsert(
+                        StoredMessage(
+                            id = id,
+                            from = "",
+                            toJson = settings.address,
+                            dateMillis = System.currentTimeMillis(),
+                            messageId = id,
+                            blobBase64 = android.util.Base64.encodeToString(
+                                raw, android.util.Base64.NO_WRAP,
+                            ),
+                            unencrypted = unencrypted,
+                        ),
+                    )
                 },
             ) {
                 // onBump: socket liveness tick — no-op here; UI polls [MailSocket.connected].
@@ -91,27 +106,5 @@ class MailSocketService : Service() {
         fun stop(context: Context) {
             context.stopService(Intent(context, MailSocketService::class.java))
         }
-    }
-}
-
-/**
- * Process-wide inbox for frames that arrived while no ViewModel was alive
- * (service-owned socket, activity-scoped ViewModel). The next UI open drains
- * this into the Room vault via MailViewModel.
- */
-object PendingInbox {
-    private val lock = Any()
-    private val pending = ArrayDeque<PendingMsg>()
-
-    data class PendingMsg(val id: String, val unencrypted: Boolean, val raw: ByteArray)
-
-    fun store(context: Context, id: String, unencrypted: Boolean, raw: ByteArray) {
-        synchronized(lock) { pending.addLast(PendingMsg(id, unencrypted, raw)) }
-    }
-
-    fun drain(): List<PendingMsg> = synchronized(lock) {
-        val out = pending.toList()
-        pending.clear()
-        out
     }
 }

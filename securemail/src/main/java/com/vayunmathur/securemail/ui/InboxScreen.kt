@@ -23,7 +23,6 @@ import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.ui.rememberMessenger
 import com.vayunmathur.securemail.data.StoredMessage
 import com.vayunmathur.securemail.platform.MailUiState
-import com.vayunmathur.securemail.service.PendingInbox
 import java.text.DateFormat
 import java.util.Date
 

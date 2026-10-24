@@ -375,27 +375,40 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                     val encryptedTo = trust.filter { it.hasKey }
                     val plainTo = trust.filter { !it.hasKey }.map { it.address }
                     val mime = buildMimeBody(subject, body)
+                    var queued = 0
                     // Per-recipient encryption: each key-known recipient gets a blob.
                     for (t in encryptedTo) {
                         val cached = repo.keyDao().get(t.address) ?: continue
                         val blob = PgpCrypto.encrypt(mime, cached.armoredPublic)
                         val ok = MailSocket.publish(t.address, blob)
-                        if (!ok) queueOutbox(listOf(t.address), subject, body, inReplyTo, false)
+                        if (!ok) {
+                            queueOutbox(listOf(t.address), subject, body, inReplyTo, false)
+                            queued++
+                        }
                     }
                     // Keyless recipients: socket plaintext frame (opt-in) for own-domain,
-                    // SMTP federation queue for external (Phase 2 server path).
+                    // server federation for external — but only when the socket is
+                    // up; otherwise the local outbox holds them for retry.
                     for (address in plainTo) {
                         if (AddressValidator.isOwnDomain(address)) {
                             val ok = MailSocket.publish(address, mime, unencrypted = true)
-                            if (!ok) queueOutbox(listOf(address), subject, body, inReplyTo, true)
+                            if (!ok) {
+                                queueOutbox(listOf(address), subject, body, inReplyTo, true)
+                                queued++
+                            }
                         } else {
-                            queueOutbox(listOf(address), subject, body, inReplyTo, true)
+                            val ok = MailSocket.publish(address, mime, unencrypted = true)
+                            if (!ok) {
+                                queueOutbox(listOf(address), subject, body, inReplyTo, true)
+                                queued++
+                            }
                         }
                     }
+                    if (queued > 0) "Queued $queued message(s) — retry from Outbox when online." else "Sent."
                 }
             }
             state = outcome.fold(
-                onSuccess = { state.copy(busy = false, message = "Sent.") },
+                onSuccess = { msg -> state.copy(busy = false, message = msg) },
                 onFailure = {
                     Log.status(TAG, "send failed", it)
                     state.copy(busy = false, error = it.message ?: "Send failed.")
@@ -423,18 +436,55 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         )
     }
 
+    /**
+     * Drains the local outbox straight to the server over the live socket —
+     * no trust re-resolution (that already happened at send time; the entry
+     * records the decision in [OutboxMessage.sendUnencrypted]).
+     *
+     * Encrypted entries re-encrypt to the cached key; plaintext entries
+     * publish as explicit-opt-in unencrypted frames for the server to
+     * federate. Entries stay queued while offline; anything still failing
+     * after publish records an attempt for the next retry.
+     */
     fun retryOutbox() {
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
+                if (!MailSocket.connected) {
+                    state = state.copy(error = "Relay offline — kept in outbox.")
+                    return@withContext
+                }
                 val pending = repo.outboxDao().all()
+                var sent = 0
+                var failed = 0
                 for (entry in pending) {
-                    runCatching {
+                    val ok = runCatching {
                         val to = entry.toJson.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-                        send(to, entry.subject, entry.body, entry.sendUnencrypted, entry.inReplyTo)
+                        val mime = buildMimeBody(entry.subject, entry.body)
+                        var entryOk = true
+                        for (address in to) {
+                            val cached = repo.keyDao().get(address)
+                            if (cached != null && !entry.sendUnencrypted) {
+                                val blob = PgpCrypto.encrypt(mime, cached.armoredPublic)
+                                if (MailSocket.publish(address, blob)) continue
+                            } else if (entry.sendUnencrypted) {
+                                if (MailSocket.publish(address, mime, unencrypted = true)) continue
+                            }
+                            entryOk = false
+                        }
+                        entryOk
+                    }.getOrDefault(false)
+                    if (ok) {
                         repo.outboxDao().delete(entry.rowId)
-                    }.onFailure {
-                        repo.outboxDao().noteAttempt(entry.rowId, it.message ?: "retry failed")
+                        sent++
+                    } else {
+                        repo.outboxDao().noteAttempt(entry.rowId, "relay publish failed")
+                        failed++
                     }
+                }
+                state = when {
+                    failed > 0 -> state.copy(error = "$failed message(s) still queued.")
+                    sent > 0 -> state.copy(message = "Sent $sent message(s).")
+                    else -> state.copy(message = "Outbox is empty.")
                 }
             }
         }
