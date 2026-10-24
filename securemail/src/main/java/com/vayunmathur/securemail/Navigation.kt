@@ -64,7 +64,6 @@ fun Navigation(viewModel: MailViewModel, initialRoute: Route? = null) {
                     (context as? FragmentActivity)?.let { viewModel.unlock(it) }
                 },
                 onDismissMessages = viewModel::dismissMessages,
-                onPassphrase = viewModel::providePassphrase,
             )
         }
         entry<Route.Inbox> {
@@ -114,8 +113,6 @@ fun Navigation(viewModel: MailViewModel, initialRoute: Route? = null) {
                 },
                 onBack = { backStack.pop() },
                 message = msg,
-                onProvidePassphrase = viewModel::providePassphrase,
-                onRetryDecrypt = { viewModel.decryptStored(route.messageId) },
             )
         }
         entry<Route.Outbox> {

@@ -43,8 +43,6 @@ data class MailUiState(
     val busy: Boolean = false,
     /** Exported public key awaiting user copy/share (Settings). */
     val exportArmor: String? = null,
-    /** True when the in-memory key passphrase was lost (process restart). */
-    val needsPassphrase: Boolean = false,
 )
 
 private const val TAG = "MailViewModel"
@@ -72,11 +70,20 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     val outboxMessages = repo.outboxDao().observeAll()
 
     /**
-     * In-memory S2K passphrase for the PGP secret ring. Set at claim time and
-     * re-entered on the Lock screen after process death; never persisted — the
-     * Keystore holds only the S2K-wrapped blob, so a DB dump alone is useless.
+     * In-memory S2K passphrase for the PGP secret ring. Sealed in
+     * Keystore-wrapped storage at claim time ([KeyManager.storeKeyPassphrase])
+     * and loaded here on first need — the user enters it once at setup (and
+     * keeps it for account recovery) and is never asked again.
      */
     private var passphraseCache: String? = null
+
+    /**
+     * Returns the S2K passphrase, loading it from Keystore-wrapped storage
+     * on first use. Must be called on Dispatchers.IO (Keystore I/O).
+     */
+    private fun requirePassphrase(): String =
+        passphraseCache ?: keyManager.getKeyPassphrase()?.also { passphraseCache = it }
+        ?: error("No key passphrase stored — restore from your recovery passphrase.")
 
     init {
         config.settings
@@ -120,6 +127,10 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                         passphrase,
                     )
                     keyManager.storeSecretArmor(identity.armoredSecret)
+                    // Seal the S2K passphrase in Keystore-wrapped storage now:
+                    // S2K runs transparently after this and is never asked for
+                    // again (the passphrase is still the recovery secret).
+                    keyManager.storeKeyPassphrase(passphrase)
                     keyManager.storeOwnAddress(address)
                     config.setIdentity(address, identity.armoredPublic, identity.fingerprintHex)
                     passphraseCache = passphrase
@@ -234,12 +245,9 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                 runCatching {
                     val stored = repo.messageDao().get(id) ?: return@runCatching
                     if (stored.decryptedBody != null || stored.unencrypted) return@runCatching
-                    val passphrase = passphraseCache
-                    if (passphrase == null) {
-                        state = state.copy(needsPassphrase = true)
-                        Log.status(TAG, "decrypt deferred: passphrase cache empty")
-                        return@runCatching
-                    }
+                    // S2K passphrase loads transparently from Keystore-wrapped
+                    // storage (sealed at claim time) — never asked for again.
+                    val passphrase = requirePassphrase()
                     val raw = Base64.decode(stored.blobBase64, Base64.NO_WRAP)
                     val pgpBytes = extractPgpPayload(raw) ?: raw
                     val mime = PgpCrypto.decrypt(pgpBytes, keyManager.getSecretArmor(), passphrase)
@@ -250,12 +258,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                         repo.messageDao().upsert(stored.copy(from = from))
                     }
                 }.onFailure {
-                    // Wrong passphrase (or corrupt blob) fails closed here with
-                    // a visible error — not a silent "decrypting…" stall.
-                    state = state.copy(
-                        needsPassphrase = true,
-                        error = "Could not decrypt — wrong passphrase?",
-                    )
+                    state = state.copy(error = "Could not decrypt this message.")
                     Log.status(TAG, "decryptStored failed", it)
                 }
             }
@@ -263,43 +266,17 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Extracts the raw PGP bytes from an RFC 3156 multipart/encrypted envelope
-     * (second part, base64 `application/octet-stream`). Returns null when the
-     * input is not such an envelope (legacy bare blobs pass through).
+     * Extracts the raw PGP bytes from an RFC 3156 multipart/encrypted envelope.
+     * Delegates to [com.vayunmathur.securemail.domain.mail.MimeCodec].
      */
     private fun extractPgpPayload(envelope: ByteArray): ByteArray? {
+        val b64 = com.vayunmathur.securemail.domain.mail.MimeCodec
+            .extractPgpPayloadB64(envelope) ?: return null
         return try {
-            val text = envelope.toString(Charsets.UTF_8)
-            if (!text.contains("application/pgp-encrypted")) return null
-            // Split on boundary markers; the data part follows the octet-stream header.
-            val octetIdx = text.indexOf("application/octet-stream")
-            if (octetIdx < 0) return null
-            val bodyStart = text.indexOf("\r\n\r\n", octetIdx).takeIf { it >= 0 }
-                ?: text.indexOf("\n\n", octetIdx).takeIf { it >= 0 }
-                ?: return null
-            val afterHeaders = if (text.startsWith("\r\n\r\n", bodyStart)) {
-                text.substring(bodyStart + 4)
-            } else {
-                text.substring(bodyStart + 2)
-            }
-            // Cut at the closing boundary; de-whitespace the base64.
-            val end = afterHeaders.indexOf("--maemail-").takeIf { it >= 0 } ?: afterHeaders.length
-            val b64 = afterHeaders.substring(0, end).filterNot { it.isWhitespace() }
-            if (b64.isEmpty()) return null
             android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
         } catch (_: Exception) {
             null
         }
-    }
-
-    /**
-     * Re-enters the S2K passphrase after process death (Lock screen). Verified
-     * by a trial decrypt of nothing — it is checked lazily on next decrypt,
-     * which fails closed and re-asks.
-     */
-    fun providePassphrase(passphrase: String) {
-        passphraseCache = passphrase
-        state = state.copy(needsPassphrase = false, error = null)
     }
 
     /** Plaintext fallback path: stores the body with the unencrypted flag set. */
@@ -562,39 +539,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
      * trailing `--boundary--`). Returns (subject, body, from). The payload is
      * already authenticated PGP plaintext at this point; this only splits it.
      */
-    private fun parseMime(mime: String): Triple<String, String, String> {
-        val lines = mime.lines()
-        var from = ""
-        var subject = ""
-        var i = 0
-        while (i < lines.size && lines[i].isNotBlank()) {
-            val line = lines[i]
-            when {
-                line.startsWith("From:", ignoreCase = true) ->
-                    from = line.substringAfter(':').trim()
-                line.startsWith("Subject:", ignoreCase = true) ->
-                    subject = line.substringAfter(':').trim()
-            }
-            i++
-        }
-        // Skip the blank line plus the multipart preamble (boundary markers and
-        // the Version part); the body is the last text block before --boundary--.
-        val body = StringBuilder()
-        var inBody = false
-        for (line in lines.drop(i)) {
-            if (line.startsWith("--maemail-")) {
-                inBody = false
-                continue
-            }
-            if (line.startsWith("Content-Type: text/plain", ignoreCase = true)) {
-                inBody = false // headers of the part follow; blank line starts text
-                continue
-            }
-            if (inBody) body.appendLine(line)
-            if (line.isBlank()) inBody = true
-        }
-        return Triple(subject, body.toString().trimEnd(), from)
-    }
+    private fun parseMime(mime: String): Triple<String, String, String> =
+        com.vayunmathur.securemail.domain.mail.MimeCodec.parseMime(mime)
 
     private fun newMessageId(): String = "${UUID.randomUUID()}@maemail.org"
 
