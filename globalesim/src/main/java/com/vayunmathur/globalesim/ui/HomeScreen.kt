@@ -42,6 +42,7 @@ import com.vayunmathur.library.ui.rememberMessenger
 fun HomeScreen(
     state: EsimUiState,
     onTopUp: (Long) -> Unit,
+    onCreateEsim: () -> Unit,
     onStartCardPurchase: (amountCents: Long, publishableKey: String?, onKey: (String) -> Unit, onSheetReady: () -> Unit) -> Unit,
     onCardPurchaseDone: () -> Unit,
     onStartCryptoPurchase: (Long) -> Unit,
@@ -108,11 +109,20 @@ fun HomeScreen(
                     if (state.loading && profile == null) {
                         LoadingIndicator()
                     } else if (profile == null) {
-                        Text("Setting up your eSIM…")
+                        Text("One global eSIM for 200+ countries.")
                         Text(
-                            "Your global eSIM is being created. Pull to refresh.",
-                            modifier = Modifier.padding(top = 8.dp),
+                            "Pay as you go (~$1/GB), credit never expires, " +
+                                "no email needed. Creating your eSIM reserves " +
+                                "it on the network.",
+                            modifier = Modifier.padding(top = 4.dp),
                         )
+                        Button(
+                            onClick = onCreateEsim,
+                            enabled = !state.loading,
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        ) {
+                            Text("Create my eSIM")
+                        }
                     } else {
                         Text("Status: ${profile.status}")
                         Text(

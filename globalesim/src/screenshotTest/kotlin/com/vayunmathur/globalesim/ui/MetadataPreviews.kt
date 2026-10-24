@@ -40,6 +40,7 @@ class MetadataPreviews {
             HomeScreen(
                 state = EsimUiState(profile = demoProfile, budgetCents = 2000),
                 onTopUp = {},
+                onCreateEsim = {},
                 onStartCardPurchase = { _, _, _, _ -> },
                 onCardPurchaseDone = {},
                 onStartCryptoPurchase = {},

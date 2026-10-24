@@ -23,6 +23,7 @@ fun Navigation(viewModel: EsimViewModel) {
             HomeScreen(
                 state = viewModel.state,
                 onTopUp = viewModel::topUp,
+                onCreateEsim = viewModel::createEsim,
                 onStartCardPurchase = viewModel::startCardPurchase,
                 onCardPurchaseDone = {
                     viewModel.clearPendingPurchase()

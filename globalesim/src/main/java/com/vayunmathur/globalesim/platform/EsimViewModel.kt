@@ -38,13 +38,30 @@ class EsimViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            val id = idStore.getOrCreate()
-            runCatching { EsimApi.register(id) }
+            // Mint the anonymous id only. Provisioning happens on explicit
+            // user action (createEsim) — never on launch, since each
+            // provision is a real $1.75 vendor charge.
+            idStore.getOrCreate()
             refreshAll()
         }
     }
 
     private suspend fun accountId(): String = idStore.getOrCreate()
+
+    /**
+     * Explicit user action: provision the account's one eSIM. Each call is
+     * a real vendor charge, so the UI gates this behind a confirmation
+     * button — it is NEVER called on launch. Idempotent server-side:
+     * re-tapping an existing account returns its profile.
+     */
+    fun createEsim() {
+        viewModelScope.launch {
+            state = state.copy(loading = true, error = null)
+            runCatching { EsimApi.register(accountId()) }
+                .onSuccess { refreshAll() }
+                .onFailure { state = state.copy(loading = false, error = it.message) }
+        }
+    }
 
     fun dismissError() {
         state = state.copy(error = null)
