@@ -61,12 +61,57 @@ object Pgp {
             ?: error("OpenPGP encryption failed")
 
     /**
+     * Encrypts + signs: as [encrypt], additionally signing with the sender's
+     * secret key. Empty [senderSecret] disables signing (same as [encrypt]).
+     */
+    fun encryptSigned(
+        armoredPublic: String,
+        senderSecret: String,
+        senderPassphrase: String,
+        plaintext: ByteArray,
+    ): ByteArray =
+        PgpNative.nativePgpEncryptSigned(
+            armoredPublic.toUtf8(),
+            senderSecret.toUtf8(),
+            senderPassphrase.toUtf8(),
+            plaintext,
+        ) ?: error("OpenPGP signed encryption failed")
+
+    /**
      * Decrypts raw PGP bytes with [armoredSecret] + [passphrase]. Returns the
      * literal payload.
      */
     fun decrypt(armoredSecret: String, passphrase: String, ciphertext: ByteArray): ByteArray =
         PgpNative.nativePgpDecrypt(armoredSecret.toUtf8(), passphrase.toUtf8(), ciphertext)
             ?: error("OpenPGP decryption failed")
+
+    /** Result of [decryptVerify]: payload plus signer fingerprint (empty when unsigned). */
+    data class Verified(val payload: ByteArray, val signerFingerprintHex: String)
+
+    /**
+     * Decrypts + verifies: as [decrypt], additionally verifying an embedded
+     * signature against [verifierPublic] (empty = skip verification).
+     * Unsigned messages verify cleanly with an empty fingerprint (accepted);
+     * tampered signatures throw.
+     */
+    fun decryptVerify(
+        armoredSecret: String,
+        passphrase: String,
+        ciphertext: ByteArray,
+        verifierPublic: String,
+    ): Verified {
+        val parts = PgpNative.nativePgpDecryptVerify(
+            armoredSecret.toUtf8(),
+            passphrase.toUtf8(),
+            ciphertext,
+            verifierPublic.toUtf8(),
+        ) ?: error("OpenPGP decrypt/verify failed")
+        require(parts.size == 2) { "decryptVerify returned ${parts.size} parts" }
+        return Verified(
+            payload = parts[0],
+            signerFingerprintHex = parts[1].toUtf8String(),
+        )
+    }
 
     /** Armors raw PGP bytes as a `PGP MESSAGE` block (for SMTP federation). */
     fun armorMessage(raw: ByteArray): String =

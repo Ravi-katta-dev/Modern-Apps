@@ -79,6 +79,16 @@ fn is_probably_armor(input: &[u8]) -> bool {
 /// Encrypt `plaintext` to one recipient's armored public key. Returns raw
 /// (unarmored) PGP bytes for the relay wire.
 pub fn pgp_encrypt(armored_public: &str, plaintext: &[u8]) -> Option<Vec<u8>> {
+    pgp_encrypt_signed(armored_public, None, plaintext)
+}
+
+/// Encrypt + sign: as [`pgp_encrypt`], additionally signing with the sender's
+/// secret key (`(armored_secret, passphrase)`). Returns raw PGP bytes.
+pub fn pgp_encrypt_signed(
+    armored_public: &str,
+    signer: Option<(&str, &str)>,
+    plaintext: &[u8],
+) -> Option<Vec<u8>> {
     let mut rng = OsRng;
     let (public, _) = SignedPublicKey::from_string(armored_public).ok()?;
     // Encrypt to the first subkey (our keys always carry the X25519
@@ -87,6 +97,22 @@ pub fn pgp_encrypt(armored_public: &str, plaintext: &[u8]) -> Option<Vec<u8>> {
     let subkey = public.public_subkeys.first()?;
     let mut builder = MessageBuilder::from_bytes("message.txt", plaintext.to_vec())
         .seipd_v1(&mut rng, SymmetricKeyAlgorithm::AES256);
+    // Parse the signer first: builder.sign() borrows the secret key for the
+    // builder's lifetime, so it must outlive the if-let scope.
+    let signer_key: Option<SignedSecretKey> = match signer {
+        Some((armored_secret, _)) => {
+            Some(SignedSecretKey::from_string(armored_secret).ok()?.0)
+        }
+        None => None,
+    };
+    if let (Some(key), Some((_, passphrase))) = (&signer_key, signer) {
+        // packet::SecretKey implements SigningKey; the primary is Ed25519.
+        builder.sign(
+            &key.primary_key,
+            Password::from(passphrase),
+            HashAlgorithm::Sha512,
+        );
+    }
     builder.encrypt_to_key(&mut rng, subkey).ok()?;
     builder.to_vec(&mut rng).ok()
 }
@@ -98,12 +124,59 @@ pub fn pgp_decrypt(
     passphrase: &str,
     ciphertext: &[u8],
 ) -> Option<Vec<u8>> {
+    pgp_decrypt_verify(armored_secret, passphrase, ciphertext, None).map(|(p, _)| p)
+}
+
+/// Decrypt + verify: as [`pgp_decrypt`], additionally verifying an embedded
+/// signature against `verifier` (armored sender public key). Returns
+/// (payload, signer_fingerprint_hex_or_empty). Unsigned messages verify
+/// cleanly with an empty fingerprint (accepted, not rejected); tampered
+/// signatures fail the whole call (None).
+pub fn pgp_decrypt_verify(
+    armored_secret: &str,
+    passphrase: &str,
+    ciphertext: &[u8],
+    verifier: Option<&str>,
+) -> Option<(Vec<u8>, String)> {
     let (secret, _) = SignedSecretKey::from_string(armored_secret).ok()?;
     let msg = Message::from_bytes(ciphertext).ok()?;
     let mut decrypted = msg
         .decrypt(&Password::from(passphrase), &secret)
         .ok()?;
-    decrypted.as_data_vec().ok()
+    // Signedness is structural: an unsigned message decrypts to Literal and
+    // must NOT attempt verify() (it bails "message was not signed"). Only
+    // Signed messages go through verification; a failed check there means
+    // tamper and fails the whole call.
+    let is_signed = matches!(decrypted, Message::Signed { .. });
+    // Drain the literal first: verify() requires the message read to the end.
+    let payload = decrypted.as_data_vec().ok()?;
+    if !is_signed {
+        return Some((payload, String::new()));
+    }
+    let fingerprint = match verifier {
+        Some(armored_public) => {
+            let (public, _) = SignedPublicKey::from_string(armored_public).ok()?;
+            // Try the primary first, then each subkey (sender may sign with
+            // either; ours always signs with the Ed25519 primary).
+            let mut candidates: Vec<&dyn pgp::types::VerifyingKey> = vec![&public.primary_key];
+            for sub in &public.public_subkeys {
+                candidates.push(&sub.key);
+            }
+            let mut matched: Option<String> = None;
+            for key in candidates {
+                if decrypted.verify(key).is_ok() {
+                    matched = Some(hex_upper(&key.fingerprint().as_bytes()));
+                    break;
+                }
+            }
+            matched?
+        }
+        // No verifier key supplied: is the message signed at all? A signed
+        // message without a key to check against stays unverified (empty),
+        // which callers render as "signature not verified" — accepted.
+        None => String::new(),
+    };
+    Some((payload, fingerprint))
 }
 
 /// Armor raw PGP bytes as a `PGP MESSAGE` block (for SMTP federation).
@@ -324,6 +397,91 @@ pub extern "system" fn Java_com_vayunmathur_e2ee_PgpNative_nativePgpArmorMessage
         };
         match to_armored_message(&bytes) {
             Some(armor) => Ok(jstring_out(env, &armor)),
+            None => Ok(std::ptr::null_mut()),
+        }
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
+}
+
+/// Encrypt + sign: recipient armor, sender secret armor (empty string = no
+/// signing), sender passphrase, plaintext → raw PGP bytes or null.
+#[no_mangle]
+pub extern "system" fn Java_com_vayunmathur_e2ee_PgpNative_nativePgpEncryptSigned<'l>(
+    mut env: EnvUnowned<'l>,
+    _class: JClass<'l>,
+    armored_public: JByteArray<'l>,
+    armored_secret: JByteArray<'l>,
+    passphrase: JByteArray<'l>,
+    plaintext: JByteArray<'l>,
+) -> jbyteArray {
+    env.with_env(|env| -> jni::errors::Result<jbyteArray> {
+        let (armor, secret, pw, plain) = match (
+            jstring_in(env, &armored_public),
+            jstring_in(env, &armored_secret),
+            jstring_in(env, &passphrase),
+            jbytes_in(env, &plaintext),
+        ) {
+            (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
+            _ => return Ok(std::ptr::null_mut()),
+        };
+        // Empty secret = encrypt-only (same as nativePgpEncrypt).
+        let signer = if secret.is_empty() {
+            None
+        } else {
+            Some((secret.as_str(), pw.as_str()))
+        };
+        match pgp_encrypt_signed(&armor, signer, &plain) {
+            Some(raw) => Ok(jbytes_out(env, &raw)),
+            None => Ok(std::ptr::null_mut()),
+        }
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
+}
+
+/// Decrypt + verify: secret armor, passphrase, ciphertext, verifier public
+/// armor (empty string = no verification) → `byte[][]` [payload, fingerprint]
+/// (fingerprint empty when unsigned/unverified) or null on failure/tamper.
+#[no_mangle]
+pub extern "system" fn Java_com_vayunmathur_e2ee_PgpNative_nativePgpDecryptVerify<'l>(
+    mut env: EnvUnowned<'l>,
+    _class: JClass<'l>,
+    armored_secret: JByteArray<'l>,
+    passphrase: JByteArray<'l>,
+    ciphertext: JByteArray<'l>,
+    verifier_public: JByteArray<'l>,
+) -> jobjectArray {
+    env.with_env(|env| -> jni::errors::Result<jobjectArray> {
+        let (secret, pw, ct, verifier) = match (
+            jstring_in(env, &armored_secret),
+            jstring_in(env, &passphrase),
+            jbytes_in(env, &ciphertext),
+            jstring_in(env, &verifier_public),
+        ) {
+            (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
+            _ => return Ok(std::ptr::null_mut()),
+        };
+        let verifier_opt = if verifier.is_empty() { None } else { Some(verifier.as_str()) };
+        match pgp_decrypt_verify(&secret, &pw, &ct, verifier_opt) {
+            Some((payload, fp)) => {
+                let arr = match env.new_object_type_array::<JByteArray>(2, JByteArray::null()) {
+                    Ok(a) => a,
+                    Err(_) => return Ok(std::ptr::null_mut()),
+                };
+                let payload_arr = match env.byte_array_from_slice(&payload) {
+                    Ok(x) => x,
+                    Err(_) => return Ok(std::ptr::null_mut()),
+                };
+                let fp_arr = match env.byte_array_from_slice(fp.as_bytes()) {
+                    Ok(x) => x,
+                    Err(_) => return Ok(std::ptr::null_mut()),
+                };
+                if arr.set_element(env, 0, &payload_arr).is_err()
+                    || arr.set_element(env, 1, &fp_arr).is_err()
+                {
+                    return Ok(std::ptr::null_mut());
+                }
+                Ok(arr.into_raw())
+            }
             None => Ok(std::ptr::null_mut()),
         }
     })

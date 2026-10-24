@@ -14,6 +14,7 @@ import com.vayunmathur.securemail.data.CachedKey
 import com.vayunmathur.securemail.data.MailConfig
 import com.vayunmathur.securemail.data.MailRepository
 import com.vayunmathur.securemail.data.OutboxMessage
+import com.vayunmathur.securemail.data.SenderKeys
 import com.vayunmathur.securemail.data.StoredMessage
 import com.vayunmathur.securemail.domain.mail.AddressValidator
 import com.vayunmathur.securemail.domain.mail.KeyLookupPolicy
@@ -250,12 +251,36 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                     val passphrase = requirePassphrase()
                     val raw = Base64.decode(stored.blobBase64, Base64.NO_WRAP)
                     val pgpBytes = extractPgpPayload(raw) ?: raw
-                    val mime = PgpCrypto.decrypt(pgpBytes, keyManager.getSecretArmor(), passphrase)
-                        .toString(Charsets.UTF_8)
-                    val (subject, body, from) = parseMime(mime)
-                    repo.messageDao().storeDecrypted(id, body, subject, verified = null)
-                    if (from.isNotBlank()) {
-                        repo.messageDao().upsert(stored.copy(from = from))
+                    val provisional = PgpCrypto.decrypt(
+                        pgpBytes, keyManager.getSecretArmor(), passphrase,
+                    ).toString(Charsets.UTF_8)
+                    val (_, _, from) = parseMime(provisional)
+                    // Same two-step as arrival: resolve sender key post-decrypt,
+                    // re-verify for the badge.
+                    val (mime, verified) = if (from.isNotBlank()) {
+                        val senderKey = SenderKeys.resolve(getApplication(), from)
+                        if (senderKey != null) {
+                            val checked = PgpCrypto.decryptVerify(
+                                pgpBytes,
+                                keyManager.getSecretArmor(),
+                                passphrase,
+                                senderKey,
+                            )
+                            checked.payload.toString(Charsets.UTF_8) to
+                                checked.signerFingerprintHex.ifBlank { null }
+                        } else {
+                            provisional to null
+                        }
+                    } else {
+                        provisional to null
+                    }
+                    val (subject, body, resolvedFrom) = parseMime(mime)
+                    repo.messageDao().storeDecrypted(
+                        id, body, subject,
+                        verified = verified,
+                    )
+                    if (resolvedFrom.isNotBlank()) {
+                        repo.messageDao().upsert(stored.copy(from = resolvedFrom))
                     }
                 }.onFailure {
                     state = state.copy(error = "Could not decrypt this message.")
@@ -392,11 +417,17 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                     val encryptedTo = trust.filter { it.hasKey }
                     val plainTo = trust.filter { !it.hasKey }.map { it.address }
                     val mime = buildMimeBody(subject, body)
+                    // Sign with the own identity: recipients verify against our
+                    // public key (directory/WKD) and show verified badges.
+                    val ownSecret = keyManager.getSecretArmor()
+                    val ownPassphrase = requirePassphrase()
                     var queued = 0
                     // Per-recipient encryption: each key-known recipient gets a blob.
                     for (t in encryptedTo) {
                         val cached = repo.keyDao().get(t.address) ?: continue
-                        val raw = PgpCrypto.encrypt(mime, cached.armoredPublic)
+                        val raw = PgpCrypto.encryptSigned(
+                            mime, cached.armoredPublic, ownSecret, ownPassphrase,
+                        )
                         val blob = buildEncryptedBody(raw)
                         val ok = MailSocket.publish(t.address, blob)
                         if (!ok) {
@@ -467,6 +498,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                 val pending = repo.outboxDao().all()
                 var sent = 0
                 var failed = 0
+                val ownSecret = keyManager.getSecretArmor()
+                val ownPassphrase = requirePassphrase()
                 for (entry in pending) {
                     val ok = runCatching {
                         val to = entry.toJson.split(",").map { it.trim() }.filter { it.isNotEmpty() }
@@ -475,7 +508,9 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                         for (address in to) {
                             val cached = repo.keyDao().get(address)
                             if (cached != null) {
-                                val raw = PgpCrypto.encrypt(mime, cached.armoredPublic)
+                                val raw = PgpCrypto.encryptSigned(
+                                    mime, cached.armoredPublic, ownSecret, ownPassphrase,
+                                )
                                 if (MailSocket.publish(address, buildEncryptedBody(raw))) continue
                             } else {
                                 if (MailSocket.publish(address, mime, unencrypted = true)) continue

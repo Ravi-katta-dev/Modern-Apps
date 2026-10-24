@@ -58,21 +58,44 @@ object InboundStore {
                 } else {
                     raw
                 }
-                val mime = PgpCrypto.decrypt(
+                // Sender address is inside the encrypted payload — decrypt
+                // first (verifier empty = no check yet), then resolve the
+                // sender key and re-verify for the badge. Two-step because
+                // the verifier key is only known after decryption.
+                val provisional = PgpCrypto.decrypt(
                     pgpBytes,
                     keyManager.getSecretArmor(),
                     passphrase,
                 ).toString(Charsets.UTF_8)
-                val (subject, body, from) = MimeCodec.parseMime(mime)
+                val (_, _, from) = MimeCodec.parseMime(provisional)
+                val (mime, verified) = if (from.isNotBlank()) {
+                    val senderKey = SenderKeys.resolve(app, from)
+                    if (senderKey != null) {
+                        val checked = PgpCrypto.decryptVerify(
+                            pgpBytes,
+                            keyManager.getSecretArmor(),
+                            passphrase,
+                            senderKey,
+                        )
+                        checked.payload.toString(Charsets.UTF_8) to
+                            checked.signerFingerprintHex.ifBlank { null }
+                    } else {
+                        provisional to null
+                    }
+                } else {
+                    provisional to null
+                }
+                val (subject, body, resolvedFrom) = MimeCodec.parseMime(mime)
                 StoredMessage(
                     id = id,
-                    from = from,
+                    from = resolvedFrom,
                     toJson = settings.address,
                     dateMillis = System.currentTimeMillis(),
                     messageId = id,
                     blobBase64 = Base64.encodeToString(raw, Base64.NO_WRAP),
                     decryptedBody = body,
                     decryptedSubject = subject,
+                    verifiedSigner = verified,
                     unencrypted = false,
                 )
             }.getOrNull()

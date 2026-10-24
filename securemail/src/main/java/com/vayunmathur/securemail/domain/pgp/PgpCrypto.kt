@@ -47,11 +47,43 @@ object PgpCrypto {
         Pgp.encrypt(armoredPublic, plaintext)
 
     /**
+     * Encrypts + signs with the sender's secret key. Empty [senderSecret]
+     * disables signing (same as [encrypt]).
+     */
+    fun encryptSigned(
+        plaintext: ByteArray,
+        armoredPublic: String,
+        senderSecret: String,
+        senderPassphrase: String,
+    ): ByteArray = Pgp.encryptSigned(armoredPublic, senderSecret, senderPassphrase, plaintext)
+
+    /**
      * Decrypts raw PGP bytes with [armoredSecret] + [passphrase]. Returns the
      * literal payload.
      */
     fun decrypt(ciphertext: ByteArray, armoredSecret: String, passphrase: String): ByteArray =
         Pgp.decrypt(armoredSecret, passphrase, ciphertext)
+
+    /** Result of [decryptVerify]: payload plus signer fingerprint (empty when unsigned). */
+    data class Verified(val payload: ByteArray, val signerFingerprintHex: String)
+
+    /**
+     * Decrypts + verifies against [verifierPublic] (empty = skip verification).
+     * Unsigned messages verify cleanly with an empty fingerprint (accepted);
+     * tampered signatures throw.
+     */
+    fun decryptVerify(
+        ciphertext: ByteArray,
+        armoredSecret: String,
+        passphrase: String,
+        verifierPublic: String,
+    ): Verified {
+        val native = Pgp.decryptVerify(armoredSecret, passphrase, ciphertext, verifierPublic)
+        return Verified(
+            payload = native.payload,
+            signerFingerprintHex = native.signerFingerprintHex,
+        )
+    }
 
     /** Armors raw PGP bytes as a `PGP MESSAGE` block (for SMTP federation). */
     fun armorMessage(raw: ByteArray): String = Pgp.armorMessage(raw)

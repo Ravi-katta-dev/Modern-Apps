@@ -15,11 +15,23 @@ internal object PgpNative {
     external fun nativePgpFingerprint(armoredPublic: ByteArray): ByteArray?
     external fun nativePgpNormalizeKey(input: ByteArray): ByteArray?
     external fun nativePgpEncrypt(armoredPublic: ByteArray, plaintext: ByteArray): ByteArray?
+    external fun nativePgpEncryptSigned(
+        armoredPublic: ByteArray,
+        armoredSecret: ByteArray,
+        passphrase: ByteArray,
+        plaintext: ByteArray,
+    ): ByteArray?
     external fun nativePgpDecrypt(
         armoredSecret: ByteArray,
         passphrase: ByteArray,
         ciphertext: ByteArray,
     ): ByteArray?
+    external fun nativePgpDecryptVerify(
+        armoredSecret: ByteArray,
+        passphrase: ByteArray,
+        ciphertext: ByteArray,
+        verifierPublic: ByteArray,
+    ): Array<ByteArray>?
     external fun nativePgpArmorMessage(raw: ByteArray): ByteArray?
 
     init {

@@ -50,6 +50,86 @@ fn wrong_passphrase_fails_decrypt() {
 }
 
 #[test]
+fn signed_encrypt_verify_roundtrip() {
+    let (alice_secret, alice_public, alice_fp) =
+        pgp_generate("alice <alice@maemail.org>", "pw12345678").expect("alice keygen");
+    let (bob_secret, bob_public, _) =
+        pgp_generate("bob <bob@maemail.org>", "pw87654321").expect("bob keygen");
+    let plaintext = b"signed hello from alice";
+    // Alice signs + encrypts to Bob.
+    let raw = pgp_encrypt_signed(
+        &bob_public,
+        Some((alice_secret.as_str(), "pw12345678")),
+        plaintext,
+    )
+    .expect("signed encrypt");
+    // Bob decrypts and verifies against Alice's public key.
+    let (back, signer_fp) =
+        pgp_decrypt_verify(&bob_secret, "pw87654321", &raw, Some(&alice_public))
+            .expect("decrypt+verify");
+    assert_eq!(back, plaintext, "round-trip plaintext");
+    assert_eq!(signer_fp, alice_fp, "signer fingerprint matches Alice");
+}
+
+#[test]
+fn unsigned_message_verifies_empty_but_decrypts() {
+    let (alice_secret, alice_public, _) =
+        pgp_generate("alice <alice@maemail.org>", "pw12345678").expect("alice keygen");
+    let (bob_secret, bob_public, _) =
+        pgp_generate("bob <bob@maemail.org>", "pw87654321").expect("bob keygen");
+    // Encrypt-only (no signer): accepted, empty fingerprint.
+    let raw = pgp_encrypt_signed(&bob_public, None, b"unsigned hello").expect("encrypt");
+    let (back, signer_fp) =
+        pgp_decrypt_verify(&bob_secret, "pw87654321", &raw, Some(&alice_public))
+            .expect("unsigned must still decrypt");
+    assert_eq!(back, b"unsigned hello");
+    assert!(signer_fp.is_empty(), "no signer fingerprint for unsigned");
+    let _ = (alice_secret, alice_public);
+}
+
+#[test]
+fn tampered_signature_fails_verify() {
+    let (alice_secret, _, _) =
+        pgp_generate("alice <alice@maemail.org>", "pw12345678").expect("alice keygen");
+    let (bob_secret, bob_public, _) =
+        pgp_generate("bob <bob@maemail.org>", "pw87654321").expect("bob keygen");
+    let (_, carol_public, _) =
+        pgp_generate("carol <carol@maemail.org>", "pw00000000").expect("carol keygen");
+    let raw = pgp_encrypt_signed(
+        &bob_public,
+        Some((alice_secret.as_str(), "pw12345678")),
+        b"signed hello",
+    )
+    .expect("signed encrypt");
+    // Verifying against the WRONG key (Carol, not Alice) must fail closed.
+    assert!(
+        pgp_decrypt_verify(&bob_secret, "pw87654321", &raw, Some(&carol_public)).is_none(),
+        "wrong verifier key must fail"
+    );
+}
+
+#[test]
+fn tampered_ciphertext_fails_decrypt() {
+    let (alice_secret, _, _) =
+        pgp_generate("alice <alice@maemail.org>", "pw12345678").expect("alice keygen");
+    let (bob_secret, bob_public, _) =
+        pgp_generate("bob <bob@maemail.org>", "pw87654321").expect("bob keygen");
+    let mut raw = pgp_encrypt_signed(
+        &bob_public,
+        Some((alice_secret.as_str(), "pw12345678")),
+        b"signed hello",
+    )
+    .expect("signed encrypt");
+    // Flip a byte late in the ciphertext (inside the encrypted session data).
+    let last = raw.len() - 1;
+    raw[last] ^= 0x01;
+    assert!(
+        pgp_decrypt_verify(&bob_secret, "pw87654321", &raw, None).is_none(),
+        "tampered ciphertext must fail"
+    );
+}
+
+#[test]
 fn malformed_inputs_fail_cleanly() {
     assert!(pgp_fingerprint("not armor at all").is_none());
     assert!(pgp_encrypt("not armor at all", b"x").is_none());
