@@ -9,40 +9,61 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.Card
 import com.vayunmathur.library.ui.DesktopMaxWidthContainer
+import com.vayunmathur.library.ui.FloatingActionButton
+import com.vayunmathur.library.ui.IconAdd
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.IconDelete
+import com.vayunmathur.library.ui.IconMenu
+import com.vayunmathur.library.ui.IconSettings
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.ui.rememberMessenger
+import com.vayunmathur.securemail.data.MailFolder
 import com.vayunmathur.securemail.data.StoredMessage
 import com.vayunmathur.securemail.platform.MailUiState
 import java.text.DateFormat
 import java.util.Date
 
-/** Inbox: vault list of stored envelopes; bodies decrypt on open. */
+/**
+ * Folder list: renders the selected vault folder (Inbox/Sent/Spam/Trash).
+ * The drawer owns navigation; this screen owns the menu button, settings
+ * gear, compose FAB, and per-message trash/restore.
+ */
 @Composable
 fun InboxScreen(
     state: MailUiState,
+    folder: MailFolder,
+    onOpenDrawer: () -> Unit,
     onOpen: (String) -> Unit,
     onCompose: () -> Unit,
-    onOutbox: () -> Unit,
     onSettings: () -> Unit,
     onRefresh: () -> Unit,
     onConsumeMessage: () -> Unit,
+    onTrash: (String) -> Unit,
+    onRestore: (String) -> Unit,
+    onEmptyTrash: () -> Unit,
     messages: List<StoredMessage> = emptyList(),
-    outbox: Int = 0,
 ) {
     val messenger = rememberMessenger()
     ConsumeMessage(state.message, messenger, onConsumeMessage)
+    val title = when (folder) {
+        MailFolder.INBOX -> "Inbox"
+        MailFolder.SENT -> "Sent"
+        MailFolder.SPAM -> "Spam"
+        MailFolder.TRASH -> "Trash"
+    }
     AppScaffold(
-        title = state.address.ifBlank { "SecureMail" },
+        title = title,
+        navigationIcon = { IconButton(onClick = onOpenDrawer) { IconMenu() } },
+        actions = { IconButton(onClick = onSettings) { IconSettings() } },
+        floatingActionButton = { FloatingActionButton(onClick = onCompose) { IconAdd() } },
         scrollBehavior = appBarScrollBehavior(),
     ) { padding ->
         DesktopMaxWidthContainer(Modifier.padding(padding)) {
@@ -56,15 +77,20 @@ fun InboxScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.secondary,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onCompose, modifier = Modifier.weight(1f)) { Text("Compose") }
-                    Button(onClick = onOutbox, modifier = Modifier.weight(1f)) { Text("Outbox ($outbox)") }
-                    Button(onClick = onSettings, modifier = Modifier.weight(1f)) { Text("Settings") }
+                if (folder == MailFolder.TRASH && messages.isNotEmpty()) {
+                    Button(onClick = onEmptyTrash, modifier = Modifier.fillMaxWidth()) {
+                        Text("Empty trash")
+                    }
                 }
                 if (messages.isEmpty()) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Text(
-                            "No mail yet. Share your address to receive encrypted mail.",
+                            when (folder) {
+                                MailFolder.INBOX -> "No mail yet. Share your address to receive encrypted mail."
+                                MailFolder.SENT -> "Nothing sent yet."
+                                MailFolder.SPAM -> "No spam. Verification failures land here."
+                                MailFolder.TRASH -> "Trash is empty."
+                            },
                             modifier = Modifier.padding(16.dp),
                             style = MaterialTheme.typography.bodyMedium,
                         )
@@ -72,7 +98,13 @@ fun InboxScreen(
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(messages, key = { it.id }) { msg ->
-                            MessageRow(msg, onOpen = { onOpen(msg.id) })
+                            MessageRow(
+                                msg = msg,
+                                onOpen = { onOpen(msg.id) },
+                                inTrash = folder == MailFolder.TRASH,
+                                onTrash = { onTrash(msg.id) },
+                                onRestore = { onRestore(msg.id) },
+                            )
                         }
                     }
                 }
@@ -82,7 +114,13 @@ fun InboxScreen(
 }
 
 @Composable
-private fun MessageRow(msg: StoredMessage, onOpen: () -> Unit) {
+private fun MessageRow(
+    msg: StoredMessage,
+    onOpen: () -> Unit,
+    inTrash: Boolean,
+    onTrash: () -> Unit,
+    onRestore: () -> Unit,
+) {
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onOpen)) {
         Column(
             modifier = Modifier.padding(12.dp).fillMaxWidth(),
@@ -124,6 +162,13 @@ private fun MessageRow(msg: StoredMessage, onOpen: () -> Unit) {
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.secondary,
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (inTrash) {
+                    Button(onClick = onRestore) { Text("Restore") }
+                } else {
+                    IconButton(onClick = onTrash) { IconDelete() }
+                }
+            }
         }
     }
 }

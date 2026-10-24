@@ -15,10 +15,14 @@ import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.Card
 import com.vayunmathur.library.ui.DesktopMaxWidthContainer
+import com.vayunmathur.library.ui.FloatingActionButton
+import com.vayunmathur.library.ui.IconAdd
+import com.vayunmathur.library.ui.IconButton
+import com.vayunmathur.library.ui.IconMenu
+import com.vayunmathur.library.ui.IconSettings
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
-import com.vayunmathur.securemail.data.MailRepository
 import com.vayunmathur.securemail.data.OutboxMessage
 import com.vayunmathur.securemail.platform.MailUiState
 
@@ -28,9 +32,18 @@ fun OutboxScreen(
     state: MailUiState,
     onRetry: () -> Unit,
     onBack: () -> Unit,
+    onOpenDrawer: () -> Unit = {},
+    onCompose: () -> Unit = {},
+    onSettings: () -> Unit = {},
     pending: List<OutboxMessage> = emptyList(),
 ) {
-    AppScaffold(title = "Outbox", scrollBehavior = appBarScrollBehavior()) { padding ->
+    AppScaffold(
+        title = "Outbox",
+        navigationIcon = { IconButton(onClick = onOpenDrawer) { IconMenu() } },
+        actions = { IconButton(onClick = onSettings) { IconSettings() } },
+        floatingActionButton = { FloatingActionButton(onClick = onCompose) { IconAdd() } },
+        scrollBehavior = appBarScrollBehavior(),
+    ) { padding ->
         DesktopMaxWidthContainer(Modifier.padding(padding)) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),

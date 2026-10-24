@@ -47,8 +47,39 @@ class MailSocketTest {
         raw.copyInto(buf, 6 + idBytes.size)
         val parsed = MailSocket.parseMsg(buf)!!
         assertEquals(id, parsed.first)
-        assertEquals(false, parsed.second)
+        assertEquals(MailSocket.MsgFlags(unencrypted = false, spam = false), parsed.second)
         assertContentEquals(raw, parsed.third)
+    }
+
+    @Test
+    fun parseMsgSpamFlag() {
+        val id = "spam-1"
+        val idBytes = id.toByteArray(Charsets.UTF_8)
+        val raw = byteArrayOf(1, 2, 3)
+        val buf = ByteArray(1 + 1 + 4 + idBytes.size + raw.size)
+        buf[0] = MailSocket.OP_MSG
+        buf[1] = MailSocket.FLAG_SPAM
+        buf[2] = 0; buf[3] = 0; buf[4] = 0; buf[5] = idBytes.size.toByte()
+        idBytes.copyInto(buf, 6)
+        raw.copyInto(buf, 6 + idBytes.size)
+        val parsed = MailSocket.parseMsg(buf)!!
+        assertEquals(id, parsed.first)
+        // Spam bit set, plaintext bit clear → encrypted spam.
+        assertEquals(MailSocket.MsgFlags(unencrypted = false, spam = true), parsed.second)
+        assertContentEquals(raw, parsed.third)
+    }
+
+    @Test
+    fun parseMsgPlainAndSpamBits() {
+        val id = "both-1"
+        val idBytes = id.toByteArray(Charsets.UTF_8)
+        val buf = ByteArray(1 + 1 + 4 + idBytes.size)
+        buf[0] = MailSocket.OP_MSG
+        buf[1] = (MailSocket.FLAG_PLAIN.toInt() or MailSocket.FLAG_SPAM.toInt()).toByte()
+        buf[2] = 0; buf[3] = 0; buf[4] = 0; buf[5] = idBytes.size.toByte()
+        idBytes.copyInto(buf, 6)
+        val parsed = MailSocket.parseMsg(buf)!!
+        assertEquals(MailSocket.MsgFlags(unencrypted = true, spam = true), parsed.second)
     }
 
     @Test

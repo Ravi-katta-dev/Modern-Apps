@@ -89,6 +89,58 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         repo.messageDao().observeFolder(folder)
     }
 
+    // ------------------------------------------------------------------
+    // Compose draft: recipients survive picker navigation (ViewModel, not
+    // local remember — the form is disposed when the picker opens).
+    // ------------------------------------------------------------------
+
+    /** Draft recipients (To) for the compose screen. */
+    var draftTo by mutableStateOf(listOf<String>())
+        private set
+
+    /** Draft recipients (Cc) for the compose screen. */
+    var draftCc by mutableStateOf(listOf<String>())
+        private set
+
+    /** Draft recipients (Bcc) for the compose screen. */
+    var draftBcc by mutableStateOf(listOf<String>())
+        private set
+
+    /** Seeds the draft (reply/forward prefill, share-intent entry). */
+    fun seedDraft(to: List<String> = emptyList()) {
+        draftTo = to.filter { it.isNotBlank() }.distinct()
+        draftCc = emptyList()
+        draftBcc = emptyList()
+    }
+
+    /** Clears the draft after a successful send. */
+    fun clearDraft() {
+        draftTo = emptyList()
+        draftCc = emptyList()
+        draftBcc = emptyList()
+    }
+
+    /** Adds a recipient chip to To/Cc/Bcc (0/1/2); returns false when invalid/duplicate. */
+    fun addDraftRecipient(target: Int, address: String): Boolean {
+        val clean = address.trim().lowercase()
+        if (!AddressValidator.isValidAddress(clean)) return false
+        when (target) {
+            1 -> if (draftCc.any { it.equals(clean, ignoreCase = true) }) return false else draftCc += clean
+            2 -> if (draftBcc.any { it.equals(clean, ignoreCase = true) }) return false else draftBcc += clean
+            else -> if (draftTo.any { it.equals(clean, ignoreCase = true) }) return false else draftTo += clean
+        }
+        return true
+    }
+
+    /** Removes a recipient chip from To/Cc/Bcc (0/1/2). */
+    fun removeDraftRecipient(target: Int, address: String) {
+        when (target) {
+            1 -> draftCc -= address
+            2 -> draftBcc -= address
+            else -> draftTo -= address
+        }
+    }
+
     /** Moves a message to Trash (local vault only). */
     fun moveToTrash(id: String) {
         viewModelScope.launch {
@@ -435,21 +487,27 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
      * Sends a message: encrypts per-recipient on device to every WKD key found,
      * publishes over the live socket when up, else queues to the outbox worker.
      * Recipients without a key receive the message unencrypted (badged `plain`
-     * on receipt) — there is no opt-in; no WKD key simply means no encryption.
+     * on receipt) - there is no opt-in; no WKD key simply means no encryption.
      * Changed/lost keys still abort the send for explicit acknowledgement.
+     * Cc/Bcc are merged into the recipient set (Bcc is best-effort on the
+     * relay: each recipient gets an individually-encrypted blob, so no
+     * recipient sees the others' addresses beyond their own envelope).
      */
     fun send(
         to: List<String>,
+        cc: List<String> = emptyList(),
+        bcc: List<String> = emptyList(),
         subject: String,
         body: String,
         inReplyTo: String? = null,
         onDone: (sent: Boolean) -> Unit = {},
     ) {
+        val allTo = (to + cc + bcc).distinct()
         state = state.copy(busy = true, error = null)
         viewModelScope.launch {
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
-                    val trust = resolveTrust(to)
+                    val trust = resolveTrust(allTo)
                     when (val decision = KeyLookupPolicy.decide(trust)) {
                         is KeyLookupPolicy.SendDecision.NeedsKeyChangeAck ->
                             error("Key changed for ${decision.changed.first().address}. Review in Settings first.")
@@ -489,7 +547,7 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                     // Sent-folder copy: plaintext (it is our own composition).
-                    storeSent(to, subject, body)
+                    storeSent(allTo, subject, body)
                     if (queued > 0) "Queued $queued message(s) — retry from Outbox when online." else "Sent."
                 }
             }

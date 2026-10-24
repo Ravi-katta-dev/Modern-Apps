@@ -44,11 +44,16 @@ class MetadataPreviews {
                     address = "alice@maemail.org",
                     socketConnected = true,
                 ),
+                folder = com.vayunmathur.securemail.data.MailFolder.INBOX,
+                onOpenDrawer = {},
                 onOpen = {},
                 onCompose = {},
-                onOutbox = {},
                 onSettings = {},
                 onRefresh = {},
+                onConsumeMessage = {},
+                onTrash = {},
+                onRestore = {},
+                onEmptyTrash = {},
                 messages = listOf(
                     com.vayunmathur.securemail.data.StoredMessage(
                         id = "m_1",
@@ -70,7 +75,6 @@ class MetadataPreviews {
                         blobBase64 = "e30=",
                     ),
                 ),
-                outbox = 1,
             )
         }
     }
@@ -82,10 +86,14 @@ class MetadataPreviews {
         DynamicTheme(darkTheme = true) {
             ComposeScreen(
                 state = MailUiState(address = "alice@maemail.org"),
-                initialTo = "bob@proton.me",
+                draftTo = listOf("bob@proton.me"),
+                draftCc = emptyList(),
+                draftBcc = emptyList(),
                 initialSubject = "Hello from SecureMail",
                 initialBody = "This message is end-to-end encrypted with PGP.",
-                onSend = { _, _, _, _, _ -> },
+                onAddRecipient = { _, _ -> true },
+                onRemoveRecipient = { _, _ -> },
+                onSend = { _, _, _, _, _, _ -> },
                 onBack = {},
             )
         }
