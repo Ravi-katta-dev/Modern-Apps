@@ -24,7 +24,7 @@ object Utils {
      * @return The encoded URL.
      */
     @JvmStatic
-    fun encodeUrlUtf8(string: String): String = URLEncoder.encode(string, Charsets.UTF_8)
+    fun encodeUrlUtf8(string: String): String = URLEncoder.encode(string, Charsets.UTF_8.name())
 
     /**
      * Decodes a URL using the UTF-8 character set.
@@ -32,7 +32,7 @@ object Utils {
      * @return The decoded URL.
      */
     @JvmStatic
-    fun decodeUrlUtf8(url: String): String = URLDecoder.decode(url, Charsets.UTF_8)
+    fun decodeUrlUtf8(url: String): String = URLDecoder.decode(url, Charsets.UTF_8.name())
 
     /**
      * Escape text for embedding in HTML, as element content or inside a double-quoted
