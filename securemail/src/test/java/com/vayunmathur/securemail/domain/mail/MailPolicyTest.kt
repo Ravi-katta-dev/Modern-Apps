@@ -61,11 +61,11 @@ class KeyLookupPolicyTest {
     }
 
     @Test
-    fun missingKeysNeedOptIn() {
+    fun missingKeysFallBackUnencrypted() {
         val decision = KeyLookupPolicy.decide(
             listOf(trust("a@maemail.org", true), trust("b@gmail.com", false)),
         )
-        assertTrue(decision is KeyLookupPolicy.SendDecision.NeedsUnencryptedOptIn)
+        assertTrue(decision is KeyLookupPolicy.SendDecision.UnencryptedFallback)
         assertEquals(listOf("b@gmail.com"), decision.missing)
     }
 

@@ -347,15 +347,16 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Sends a message: encrypts per-recipient on device, publishes over the live
-     * socket when up, else queues to the outbox worker. Unencrypted send requires
-     * [allowUnencrypted] (explicit per-message opt-in from Compose).
+     * Sends a message: encrypts per-recipient on device to every WKD key found,
+     * publishes over the live socket when up, else queues to the outbox worker.
+     * Recipients without a key receive the message unencrypted (badged `plain`
+     * on receipt) — there is no opt-in; no WKD key simply means no encryption.
+     * Changed/lost keys still abort the send for explicit acknowledgement.
      */
     fun send(
         to: List<String>,
         subject: String,
         body: String,
-        allowUnencrypted: Boolean,
         inReplyTo: String? = null,
     ) {
         state = state.copy(busy = true, error = null)
@@ -366,10 +367,8 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                     when (val decision = KeyLookupPolicy.decide(trust)) {
                         is KeyLookupPolicy.SendDecision.NeedsKeyChangeAck ->
                             error("Key changed for ${decision.changed.first().address}. Review in Settings first.")
-                        is KeyLookupPolicy.SendDecision.NeedsUnencryptedOptIn ->
-                            if (!allowUnencrypted) {
-                                error("No key for ${decision.missing.first()}. Enable unencrypted to send anyway.")
-                            }
+                        is KeyLookupPolicy.SendDecision.UnencryptedFallback ->
+                            Unit // no key: send unencrypted, badged plain on receipt
                         KeyLookupPolicy.SendDecision.Encrypted -> Unit
                     }
                     val encryptedTo = trust.filter { it.hasKey }
@@ -382,26 +381,18 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                         val blob = PgpCrypto.encrypt(mime, cached.armoredPublic)
                         val ok = MailSocket.publish(t.address, blob)
                         if (!ok) {
-                            queueOutbox(listOf(t.address), subject, body, inReplyTo, false)
+                            queueOutbox(listOf(t.address), subject, body, inReplyTo)
                             queued++
                         }
                     }
-                    // Keyless recipients: socket plaintext frame (opt-in) for own-domain,
-                    // server federation for external — but only when the socket is
-                    // up; otherwise the local outbox holds them for retry.
+                    // Keyless recipients go out as plaintext frames for the
+                    // server to federate (own-domain) or relay onward —
+                    // badged `plain` wherever they land.
                     for (address in plainTo) {
-                        if (AddressValidator.isOwnDomain(address)) {
-                            val ok = MailSocket.publish(address, mime, unencrypted = true)
-                            if (!ok) {
-                                queueOutbox(listOf(address), subject, body, inReplyTo, true)
-                                queued++
-                            }
-                        } else {
-                            val ok = MailSocket.publish(address, mime, unencrypted = true)
-                            if (!ok) {
-                                queueOutbox(listOf(address), subject, body, inReplyTo, true)
-                                queued++
-                            }
+                        val ok = MailSocket.publish(address, mime, unencrypted = true)
+                        if (!ok) {
+                            queueOutbox(listOf(address), subject, body, inReplyTo)
+                            queued++
                         }
                     }
                     if (queued > 0) "Queued $queued message(s) — retry from Outbox when online." else "Sent."
@@ -422,7 +413,6 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
         subject: String,
         body: String,
         inReplyTo: String?,
-        sendUnencrypted: Boolean,
     ) {
         repo.outboxDao().insert(
             OutboxMessage(
@@ -430,7 +420,6 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                 subject = subject,
                 body = body,
                 inReplyTo = inReplyTo,
-                sendUnencrypted = sendUnencrypted,
                 createdMillis = System.currentTimeMillis(),
             ),
         )
@@ -438,13 +427,12 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * Drains the local outbox straight to the server over the live socket —
-     * no trust re-resolution (that already happened at send time; the entry
-     * records the decision in [OutboxMessage.sendUnencrypted]).
+     * no trust re-resolution (that already happened at send time).
      *
-     * Encrypted entries re-encrypt to the cached key; plaintext entries
-     * publish as explicit-opt-in unencrypted frames for the server to
-     * federate. Entries stay queued while offline; anything still failing
-     * after publish records an attempt for the next retry.
+     * Key-known recipients re-encrypt to the cached key; keyless recipients
+     * publish as plaintext frames for the server to federate. Entries stay
+     * queued while offline; anything still failing after publish records an
+     * attempt for the next retry.
      */
     fun retryOutbox() {
         viewModelScope.launch {
@@ -463,10 +451,10 @@ class MailViewModel(app: Application) : AndroidViewModel(app) {
                         var entryOk = true
                         for (address in to) {
                             val cached = repo.keyDao().get(address)
-                            if (cached != null && !entry.sendUnencrypted) {
+                            if (cached != null) {
                                 val blob = PgpCrypto.encrypt(mime, cached.armoredPublic)
                                 if (MailSocket.publish(address, blob)) continue
-                            } else if (entry.sendUnencrypted) {
+                            } else {
                                 if (MailSocket.publish(address, mime, unencrypted = true)) continue
                             }
                             entryOk = false

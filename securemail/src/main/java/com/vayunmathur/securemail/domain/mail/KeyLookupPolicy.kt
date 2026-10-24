@@ -43,10 +43,11 @@ object KeyLookupPolicy {
         /** Every recipient has a usable key — send encrypted. */
         data object Encrypted : SendDecision
         /**
-         * Some recipients lack keys. [missing] lists them; the caller must
-         * obtain explicit per-message opt-in before sending unencrypted.
+         * Some recipients lack keys — they receive the message unencrypted
+         * (badged `plain` on receipt). No opt-in; no WKD key means no
+         * encryption for those recipients.
          */
-        data class NeedsUnencryptedOptIn(val missing: List<String>) : SendDecision
+        data class UnencryptedFallback(val missing: List<String>) : SendDecision
         /** A known key changed — the user must acknowledge before sending. */
         data class NeedsKeyChangeAck(val changed: List<RecipientTrust>) : SendDecision
     }
@@ -56,7 +57,7 @@ object KeyLookupPolicy {
         if (changed.isNotEmpty()) return SendDecision.NeedsKeyChangeAck(changed)
         val missing = recipients.filter { !it.hasKey }.map { it.address }
         return if (missing.isEmpty()) SendDecision.Encrypted
-        else SendDecision.NeedsUnencryptedOptIn(missing)
+        else SendDecision.UnencryptedFallback(missing)
     }
 
     /**

@@ -54,7 +54,6 @@ data class OutboxMessage(
     val subject: String,
     val body: String,
     val inReplyTo: String? = null,
-    val sendUnencrypted: Boolean = false,
     val createdMillis: Long,
     val lastError: String? = null,
     val attemptCount: Int = 0,

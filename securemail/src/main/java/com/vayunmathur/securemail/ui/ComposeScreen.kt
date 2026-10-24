@@ -17,8 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Button
-import com.vayunmathur.library.ui.Card
-import com.vayunmathur.library.ui.Checkbox
 import com.vayunmathur.library.ui.DesktopMaxWidthContainer
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.OutlinedTextField
@@ -26,13 +24,14 @@ import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.ui.rememberMessenger
 import com.vayunmathur.securemail.domain.mail.AddressValidator
-import com.vayunmathur.securemail.domain.mail.KeyLookupPolicy
 import com.vayunmathur.securemail.platform.MailUiState
 import kotlinx.coroutines.launch
 
 /**
- * Compose with per-recipient trust: encrypted by default, explicit opt-in for
- * keyless recipients, hard stop on changed/lost keys.
+ * Compose: encrypts to every recipient with a WKD key; recipients without
+ * one receive the message unencrypted (badged `plain` on receipt). There is
+ * no opt-in toggle — no WKD key simply means no encryption for that
+ * recipient. Changed/lost keys still hard-stop the send.
  */
 @Composable
 fun ComposeScreen(
@@ -40,7 +39,7 @@ fun ComposeScreen(
     initialTo: String,
     initialSubject: String,
     initialBody: String,
-    onSend: (List<String>, String, String, Boolean, String?) -> Unit,
+    onSend: (List<String>, String, String, String?) -> Unit,
     onBack: () -> Unit,
     onConsumeMessage: () -> Unit = {},
 ) {
@@ -49,7 +48,6 @@ fun ComposeScreen(
     var to by remember { mutableStateOf(initialTo) }
     var subject by remember { mutableStateOf(initialSubject) }
     var body by remember { mutableStateOf(initialBody) }
-    var allowUnencrypted by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     // Trust resolution needs the ViewModel; the parent passes a lambda that
     // already gates. Here we only pre-validate syntax inline.
@@ -92,30 +90,16 @@ fun ComposeScreen(
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 8,
                 )
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Checkbox(checked = allowUnencrypted, onCheckedChange = { allowUnencrypted = it })
-                        Text(
-                            "Send unencrypted to recipients without a key. " +
-                                "They will see a plain badge; you accept the downgrade.",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = {
                             scope.launch {
-                                onSend(recipients, subject, body, allowUnencrypted, null)
+                                onSend(recipients, subject, body, null)
                             }
                         },
                         enabled = !state.busy && recipients.isNotEmpty() && invalid.isEmpty() && body.isNotBlank(),
                         modifier = Modifier.weight(1f),
-                    ) { Text(if (state.busy) "Sending…" else "Send encrypted") }
+                    ) { Text(if (state.busy) "Sending…" else "Send") }
                     Button(onClick = onBack, modifier = Modifier.weight(1f)) { Text("Cancel") }
                 }
             }
