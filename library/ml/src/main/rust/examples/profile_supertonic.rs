@@ -51,7 +51,7 @@ fn text_plan(offsets: &Offsets, chars: u32) -> Result<Plan, String> {
 }
 
 fn sampler_plan(offsets: &Offsets, shape: (u32, u32)) -> Result<Plan, String> {
-    supertonic_sampler::build_dual(offsets, shape.0, shape.1)
+    supertonic_sampler::build_dual_padded(offsets, shape.0, shape.1)
 }
 
 fn vocoder_plan(offsets: &Offsets, frames: u32) -> Result<Plan, String> {
@@ -217,6 +217,9 @@ impl supertonic::Stages for Timed {
         self.reshape_ms += each;
         self.reshape_sampler_ms += each;
         let running = Instant::now();
+        let latent = supertonic_sampler::pad_frames(latent, frames)?;
+        let query_angles = supertonic_sampler::pad_frames(query_angles, frames)?;
+        let (latent, query_angles) = (latent.as_slice(), query_angles.as_slice());
         let out = net.infer_raw_many(&[
             latent,
             conditional_text,
@@ -242,7 +245,10 @@ impl supertonic::Stages for Timed {
             <[Vec<f32>; 2]>::try_from(out).map_err(|other| {
                 format!("the dual sampler returned {} tensors, not two", other.len())
             })?;
-        Ok([conditional, unconditional])
+        Ok([
+            supertonic_sampler::unpad_frames(&conditional, frames)?,
+            supertonic_sampler::unpad_frames(&unconditional, frames)?,
+        ])
     }
 
     fn vocoder(&mut self, latent: &[f32], frames: u32) -> Result<Vec<f32>, String> {

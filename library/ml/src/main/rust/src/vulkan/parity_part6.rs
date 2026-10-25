@@ -305,6 +305,45 @@ fn blocked_convs_at_every_window_alignment_agree_with_the_reference() {
     );
 }
 
+/// The Supertonic sampler's padded plan: a dilated depthwise (1, 7) with edge padding over 52
+/// columns, `pad_edge` = 4 so columns clamp at the real width of 49. The tail holds garbage,
+/// and the first 49 columns must match the plain 49-wide plan exactly on the interpreter, and
+/// the device must match the interpreter.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn an_edge_clamp_short_of_the_width_ignores_the_padded_tail() {
+    let (channels, real, padded) = (16usize, 49usize, 52usize);
+    let given = Given::new(&[
+        (vec![channels as u32, 1, 1, 7], spread(channels * 7, 0.4)),
+        (vec![channels as u32], spread(channels, 1.7)),
+    ])
+    .expect("the fixture tensors are consistent");
+    let data = given.data().to_vec();
+    let at = |width: usize| {
+        build(&given, &[Shape::new(channels as u32, 1, width as u32)], |b, ids| {
+            b.edge_padding();
+            let c = channels as u32;
+            b.conv(ids[0], 0, c, (1, 7), (1, 1), (1, 4), (0, 12, 0, 12), c, Act::None)
+        })
+    };
+    let narrow_input = spread(channels * real, 2.2);
+    let mut wide_input = vec![37.0f32; channels * padded];
+    for (row, chunk) in narrow_input.chunks_exact(real).enumerate() {
+        wide_input[row * padded..row * padded + real].copy_from_slice(chunk);
+    }
+    let mut wide = at(padded);
+    for op in &mut wide.ops {
+        if let crate::nets::Op::Dispatch { kind: crate::nets::Kind::Conv, push, .. } = op {
+            push.pad_edge = 1 + (padded - real) as u32;
+        }
+    }
+    let narrow = run_multi(&at(real), &data, &[&narrow_input]).expect("the interpreter runs");
+    let host = run_multi(&wide, &data, &[&wide_input]).expect("the interpreter runs");
+    let cut: Vec<f32> = host[0].chunks_exact(padded).flat_map(|row| &row[..real]).copied().collect();
+    assert_eq!(cut, narrow[0], "the real columns read the padded tail");
+    compare("an edge clamp short of the width", wide, data, &[&wide_input]);
+}
+
 /// Count the plan's `Kind::Conv` dispatches by `in1` selector (untiled, dense, depthwise).
 fn conv_selectors(plan: &crate::nets::Plan) -> [usize; 3] {
     let mut seen = [0; 3];

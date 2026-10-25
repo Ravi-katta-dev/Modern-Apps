@@ -177,7 +177,7 @@ impl Reference {
                             for kx in 0..p.kw {
                                 let positioned = ox * p.stride_w + kx * p.dil_w;
                                 let ix = if p.pad_edge != 0 {
-                                    tap_edge(positioned, p.pad_l, p.in_w)
+                                    tap_edge(positioned, p.pad_l, p.in_w + 1 - p.pad_edge)
                                 } else {
                                     match tap(positioned, p.pad_l, p.in_w) {
                                         Some(found) => found,

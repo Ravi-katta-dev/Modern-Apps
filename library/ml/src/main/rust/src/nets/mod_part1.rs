@@ -62,6 +62,8 @@ pub struct Push {
     /// one before every convolution. Zero padding there would corrupt up to twelve positions at
     /// each END of an utterance and leave the middle correct - an audible click at the start and
     /// finish of every sentence.
+    ///
+    /// `conv.comp` clamps columns at `in_w - pad_edge`, so values above 1 ignore a padded tail.
     pub pad_edge: u32,
     /// Convolution groups. `group == in_c == out_c` is depthwise.
     pub group: u32,

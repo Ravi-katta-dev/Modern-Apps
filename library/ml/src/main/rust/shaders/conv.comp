@@ -70,7 +70,7 @@ void main() {
             for (uint kx = 0u; kx < p.kw; kx++) {
                 int ix = int(ox * p.stride_w + kx * p.dil_w) - int(p.pad_l);
                 if (p.pad_edge != 0u) {
-                    ix = clamp(ix, 0, int(p.in_w) - 1);
+                    ix = clamp(ix, 0, int(p.in_w) - int(p.pad_edge));
                 } else if (ix < 0 || ix >= int(p.in_w)) {
                     continue;
                 }
