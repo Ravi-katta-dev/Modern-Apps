@@ -64,7 +64,7 @@ class MetadataPreviews {
     private val sampleInfo = EuiccInfo(svn = "2.2.0")
 
     @PreviewTest
-    @Preview(name = "1-profiles", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-profiles", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Profiles() {
         DynamicTheme(darkTheme = true) {
@@ -84,7 +84,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-empty", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-empty", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Empty() {
         DynamicTheme(darkTheme = true) {
@@ -104,7 +104,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "3-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview3Expanded() {
         DynamicTheme(darkTheme = true) {

@@ -38,7 +38,7 @@ private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-board", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-board", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Board() {
         // 8×8 level 1, five of its eight pipes routed — a board part way through a solve.
@@ -83,7 +83,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-solved", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-solved", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Solved() {
         // Blob level 1, solved in the optimal 5 moves — shows off a non-rectangular pack.
@@ -140,7 +140,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-packs", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-packs", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Packs() {
         PipesTheme {
@@ -163,7 +163,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-bridges", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-bridges", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Bridges() {
         // Bridges level 1: red runs the column, yellow the row, crossing at the (2,2) bridge.
@@ -204,7 +204,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-wrap", device = PHONE, showSystemUi = true)
+    @Preview(name = "5-wrap", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview5Wrap() {
         // Wrap level 3: red crosses the board via the (2,0)<->(2,4) torus edge.
@@ -244,7 +244,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "6-portals", device = PHONE, showSystemUi = true)
+    @Preview(name = "6-portals", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview6Portals() {
         // Portals level 2: the (0,4)<->(4,0) pair transits as an adjacency step.
@@ -282,7 +282,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "7-hexes", device = PHONE, showSystemUi = true)
+    @Preview(name = "7-hexes", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview7Hexes() {
         // Hexes level 1 on the odd-r grid: staggered centers, six-neighbour pipes.
@@ -316,7 +316,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "8-triplets", device = PHONE, showSystemUi = true)
+    @Preview(name = "8-triplets", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview8Triplets() {
         // Triplets level 1: red chains all three dots of the middle row in one flow.

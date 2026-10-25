@@ -93,7 +93,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-tunnels", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-tunnels", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Tunnels() {
         DynamicTheme(darkTheme = true) {
@@ -106,7 +106,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-top-apps", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-top-apps", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2TopApps() {
         DynamicTheme(darkTheme = true) {
@@ -119,7 +119,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-top-domains", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-top-domains", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3TopDomains() {
         DynamicTheme(darkTheme = true) {
@@ -133,7 +133,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         DynamicTheme(darkTheme = true) {

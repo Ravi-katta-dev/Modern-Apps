@@ -47,7 +47,7 @@ private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-home", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-home", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Home() {
         DynamicTheme(darkTheme = true) {
@@ -100,7 +100,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-video", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-video", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Video() {
         DynamicTheme(darkTheme = true) {
@@ -113,7 +113,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-related", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-related", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Related() {
         DynamicTheme(darkTheme = true) {
@@ -127,7 +127,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-subscriptions", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-subscriptions", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Subscriptions() {
         DynamicTheme(darkTheme = true) {
@@ -174,7 +174,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-expanded-home", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "5-expanded-home", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview5ExpandedHome() {
         DynamicTheme(darkTheme = true) {
@@ -219,7 +219,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "6-expanded-video", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "6-expanded-video", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview6ExpandedVideo() {
         DynamicTheme(darkTheme = true) {
@@ -232,7 +232,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "7-expanded-subscriptions", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "7-expanded-subscriptions", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview7ExpandedSubscriptions() {
         DynamicTheme(darkTheme = true) {

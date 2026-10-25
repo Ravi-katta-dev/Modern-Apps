@@ -42,7 +42,7 @@ private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-translated", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-translated", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Translated() {
         DynamicTheme(darkTheme = true) {
@@ -62,7 +62,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-listening", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-listening", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Listening() {
         DynamicTheme(darkTheme = true) {
@@ -81,7 +81,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-translating", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-translating", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Translating() {
         DynamicTheme(darkTheme = true) {
@@ -99,7 +99,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-language-picker", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-language-picker", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4LanguagePicker() {
         DynamicTheme(darkTheme = true) {
@@ -119,7 +119,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-history", device = PHONE, showSystemUi = true)
+    @Preview(name = "5-history", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview5History() {
         DynamicTheme(darkTheme = true) {

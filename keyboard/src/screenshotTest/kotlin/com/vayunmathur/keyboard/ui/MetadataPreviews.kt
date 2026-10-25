@@ -59,7 +59,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "1-letters", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-letters", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Letters() {
         Framed {
@@ -75,7 +75,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-symbols", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-symbols", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Symbols() {
         Framed {
@@ -84,7 +84,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-emoji", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-emoji", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Emoji() {
         Framed {

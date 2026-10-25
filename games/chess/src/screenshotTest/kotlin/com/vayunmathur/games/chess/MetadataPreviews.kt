@@ -42,7 +42,7 @@ private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-game", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-game", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Game() {
         DynamicTheme(darkTheme = true) {
@@ -62,7 +62,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-puzzles", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-puzzles", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Puzzles() {
         DynamicTheme(darkTheme = true) {
@@ -81,7 +81,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-newgame", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-newgame", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3NewGame() {
         DynamicTheme(darkTheme = true) {
@@ -97,7 +97,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-game-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-game-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4GameExpanded() {
         DynamicTheme(darkTheme = true) {

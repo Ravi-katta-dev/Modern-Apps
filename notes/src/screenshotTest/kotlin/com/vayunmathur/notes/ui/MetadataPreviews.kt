@@ -62,7 +62,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-notes", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-notes", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Notes() {
         DynamicTheme(darkTheme = true) {
@@ -74,7 +74,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-editor", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-editor", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Editor() {
         DynamicTheme(darkTheme = true) {
@@ -106,7 +106,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-search", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-search", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Search() {
         DynamicTheme(darkTheme = true) {

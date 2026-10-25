@@ -69,7 +69,7 @@ class MetadataPreviews {
     private val unlocked = setOf("NAND", "NOT", "AND", "OR")
 
     @PreviewTest
-    @Preview(name = "1-levels", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-levels", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Levels() {
         LogicGateTheme {
@@ -78,7 +78,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-circuit", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-circuit", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Circuit() {
         LogicGateTheme {
@@ -99,7 +99,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-solved", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-solved", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Solved() {
         LogicGateTheme {

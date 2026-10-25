@@ -68,7 +68,7 @@ private val LEVEL_333 = crossword(
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-puzzle", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-puzzle", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Puzzle() {
         DynamicTheme(darkTheme = true) {
@@ -88,7 +88,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-solved", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-solved", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Solved() {
         DynamicTheme(darkTheme = true) {
@@ -109,7 +109,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-competitive", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-competitive", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Competitive() {
         DynamicTheme(darkTheme = true) {

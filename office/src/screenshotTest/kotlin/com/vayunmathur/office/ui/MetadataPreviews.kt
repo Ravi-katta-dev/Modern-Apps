@@ -199,14 +199,14 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "1-document", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-document", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Document() {
         Paper { TextDocumentView(doc = SampleTextDocument) }
     }
 
     @PreviewTest
-    @Preview(name = "2-spreadsheet", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-spreadsheet", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Spreadsheet() {
         Paper {
@@ -218,14 +218,14 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-presentation", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-presentation", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Presentation() {
         Paper { PresentationView(doc = SamplePresentation) }
     }
 
     @PreviewTest
-    @Preview(name = "4-home", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-home", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Home() {
         DynamicTheme(darkTheme = true) {
@@ -234,7 +234,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "5-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview5Expanded() {
         Paper {

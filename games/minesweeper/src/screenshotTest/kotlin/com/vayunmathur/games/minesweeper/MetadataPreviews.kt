@@ -33,7 +33,7 @@ private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-midgame", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-midgame", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1MidGame() {
         val config = GameConfig(BoardSize.MEDIUM, Difficulty.MEDIUM)
@@ -46,7 +46,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-large", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-large", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Large() {
         val config = GameConfig(BoardSize.LARGE, Difficulty.HARD)
@@ -55,7 +55,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-fresh", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-fresh", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Fresh() {
         val config = GameConfig(BoardSize.SMALL, Difficulty.EASY)
@@ -63,7 +63,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-cleared", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-cleared", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Cleared() {
         val config = GameConfig(BoardSize.SMALL, Difficulty.EASY)

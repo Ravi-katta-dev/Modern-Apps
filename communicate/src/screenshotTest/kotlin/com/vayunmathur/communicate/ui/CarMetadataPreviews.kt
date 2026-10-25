@@ -27,7 +27,7 @@ private const val CAR = "spec:width=1024dp,height=600dp,dpi=160"
 class CarMetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-car-threads", device = CAR, showSystemUi = false)
+    @Preview(name = "1-car-threads", device = CAR, group = "phone", showSystemUi = false)
     @Composable
     fun Preview1CarThreads() {
         DynamicTheme(darkTheme = true) {
@@ -84,7 +84,7 @@ class CarMetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-car-incall", device = CAR, showSystemUi = false)
+    @Preview(name = "2-car-incall", device = CAR, group = "phone", showSystemUi = false)
     @Composable
     fun Preview2CarInCall() {
         DynamicTheme(darkTheme = true) {
@@ -105,7 +105,7 @@ class CarMetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-car-keypad", device = CAR, showSystemUi = false)
+    @Preview(name = "3-car-keypad", device = CAR, group = "phone", showSystemUi = false)
     @Composable
     fun Preview3CarKeypad() {
         DynamicTheme(darkTheme = true) {

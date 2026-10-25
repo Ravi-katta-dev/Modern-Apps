@@ -57,7 +57,7 @@ private val TODAY = LocalDate(2026, 1, 17)
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-today", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-today", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Today() {
         DynamicTheme(darkTheme = true) {
@@ -84,7 +84,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-nutrition", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-nutrition", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Nutrition() {
         DynamicTheme(darkTheme = true) {
@@ -105,7 +105,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-steps", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-steps", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Steps() {
         // A week of steps: seven daily sums, newest first in the history list, which is the
@@ -149,7 +149,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-heart-rate", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-heart-rate", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4HeartRate() {
         // Heart rate is the one metric with no period tabs: it is always the hourly line for
@@ -180,7 +180,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "5-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview5Expanded() {
         // The detail screen at desktop width: the week-of-steps chart a metric row opens.

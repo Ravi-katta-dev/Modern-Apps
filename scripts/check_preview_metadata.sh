@@ -9,6 +9,10 @@
 #   - previews declared as top-level functions instead of class members (same symptom)
 #   - preview functions not named Preview<N>… (listing order comes from sorting the
 #     generated filenames, so a stray name silently reshuffles the store listing)
+#   - a @Preview without group = "phone|tablet|large-tablet|tv|wear" (the
+#     form-factor bucket the collector routes it to; Triple-T spellings verbatim)
+#   - duplicate Preview<N> numbers inside one bucket (per-bucket 1.png… order
+#     comes from the function-name sort, so a clash reshuffles that bucket)
 #   - a leftover src/androidTest MetadataScreenshots.kt from the old on-device generator
 #   - a module that opted into previews but has no @Preview at all
 #
@@ -75,12 +79,31 @@ for gradle_file in $(app_modules); do
 
     n_preview=0
     n_previewtest=0
+    # "N:group" entries — N from the Preview<N> function name, group from the
+    # @Preview(group = "...") on the annotation block above it. Per-bucket
+    # ordering means the numbers must be unique within each group.
+    bucket_numbers=""
     for f in $files; do
         # Count annotations only where they annotate a declaration, not in prose/KDoc.
         p=$(grep -cE '^[[:space:]]*@Preview\(' "$f" || true)
         t=$(grep -cE '^[[:space:]]*@PreviewTest[[:space:]]*$' "$f" || true)
         n_preview=$((n_preview + p))
         n_previewtest=$((n_previewtest + t))
+
+        # The bucket: the group = "..." on the @Preview line (annotations are
+        # single-line repo-wide). Matches CollectPreviewScreenshots.readPreviewGroups.
+        groups_in_file=$(grep -E '^[[:space:]]*@Preview\(' "$f" \
+            | grep -oE 'group[[:space:]]*=[[:space:]]*"[^"]*"' \
+            | sed -E 's/.*group[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/' || true)
+        n_grouped=$(printf '%s\n' "$groups_in_file" | grep -c . || true)
+        if [[ "$n_grouped" -ne "$p" ]]; then
+            show; fail "$((p - n_grouped)) of $p @Preview(s) in ${f#"$module"/} have no group = \"...\"; the collector routes everything ungrouped to phone/"
+        fi
+        bad_group=$(printf '%s\n' "$groups_in_file" \
+            | grep -vE '^(phone|tablet|large-tablet|tv|wear)$' || true)
+        for g in $bad_group; do
+            show; fail "unknown screenshot bucket \"$g\" in ${f#"$module"/}; expected phone, tablet, large-tablet, tv or wear"
+        done
 
         # Preview functions must be class members; a top-level one lands in a synthetic
         # ...Kt facade the engine does not scan.
@@ -99,6 +122,36 @@ for gradle_file in $(app_modules); do
                 show; fail "preview function '$name' is not named Preview<N>…; listing order will be wrong"
             fi
         done
+
+        # Pair each Preview<N> function with its bucket: walk the file keeping the
+        # last-seen group, like the collector does. Well-named preview functions
+        # only — badly-named ones are already flagged above. (The group is NOT
+        # cleared on @Composable: it always sits between @Preview and fun.)
+        pending=""
+        while IFS= read -r line; do
+            case "$line" in
+                *'@Preview('*)
+                    g=$(printf '%s' "$line" | grep -oE 'group[[:space:]]*=[[:space:]]*"[^"]*"' \
+                        | sed -E 's/.*group[[:space:]]*=[[:space:]]*"([^"]*)".*/\1/' || true)
+                    [[ -n "$g" ]] && pending="$g"
+                    ;;
+            esac
+            if [[ "$line" =~ ^[[:space:]]*fun\ (Preview[0-9]+[A-Za-z0-9_]*)\(\) ]]; then
+                if [[ -n "$pending" ]]; then
+                    n="${BASH_REMATCH[1]}"
+                    bucket_numbers="$bucket_numbers
+${pending}:${n}"
+                fi
+                pending=""
+            fi
+        done < "$f"
+    done
+
+    # Numbers must be unique within each bucket — per-bucket 1.png… numbering
+    # sorts by function name, so a clash reshuffles that bucket's listing.
+    dupes=$(printf '%s\n' "$bucket_numbers" | grep . | sort | uniq -d || true)
+    for d in $dupes; do
+        show; fail "duplicate screenshot number in bucket \"${d%%:*}\" (${d##*:} twice); per-bucket order will be wrong"
     done
 
     if [[ "$n_preview" -eq 0 ]]; then

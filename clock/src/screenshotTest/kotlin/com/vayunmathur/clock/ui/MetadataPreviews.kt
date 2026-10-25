@@ -54,7 +54,7 @@ private val MORNING = Instant.parse("2026-02-13T17:41:09Z")
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-alarm", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-alarm", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Alarm() {
         DynamicTheme(darkTheme = true) {
@@ -79,7 +79,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-clock", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-clock", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Clock() {
         DynamicTheme(darkTheme = true) {
@@ -100,7 +100,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-timer", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-timer", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Timer() {
         DynamicTheme(darkTheme = true) {
@@ -115,7 +115,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-stopwatch", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-stopwatch", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Stopwatch() {
         DynamicTheme(darkTheme = true) {

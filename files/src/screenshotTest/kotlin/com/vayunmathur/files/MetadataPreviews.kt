@@ -67,7 +67,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-browse", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-browse", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Browse() {
         DynamicTheme(darkTheme = true) {
@@ -95,7 +95,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-selection", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-selection", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Selection() {
         val downloads = "$ROOT/Download"
@@ -122,7 +122,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-zip", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-zip", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Zip() {
         DynamicTheme(darkTheme = true) {
@@ -147,7 +147,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-trash", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-trash", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Trash() {
         DynamicTheme(darkTheme = true) {

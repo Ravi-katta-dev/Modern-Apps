@@ -24,11 +24,14 @@ private const val CAR = "spec:width=1024dp,height=600dp,dpi=160"
  * [CarTemplateView] renderer from `:library:carhost` — the same renderer MA Auto
  * uses. Numbered after the phone previews in [MetadataPreviews] so the listing
  * order stays phone-first. See `common-conventions-preview-metadata`.
+ *
+ * Play has no car screenshot type, so these carry `group = "phone"` and land in
+ * the phone bucket alongside the handset previews.
  */
 class CarMetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "6-car-navigation", device = CAR, showSystemUi = false)
+    @Preview(name = "6-car-navigation", device = CAR, group = "phone", showSystemUi = false)
     @Composable
     fun Preview6CarNavigation() {
         DynamicTheme(darkTheme = true) {
@@ -49,7 +52,7 @@ class CarMetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "7-car-search", device = CAR, showSystemUi = false)
+    @Preview(name = "7-car-search", device = CAR, group = "phone", showSystemUi = false)
     @Composable
     fun Preview7CarSearch() {
         DynamicTheme(darkTheme = true) {

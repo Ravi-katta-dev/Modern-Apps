@@ -186,7 +186,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "1-family", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-family", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Family() {
         DynamicTheme(darkTheme = true) {
@@ -201,7 +201,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-person", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-person", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Person() {
         DynamicTheme(darkTheme = true) {
@@ -220,7 +220,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-find-nearby", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-find-nearby", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3FindNearby() {
         DynamicTheme(darkTheme = true) {
@@ -240,7 +240,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         DynamicTheme(darkTheme = true) {

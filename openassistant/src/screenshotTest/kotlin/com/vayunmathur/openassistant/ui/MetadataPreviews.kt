@@ -36,7 +36,7 @@ class MetadataPreviews {
         Message(conversationId = 1, text = text, role = role, id = id)
 
     @PreviewTest
-    @Preview(name = "1-chat", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-chat", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Chat() {
         DynamicTheme(darkTheme = true) {
@@ -72,7 +72,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-answer", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-answer", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Answer() {
         DynamicTheme(darkTheme = true) {
@@ -104,7 +104,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-memories", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-memories", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Memories() {
         DynamicTheme(darkTheme = true) {
@@ -123,7 +123,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         // The settings detail pane at desktop width, beside the permanent history drawer.

@@ -91,7 +91,7 @@ private val SamplePasskey = Passkey(
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-vault", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-vault", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Vault() {
         DynamicTheme(darkTheme = true) {
@@ -108,7 +108,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-entry", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-entry", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Entry() {
         DynamicTheme(darkTheme = true) {
@@ -124,7 +124,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-edit", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-edit", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Edit() {
         DynamicTheme(darkTheme = true) {

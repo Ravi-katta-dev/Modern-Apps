@@ -60,14 +60,14 @@ private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-gallery", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-gallery", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Gallery() {
         GalleryPreview(GalleryUiState(photos = samplePhotos()))
     }
 
     @PreviewTest
-    @Preview(name = "2-selection", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-selection", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Selection() {
         GalleryPreview(
@@ -79,7 +79,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-people", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-people", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3People() {
         DynamicTheme(darkTheme = true) {
@@ -97,7 +97,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         DynamicTheme(darkTheme = true) {

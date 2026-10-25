@@ -36,7 +36,7 @@ private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-setup", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-setup", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Setup() {
         DynamicTheme(darkTheme = true) {
@@ -48,7 +48,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-partway", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-partway", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Partway() {
         DynamicTheme(darkTheme = true) {
@@ -64,7 +64,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-ready", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-ready", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Ready() {
         DynamicTheme(darkTheme = true) {

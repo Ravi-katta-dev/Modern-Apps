@@ -199,7 +199,7 @@ private val SampleOutline = listOf(
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-outline", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-outline", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Outline() {
         DynamicTheme(darkTheme = true) {
@@ -218,7 +218,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-pages", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-pages", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Pages() {
         DynamicTheme(darkTheme = true) {
@@ -232,7 +232,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-home", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-home", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Home() {
         DynamicTheme(darkTheme = true) {
@@ -241,7 +241,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         DynamicTheme(darkTheme = true) {

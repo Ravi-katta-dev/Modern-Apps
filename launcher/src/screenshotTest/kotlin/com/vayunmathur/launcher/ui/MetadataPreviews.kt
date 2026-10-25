@@ -57,7 +57,7 @@ private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-home", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-home", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Home() {
         DynamicTheme(darkTheme = true) {
@@ -68,7 +68,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-drawer", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-drawer", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Drawer() {
         DynamicTheme(darkTheme = true) {
@@ -93,7 +93,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-folder", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-folder", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Folder() {
         DynamicTheme(darkTheme = true) {
@@ -109,7 +109,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-widgets", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-widgets", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Widgets() {
         DynamicTheme(darkTheme = true) {
@@ -145,7 +145,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-settings", device = PHONE, showSystemUi = true)
+    @Preview(name = "5-settings", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview5Settings() {
         DynamicTheme(darkTheme = true) {

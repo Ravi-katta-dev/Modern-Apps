@@ -28,7 +28,7 @@ private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-garage", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-garage", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Garage() {
         // The opening cup with a few wins on the board, so the shot shows the
@@ -43,7 +43,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-racing", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-racing", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Racing() {
         // Mid-race: the standings the placeholder engine produces, so the listing shows the
@@ -60,7 +60,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-late-cup", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-late-cup", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3LateCup() {
         // The last cup, so the listing shows the progression reaches past the opener.

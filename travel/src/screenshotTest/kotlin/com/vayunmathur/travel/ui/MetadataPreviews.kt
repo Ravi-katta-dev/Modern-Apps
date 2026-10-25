@@ -146,7 +146,7 @@ class MetadataPreviews {
     // --- Previews ------------------------------------------------------------
 
     @PreviewTest
-    @Preview(name = "1-flights", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-flights", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Flights() {
         DynamicTheme(darkTheme = true) {
@@ -185,7 +185,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-seats", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-seats", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Seats() {
         DynamicTheme(darkTheme = true) {
@@ -222,7 +222,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-order", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-order", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Order() {
         DynamicTheme(darkTheme = true) {
@@ -286,7 +286,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-stays", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-stays", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Stays() {
         DynamicTheme(darkTheme = true) {
@@ -343,7 +343,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "5-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview5Expanded() {
         DynamicTheme(darkTheme = true) {

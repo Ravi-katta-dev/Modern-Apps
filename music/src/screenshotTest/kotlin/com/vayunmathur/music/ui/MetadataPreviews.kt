@@ -136,7 +136,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "1-songs", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-songs", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Songs() {
         Tabbed(selectedTab = 0) {
@@ -149,7 +149,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-now-playing", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-now-playing", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2NowPlaying() {
         DynamicTheme(darkTheme = true) {
@@ -162,7 +162,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-album", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-album", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Album() {
         DynamicTheme(darkTheme = true) {
@@ -192,7 +192,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         DynamicTheme(darkTheme = true) {

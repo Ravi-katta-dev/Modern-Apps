@@ -31,14 +31,19 @@ private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
  * an instrumented test on a device.
  *
  * `./gradlew :calculator:metadata` renders these and copies the PNGs into
- * `metadata_data/photos/calculator/`, where `release.sh` picks them up.
+ * per-bucket `metadata_data/photos/calculator/<bucket>/` dirs (`phone/` for the
+ * handset previews, `large-tablet/` for the expanded-layout preview — Play has no
+ * desktop bucket and large-tablet is the closest Triple-T type), where the release
+ * build picks them up.
  *
  * Two things to keep in mind when editing:
  *
  *  - Order matters, and it comes from the function names. The generated PNG filenames
  *    embed the function name, so `Preview1Keypad`/`Preview2Graph`/... sort into listing
  *    order no matter how the plugin formats the rest of the filename. Renumber the
- *    functions if you reorder the listing.
+ *    functions if you reorder the listing. Order is per bucket.
+ *  - Each preview needs a `group` (the form-factor bucket: `phone`, `tablet`,
+ *    `large-tablet`, `tv`, `wear`) as well as @PreviewTest.
  *  - Everything must be a literal. These render with no ViewModel, no database and no
  *    device, so the state below is the whole input — which is also what makes the output
  *    reproducible from a clean checkout.
@@ -59,7 +64,7 @@ private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-keypad", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-keypad", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Keypad() {
         DynamicTheme(darkTheme = true) {
@@ -76,7 +81,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-graph", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-graph", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Graph() {
         val colors = GraphTabColors
@@ -101,7 +106,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-history", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-history", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3History() {
         DynamicTheme(darkTheme = true) {
@@ -123,7 +128,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-units", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-units", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Units() {
         DynamicTheme(darkTheme = true) {
@@ -142,7 +147,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-keypad-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "5-keypad-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview5KeypadExpanded() {
         DynamicTheme(darkTheme = true) {

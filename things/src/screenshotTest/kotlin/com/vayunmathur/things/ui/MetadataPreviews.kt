@@ -23,7 +23,7 @@ private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-home", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-home", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Home() {
         DynamicTheme(darkTheme = true) {
@@ -59,7 +59,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-devices", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-devices", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Devices() {
         DynamicTheme(darkTheme = true) {
@@ -78,7 +78,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-permissions-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-permissions-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4PermissionsExpanded() {
         DynamicTheme(darkTheme = true) {
@@ -93,7 +93,7 @@ class MetadataPreviews {
         }
     }
     @PreviewTest
-    @Preview(name = "3-home-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "3-home-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview3HomeExpanded() {
         DynamicTheme(darkTheme = true) {

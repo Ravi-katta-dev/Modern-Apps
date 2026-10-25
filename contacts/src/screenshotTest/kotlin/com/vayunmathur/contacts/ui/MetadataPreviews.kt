@@ -131,7 +131,7 @@ private fun groupRow(group: ContactGroup) = GroupWithContacts(
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-list", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-list", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1List() {
         DynamicTheme(darkTheme = true) {
@@ -146,7 +146,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-details", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-details", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Details() {
         DynamicTheme(darkTheme = true) {
@@ -161,7 +161,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-groups", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-groups", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Groups() {
         DynamicTheme(darkTheme = true) {

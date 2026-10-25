@@ -41,7 +41,7 @@ private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-level", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-level", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Level() {
         // A few arrows already flown, and one tapped that had nowhere to go - so the shot shows the
@@ -51,7 +51,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-mirrors", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-mirrors", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Mirrors() {
         // Past the level that introduces redirectors, so the diagonals show up.
@@ -60,7 +60,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-daily", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-daily", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Daily() {
         val (cols, rows) = DAILY_BOARD
@@ -74,7 +74,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-fresh", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-fresh", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Fresh() {
         Board(game(level(2), level = 2, cleared = 0))
@@ -88,7 +88,7 @@ class MetadataPreviews {
      * rather than only at the tutorial sizes.
      */
     @PreviewTest
-    @Preview(name = "5-largest", device = PHONE, showSystemUi = true)
+    @Preview(name = "5-largest", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview5Largest() {
         Board(game(level(BIGGEST_BOARD_LEVEL), level = BIGGEST_BOARD_LEVEL, cleared = 2))

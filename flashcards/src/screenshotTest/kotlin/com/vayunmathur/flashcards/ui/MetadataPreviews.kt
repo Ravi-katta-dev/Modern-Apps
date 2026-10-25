@@ -75,7 +75,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-decks", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-decks", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Decks() {
         DynamicTheme(darkTheme = true) {
@@ -87,7 +87,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-review", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-review", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Review() {
         DynamicTheme(darkTheme = true) {
@@ -115,7 +115,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-cards", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-cards", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Cards() {
         DynamicTheme(darkTheme = true) {
@@ -131,7 +131,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-stats", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-stats", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Stats() {
         val today = LocalDate.now().toEpochDay()
@@ -166,7 +166,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-note-edit", device = PHONE, showSystemUi = true)
+    @Preview(name = "5-note-edit", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview5NoteEdit() {
         DynamicTheme(darkTheme = true) {
@@ -189,7 +189,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "6-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "6-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview6Expanded() {
         // Medium widths pair the deck list with its cards: the detail no longer covers

@@ -57,7 +57,7 @@ private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-sky-map", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-sky-map", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1SkyMap() {
         DynamicTheme(darkTheme = true) {
@@ -75,7 +75,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-search", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-search", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Search() {
         DynamicTheme(darkTheme = true) {
@@ -88,7 +88,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-settings", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-settings", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Settings() {
         DynamicTheme(darkTheme = true) {
@@ -115,7 +115,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-search-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-search-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4SearchExpanded() {
         DynamicTheme(darkTheme = true) {

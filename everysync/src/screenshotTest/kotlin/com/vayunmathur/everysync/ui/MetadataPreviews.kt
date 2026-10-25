@@ -47,7 +47,7 @@ private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-accounts", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-accounts", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Accounts() {
         DynamicTheme(darkTheme = true) {
@@ -67,7 +67,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-add-account", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-add-account", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2AddAccount() {
         DynamicTheme(darkTheme = true) {
@@ -76,7 +76,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-account", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-account", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Account() {
         DynamicTheme(darkTheme = true) {
@@ -92,7 +92,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-settings", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-settings", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Settings() {
         DynamicTheme(darkTheme = true) {
@@ -108,7 +108,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "5-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview5Expanded() {
         DynamicTheme(darkTheme = true) {
@@ -143,7 +143,7 @@ class MetadataPreviews {
         }
     }
     @PreviewTest
-    @Preview(name = "6-share-vault", device = PHONE, showSystemUi = true)
+    @Preview(name = "6-share-vault", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview6ShareVault() {
         DynamicTheme(darkTheme = true) {

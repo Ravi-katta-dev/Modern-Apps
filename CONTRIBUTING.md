@@ -511,15 +511,20 @@ ones merged in from library modules.
 
 Apps render their store screenshots from Compose previews. Add
 `id("common-conventions-preview-metadata")`, put previews in `src/screenshotTest/kotlin/`, and
-run `./gradlew :<module>:metadata` to write numbered PNGs into
-`metadata_data/photos/<module-key>/`. That directory is wiped and rewritten each time.
+run `./gradlew :<module>:metadata` to write numbered PNGs into per-form-factor
+buckets under `metadata_data/photos/<module-key>/` — `phone/`, `tablet/`,
+`large-tablet/`, `tv/`, `wear/`, using the Triple-T spellings verbatim. That
+directory is wiped and rewritten each time.
 
 Preview functions must:
 
 - carry **both** `@PreviewTest` and `@Preview` — `@Preview` alone silently discovers no tests
 - be **members of a class**, not top-level, or they land in a `…Kt` facade the engine skips
-- be named `Preview1Foo`, `Preview2Bar`, … — **the number is the listing order**, so renumber
-  if you reorder
+- be named `Preview1Foo`, `Preview2Bar`, … — **the number is the listing order
+  within its bucket**, so renumber if you reorder
+- carry a `group` naming the bucket (`phone`, `tablet`, `large-tablet`, `tv`,
+  `wear`) — wide/expanded layouts go to `large-tablet`, car views fold into
+  `phone` (Play has no car type)
 - use only literal state; they render with no ViewModel, no database and no device
 - use the shared device spec and `showSystemUi = true`
 

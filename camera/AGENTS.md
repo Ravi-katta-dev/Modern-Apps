@@ -22,7 +22,7 @@ _Install: ./install camera (dev by default)._
 **Entry points + reading order:** `MainActivity.kt` (`Route.Camera`/`Settings` inline) → `ui/CameraScreen.kt` → `util/CameraViewModel.kt` → `util/CameraSessions.kt` → `util/PanoramaEngine.kt` / `NightCaptureEngine.kt`.
 **Gotchas:**
 - `util/` is NOT a closed package root — the `util/`→closed-roots migration is pending; new platform/engine code still lands there, don't add more
-- Screenshots are hand-captured (no metadata convention plugin — Layoutlib can't open a camera); committed listing images live under `metadata_data/photos/`
+- Screenshots are hand-captured (no metadata convention plugin — Layoutlib can't open a camera); committed listing images live under `metadata_data/photos/camera/phone/`
 - Volume keys act as the shutter, gated on the camera route being foreground; Esc/space covers desktop keyboards
 - `.maml` model assets ship uncompressed (`noCompress`) — never compress them
 

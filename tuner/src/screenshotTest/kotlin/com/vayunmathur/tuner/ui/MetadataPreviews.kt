@@ -70,7 +70,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-note-in-tune", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-note-in-tune", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1NoteInTune() {
         DynamicTheme(darkTheme = true) {
@@ -91,7 +91,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-note-flat", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-note-flat", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2NoteFlat() {
         DynamicTheme(darkTheme = true) {
@@ -112,7 +112,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-note-piano-reference", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-note-piano-reference", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3NotePianoReference() {
         DynamicTheme(darkTheme = true) {
@@ -133,7 +133,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-note-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-note-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4NoteExpanded() {
         DynamicTheme(darkTheme = true) {

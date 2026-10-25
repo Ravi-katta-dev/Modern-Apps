@@ -13,9 +13,20 @@ import org.gradle.api.tasks.bundling.AbstractArchiveTask
 //     ./gradlew :calculator:metadata
 //
 // renders every @Preview in `src/screenshotTest/` and copies the PNGs into
-// `metadata_data/photos/<module-key>/`, numbered 1.png, 2.png, ... in filename order.
+// per-form-factor buckets under `metadata_data/photos/<module-key>/` —
+// `phone/`, `tablet/`, `large-tablet/`, `tv/`, `wear/` — numbered 1.png, 2.png,
+// ... in preview-function order *within each bucket*. The bucket comes from the
+// preview's `group` parameter, which must be one of those five names:
+//
+//     @Preview(name = "1-keypad", device = PHONE, group = "phone", showSystemUi = true)
+//
 // Name the preview functions `Preview1Foo`, `Preview2Bar`, ... so that order is the
-// listing order — the generated filenames embed the function name.
+// listing order — the generated filenames embed the function name. The group value
+// uses the Triple-T `gradle-play-publisher` spellings verbatim
+// (`phone/tablet/large-tablet/tv/wear`, mapping to `graphics/<bucket>-screenshots`
+// in the release build); the server's F-Droid index translates the two tablet
+// buckets to F-Droid's `sevenInch`/`tenInch` keys, matching what official
+// fdroidserver does when ingesting Triple-T listings.
 //
 // Trade-off worth knowing: previews render through Layoutlib, which has no wallpaper, so
 // `DynamicTheme` falls back to its default palette rather than the user's Material You
@@ -46,6 +57,20 @@ dependencies {
 val moduleKey = path.removePrefix(":").replace(":", "-")
 val screenshotsOut = File(rootDir, "metadata_data/photos/$moduleKey")
 
+/**
+ * Form-factor buckets, using the Triple-T `gradle-play-publisher` spellings verbatim:
+ * each bucket maps 1:1 onto `graphics/<bucket>-screenshots` in the release build.
+ * (F-Droid's index calls the tablet buckets `sevenInch`/`tenInch` instead — that
+ * translation lives in the server's `fdroid_repo`, matching official fdroidserver.)
+ */
+val screenshotBuckets = listOf("phone", "tablet", "large-tablet", "tv", "wear")
+
+// `src/screenshotTest/**/*.kt`, scanned at task-execution time to resolve each
+// preview function name to its `@Preview(group = ...)` bucket. The rendered PNG
+// names only carry function + preview name + hash, never the group, so the
+// source is the only place the bucket survives.
+val previewSourcesDir = File(projectDir, "src/screenshotTest")
+
 // Where the plugin puts its PNGs. Both paths are taken verbatim from the engine config it
 // generates at build/tmp/<task>/preview_screenshot_config.properties (referenceImageDir and
 // previewImageOutputDir) — worth re-checking there if a plugin upgrade moves them. In
@@ -60,16 +85,21 @@ val renderedDir = layout.buildDirectory.map {
 }
 
 /**
- * Collects rendered previews into `metadata_data/photos/<module-key>/`.
+ * Collects rendered previews into per-bucket `metadata_data/photos/<module-key>/<bucket>/`.
  *
  * Everything is resolved to plain [File]s at configuration time so the task stays
- * configuration-cache compatible (the root build has it enabled).
+ * configuration-cache compatible (the root build has it enabled); the
+ * function-name → group map is built from the preview sources inside [run].
  */
 abstract class CollectPreviewScreenshots : DefaultTask() {
 
     @get:Internal abstract val sourceDirs: ListProperty<File>
 
     @get:Internal abstract val destination: Property<File>
+
+    @get:Internal abstract val previewSources: Property<File>
+
+    @get:Internal abstract val buckets: ListProperty<String>
 
     @get:Internal abstract val label: Property<String>
 
@@ -86,26 +116,74 @@ abstract class CollectPreviewScreenshots : DefaultTask() {
         // Preview2…). Anything else would silently shuffle the store listing.
         val images = source.walkTopDown().filter { it.extension == "png" }.sortedBy { it.invariantSeparatorsPath }.toList()
 
+        val groups = readPreviewGroups(previewSources.get(), label.get())
+
         val dest = destination.get()
         dest.deleteRecursively()
-        dest.mkdirs()
-        images.forEachIndexed { index, png ->
-            png.copyTo(File(dest, "${index + 1}.png"), overwrite = true)
+        val valid = buckets.get().toSet()
+        images.groupBy { png -> groups[functionNameOf(png)] ?: "phone" }.forEach { (bucket, bucketImages) ->
+            require(bucket in valid) {
+                "Unknown screenshot bucket \"$bucket\" for ${label.get()} — expected one of ${valid.sorted().joinToString(", ")}"
+            }
+            val bucketDir = File(dest, bucket)
+            bucketDir.mkdirs()
+            bucketImages.sortedBy { it.invariantSeparatorsPath }.forEachIndexed { index, png ->
+                png.copyTo(File(bucketDir, "${index + 1}.png"), overwrite = true)
+            }
         }
         logger.lifecycle("Metadata screenshots: ${images.size} image(s) -> $dest")
-        images.forEachIndexed { i, f -> logger.lifecycle("  ${i + 1}.png  <-  ${f.name}") }
+        images.forEach { f -> logger.lifecycle("  ${groups[functionNameOf(f)] ?: "phone"}/${f.name}") }
+    }
+
+    /** Rendered filenames look like `Preview1Keypad_1-keypad_<hash>_0.png` — the leading segment is the function name. */
+    private fun functionNameOf(png: File): String = png.nameWithoutExtension.substringBefore('_')
+
+    /**
+     * Maps preview function names (`Preview1Keypad`) to their `@Preview(group = ...)`
+     * bucket by scanning the module's `src/screenshotTest` sources. Only `@Preview(`
+     * annotations carry a group; `@PreviewScreen`/`@PreviewTablet`-style wrappers
+     * (none in the repo today) would need explicit handling here.
+     */
+    private fun readPreviewGroups(dir: File, label: String): Map<String, String> {
+        val groupOf = mutableMapOf<String, String>()
+        // `@Preview(... group = "phone" ...)` — annotations are single-line repo-wide;
+        // the group is on the same line as the `@Preview(` opener.
+        val groupArg = Regex("""group\s*=\s*"([^"]+)"""")
+        // `fun Preview1Keypad(` — the listing-order contract.
+        val previewFun = Regex("""fun\s+(Preview\d\w*)\s*\(""")
+        dir.walkTopDown().filter { it.isFile && it.extension == "kt" }.forEach { file ->
+            var pendingGroup: String? = null
+            file.forEachLine { line ->
+                if (line.contains("@Preview(")) {
+                    pendingGroup = groupArg.find(line)?.groupValues?.get(1)
+                }
+                // NOTE: the group is deliberately NOT cleared on @Composable — it
+                // always sits between @Preview and fun. It clears on the fun line.
+                previewFun.find(line)?.let { match ->
+                    val group = pendingGroup
+                    if (group != null) groupOf[match.groupValues[1]] = group
+                    pendingGroup = null
+                }
+            }
+        }
+        if (groupOf.isEmpty()) {
+            logger.warn("No @Preview(group = ...) found under $dir for $label — routing everything to phone/. Add group to each preview.")
+        }
+        return groupOf
     }
 }
 
 tasks.register<CollectPreviewScreenshots>("metadata") {
     group = "metadata"
     description =
-        "Render Compose previews and copy them into metadata_data/photos/$moduleKey (no device required)"
+        "Render Compose previews and copy them into metadata_data/photos/$moduleKey/<bucket> (no device required)"
     // `update…` renders the previews and writes them out; `validate…` would additionally
     // diff them against a committed baseline, which we do not keep.
     dependsOn("updateScreenshotTest")
     sourceDirs.set(renderedDir.map { listOf(referenceDir, it) })
     destination.set(screenshotsOut)
+    previewSources.set(previewSourcesDir)
+    buckets.set(screenshotBuckets)
     label.set(path)
     // Cheap, and the whole point is to refresh the images on demand.
     outputs.upToDateWhen { false }

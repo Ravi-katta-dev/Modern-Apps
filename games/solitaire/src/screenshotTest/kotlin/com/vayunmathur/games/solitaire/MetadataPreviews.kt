@@ -36,7 +36,7 @@ private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-klondike", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-klondike", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Klondike() {
         val klondike = KlondikeState(
@@ -73,7 +73,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-spider", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-spider", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Spider() {
         val spider = SpiderState(
@@ -111,7 +111,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-freecell", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-freecell", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3FreeCell() {
         val freeCell = FreeCellState(
@@ -145,7 +145,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-win", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-win", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Win() {
         DynamicTheme(darkTheme = true) {

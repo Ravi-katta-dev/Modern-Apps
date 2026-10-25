@@ -147,7 +147,7 @@ private val SAMPLE_EVENTS = listOf(
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-month", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-month", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Month() {
         DynamicTheme(darkTheme = true) {
@@ -167,7 +167,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-event", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-event", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Event() {
         DynamicTheme(darkTheme = true) {
@@ -183,7 +183,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-settings", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-settings", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Settings() {
         DynamicTheme(darkTheme = true) {
@@ -200,7 +200,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         // The detail pane at desktop width: the event the month grid selection opens.

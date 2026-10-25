@@ -42,7 +42,9 @@ private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
  *
  * Each preview needs @PreviewTest as well as @Preview: @Preview alone renders in Studio but
  * is not collected as a screenshot test. Previews must also be class members, not top-level
- * functions. Order comes from the function names (Preview1…, Preview2…).
+ * functions. Order comes from the function names (Preview1…, Preview2…), per bucket:
+ * handset previews carry `group = "phone"`, the desktop-wide ones `group = "large-tablet"`.
+ * Car views live in [CarMetadataPreviews] with `group = "phone"` (Play has no car type).
  */
 class MetadataPreviews {
 
@@ -78,7 +80,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-search", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-search", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Search() {
         DynamicTheme(darkTheme = true) {
@@ -112,7 +114,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-directions", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-directions", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Directions() {
         DynamicTheme(darkTheme = true) {
@@ -156,7 +158,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-navigating", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-navigating", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Navigating() {
         DynamicTheme(darkTheme = true) {
@@ -190,7 +192,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded-search", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded-search", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4ExpandedSearch() {
         // The expanded side panel with search open: the results MapSidePanel
@@ -234,7 +236,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-expanded-route", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "5-expanded-route", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview5ExpandedRoute() {
         // The expanded side panel with a route selected: the directions panel

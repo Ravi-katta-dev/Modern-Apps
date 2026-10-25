@@ -66,7 +66,7 @@ private const val SAMPLE_TRACE = """java.lang.NullPointerException: Attempt to i
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-report", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-report", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Report() {
         DynamicTheme(darkTheme = true) {
@@ -87,7 +87,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "2-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview2Expanded() {
         DynamicTheme(darkTheme = true) {
@@ -112,7 +112,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-logcat", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-logcat", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Logcat() {
         DynamicTheme(darkTheme = true) {

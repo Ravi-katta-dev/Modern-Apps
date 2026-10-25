@@ -71,7 +71,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-new-tab", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-new-tab", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1NewTab() {
         DynamicTheme(darkTheme = true) {
@@ -90,7 +90,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-tabs", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-tabs", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Tabs() {
         DynamicTheme(darkTheme = true) {
@@ -110,7 +110,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-bookmarks", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-bookmarks", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Bookmarks() {
         DynamicTheme(darkTheme = true) {
@@ -119,7 +119,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         DynamicTheme(darkTheme = true) {

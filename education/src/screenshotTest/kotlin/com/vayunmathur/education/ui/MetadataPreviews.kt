@@ -60,7 +60,7 @@ private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-catalog", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-catalog", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Catalog() {
         DynamicTheme(darkTheme = true) {
@@ -99,7 +99,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-course", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-course", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Course() {
         DynamicTheme(darkTheme = true) {
@@ -128,7 +128,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-quiz", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-quiz", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Quiz() {
         // Caught mid-attempt: the second of four questions, answered correctly and checked,
@@ -180,7 +180,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-k2-quiz", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-k2-quiz", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4K2Quiz() {
         DynamicTheme(darkTheme = true) {
@@ -203,7 +203,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "5-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview5Expanded() {
         // Medium widths pair the catalog with the course: the units no longer cover

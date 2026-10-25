@@ -28,7 +28,7 @@ private const val CAR = "spec:width=1024dp,height=600dp,dpi=160"
 class CarMetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "5-car-locations", device = CAR, showSystemUi = false)
+    @Preview(name = "5-car-locations", device = CAR, group = "phone", showSystemUi = false)
     @Composable
     fun Preview5CarLocations() {
         val ctx = LocalContext.current
@@ -56,7 +56,7 @@ class CarMetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "6-car-detail", device = CAR, showSystemUi = false)
+    @Preview(name = "6-car-detail", device = CAR, group = "phone", showSystemUi = false)
     @Composable
     fun Preview6CarDetail() {
         val ctx = LocalContext.current

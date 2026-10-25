@@ -45,7 +45,7 @@ private val Receivers = listOf(
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-devices", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-devices", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Devices() {
         DynamicTheme(darkTheme = true) {
@@ -58,7 +58,7 @@ class MetadataPreviews {
 
     /** The one screen that is new in MA Cast: six digits read off the TV, typed once per device. */
     @PreviewTest
-    @Preview(name = "2-pair", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-pair", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Pair() {
         DynamicTheme(darkTheme = true) {
@@ -75,7 +75,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-ready", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-ready", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Ready() {
         DynamicTheme(darkTheme = true) {
@@ -91,7 +91,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-mirroring", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-mirroring", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Mirroring() {
         DynamicTheme(darkTheme = true) {

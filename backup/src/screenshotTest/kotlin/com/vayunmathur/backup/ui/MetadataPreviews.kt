@@ -34,7 +34,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-dashboard", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-dashboard", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Dashboard() {
         DynamicTheme(darkTheme = true) {
@@ -52,7 +52,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-recovery-code", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-recovery-code", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Onboarding() {
         DynamicTheme(darkTheme = true) {

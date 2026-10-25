@@ -47,7 +47,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-purchase", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-purchase", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Purchase() {
         DynamicTheme(darkTheme = true) {
@@ -64,7 +64,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-pricing", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-pricing", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Pricing() {
         DynamicTheme(darkTheme = true) {

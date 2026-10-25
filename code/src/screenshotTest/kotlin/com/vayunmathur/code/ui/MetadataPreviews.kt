@@ -114,7 +114,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-editor", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-editor", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Editor() {
         DynamicTheme(darkTheme = true) {
@@ -123,7 +123,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-find", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-find", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Find() {
         DynamicTheme(darkTheme = true) {
@@ -132,7 +132,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-files", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-files", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Files() {
         DynamicTheme(darkTheme = true) {
@@ -141,7 +141,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         DynamicTheme(darkTheme = true) {

@@ -334,7 +334,7 @@ private val LONDON = SavedLocation(
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-forecast", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-forecast", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Forecast() {
         DynamicTheme(darkTheme = true) {
@@ -356,7 +356,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-selected-hour", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-selected-hour", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Hour() {
         DynamicTheme(darkTheme = true) {
@@ -376,7 +376,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-locations", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-locations", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Locations() {
         DynamicTheme(darkTheme = true) {
@@ -422,7 +422,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         DynamicTheme(darkTheme = true) {

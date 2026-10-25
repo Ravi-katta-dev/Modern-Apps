@@ -222,7 +222,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-nearby", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-nearby", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Nearby() {
         DynamicTheme(darkTheme = true) {
@@ -231,7 +231,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-menu", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-menu", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Menu() {
         DynamicTheme(darkTheme = true) {
@@ -240,7 +240,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-cart", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-cart", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Cart() {
         DynamicTheme(darkTheme = true) {
@@ -249,7 +249,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         // Medium widths pair the nearby list with the merchant detail: the menu no

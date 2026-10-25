@@ -31,7 +31,7 @@ private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-puzzle", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-puzzle", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Puzzle() {
         Board(
@@ -47,7 +47,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-notes", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-notes", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Notes() {
         val base = game(
@@ -62,7 +62,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-twelve", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-twelve", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Twelve() {
         // The largest board, where digits past nine are lettered and the pad becomes a 3x4 grid.
@@ -79,7 +79,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-six", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-six", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Six() {
         Board(
@@ -95,7 +95,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-solved", device = PHONE, showSystemUi = true)
+    @Preview(name = "5-solved", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview5Solved() {
         val base = game(BoardSize.NINE, Difficulty.EXPERT, seed = 2024, filled = 0, elapsed = 511)

@@ -24,7 +24,7 @@ private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-addons-empty", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-addons-empty", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1AddonsEmpty() {
         DynamicTheme(darkTheme = true) {
@@ -49,7 +49,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-addons-list", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-addons-list", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2AddonsList() {
         DynamicTheme(darkTheme = true) {

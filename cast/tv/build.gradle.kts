@@ -6,9 +6,10 @@ plugins {
     // file applies directly.
     id("common-conventions-tv")
     // No preview-metadata convention. Every screen here is either a full-screen decoder surface or
-    // a TV-shaped idle screen, and Layoutlib can render neither into a *phone* listing image -
-    // release.sh writes previews into a hardcoded graphics/phone-screenshots. `camera` and
-    // `games/voxels` set the precedent for opting out. metadata_data/cast-tv.md still exists, which
+    // a TV-shaped idle screen; hand-place any listing images under
+    // metadata_data/photos/cast-tv/tv/ (the release build maps each bucket to its
+    // Triple-T graphics/<bucket>-screenshots dir). `camera` and `games/voxels`
+    // set the precedent for opting out. metadata_data/cast-tv.md still exists, which
     // is what makes release.sh generate a listing at all.
 }
 

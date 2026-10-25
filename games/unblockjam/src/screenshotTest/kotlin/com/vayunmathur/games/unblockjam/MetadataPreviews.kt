@@ -93,7 +93,7 @@ private val LEVEL_STATS = mapOf(
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-board", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-board", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Board() {
         UnblockJamTheme(pack = PACK) {
@@ -114,7 +114,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-puzzles", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-puzzles", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Puzzles() {
         UnblockJamTheme(pack = PACK) {

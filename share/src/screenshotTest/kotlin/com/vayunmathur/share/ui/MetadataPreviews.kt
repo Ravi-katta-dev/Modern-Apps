@@ -68,7 +68,7 @@ private val PickedNames = listOf("holiday.jpg", "itinerary.pdf")
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-pick", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-pick", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Pick() {
         Screen {
@@ -83,7 +83,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-devices", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-devices", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Devices() {
         Screen {
@@ -100,7 +100,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-waiting", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-waiting", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Waiting() {
         Cards {
@@ -115,7 +115,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-sending", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-sending", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Sending() {
         Cards {
@@ -130,7 +130,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-sent", device = PHONE, showSystemUi = true)
+    @Preview(name = "5-sent", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview5Sent() {
         Cards {

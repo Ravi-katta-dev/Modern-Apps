@@ -32,7 +32,7 @@ private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-level", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-level", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Level() {
         // Part-way through a 10x10, with some cells crossed out and one heart already spent.
@@ -53,7 +53,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-solved", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-solved", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Solved() {
         val puzzle = level(6)
@@ -68,7 +68,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-daily", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-daily", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Daily() {
         // Dailies are always DAILY_SIZE, so the shot has to be that size to be honest.
@@ -87,7 +87,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-large", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-large", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Large() {
         // A later level, where the grid steps up to 15x15.

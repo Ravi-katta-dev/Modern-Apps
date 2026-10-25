@@ -82,7 +82,7 @@ class MetadataPreviews {
     )
 
     @PreviewTest
-    @Preview(name = "1-dashboard", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-dashboard", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Dashboard() {
         DynamicTheme(darkTheme = true) {
@@ -108,7 +108,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-games", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-games", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Games() {
         DynamicTheme(darkTheme = true) {
@@ -124,7 +124,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-profile", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-profile", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Profile() {
         DynamicTheme(darkTheme = true) {
@@ -143,7 +143,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4Expanded() {
         DynamicTheme(darkTheme = true) {
@@ -187,7 +187,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "5-yuu", device = PHONE, showSystemUi = true)
+    @Preview(name = "5-yuu", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview5Yuu() {
         DynamicTheme(darkTheme = true) {
@@ -206,7 +206,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "6-yuu-empty", device = PHONE, showSystemUi = true)
+    @Preview(name = "6-yuu-empty", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview6YuuEmpty() {
         DynamicTheme(darkTheme = true) {
@@ -218,7 +218,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "7-yuu-editor", device = PHONE, showSystemUi = true)
+    @Preview(name = "7-yuu-editor", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview7YuuEditor() {
         DynamicTheme(darkTheme = true) {

@@ -68,7 +68,7 @@ private fun tile(top: Long, bottom: Long): Drawable =
 class MetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-home", device = PHONE, showSystemUi = true)
+    @Preview(name = "1-home", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Home() {
         DynamicTheme(darkTheme = true) {
@@ -109,7 +109,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-detail", device = PHONE, showSystemUi = true)
+    @Preview(name = "2-detail", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Detail() {
         DynamicTheme(darkTheme = true) {
@@ -153,7 +153,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-search", device = PHONE, showSystemUi = true)
+    @Preview(name = "3-search", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Search() {
         DynamicTheme(darkTheme = true) {
@@ -171,7 +171,7 @@ class MetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "4-trust", device = PHONE, showSystemUi = true)
+    @Preview(name = "4-trust", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Trust() {
         DynamicTheme(darkTheme = true) {

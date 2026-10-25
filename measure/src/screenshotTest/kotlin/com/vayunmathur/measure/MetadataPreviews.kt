@@ -34,7 +34,7 @@ import com.vayunmathur.measure.ui.SettingsContent
 /** Desktop-wide (1280dp >= 840dp), so the letterboxed expanded layout renders. */
 private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
 
-@Preview(showBackground = true, widthDp = 412, heightDp = 915)
+@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
 @Composable
 fun Preview1Compass() {
     DynamicTheme {
@@ -50,7 +50,7 @@ fun Preview1Compass() {
     }
 }
 
-@Preview(showBackground = true, widthDp = 412, heightDp = 915)
+@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
 @Composable
 fun Preview2Level() {
     DynamicTheme {
@@ -61,7 +61,7 @@ fun Preview2Level() {
     }
 }
 
-@Preview(showBackground = true, widthDp = 412, heightDp = 915)
+@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
 @Composable
 fun Preview3Ruler() {
     DynamicTheme {
@@ -69,7 +69,7 @@ fun Preview3Ruler() {
     }
 }
 
-@Preview(showBackground = true, widthDp = 412, heightDp = 915)
+@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
 @Composable
 fun Preview4ArMeasure() {
     DynamicTheme {
@@ -89,7 +89,7 @@ fun Preview4ArMeasure() {
     }
 }
 
-@Preview(showBackground = true, widthDp = 412, heightDp = 915)
+@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
 @Composable
 fun Preview5Saved() {
     DynamicTheme {
@@ -106,7 +106,7 @@ fun Preview5Saved() {
     }
 }
 
-@Preview(showBackground = true, widthDp = 412, heightDp = 915)
+@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
 @Composable
 fun Preview6Settings() {
     DynamicTheme {
@@ -119,7 +119,7 @@ fun Preview6Settings() {
 
 class ExpandedPreviews {
     @PreviewTest
-    @Preview(name = "7-saved-expanded", device = EXPANDED, showSystemUi = true)
+    @Preview(name = "7-saved-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview7SavedExpanded() {
         DynamicTheme {
