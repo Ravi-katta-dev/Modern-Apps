@@ -310,4 +310,7 @@ pub const DETAILS: &[&str] = &[
     "monorail",
     // buildings
     "yes",
+    // transit lines: long-distance rail, carried from z3 so the intercity network reads at
+    // country zoom. Appended, so every earlier id is unchanged.
+    "intercity",
 ];

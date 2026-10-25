@@ -49,22 +49,29 @@ const MODES: &[&str] = &["subway", "light_rail", "tram", "train", "monorail"];
 /// whole network first reads, and that is the trunk's.
 const MIN_ZOOM: u8 = 8;
 
+/// The zoom long-distance rail surfaces at.
+///
+/// The one exception to the single floor: an Amtrak or VIA line is the network at country zoom,
+/// where nothing else on this layer would read. `transit_shapes` marks these lines `intercity`.
+const INTERCITY_MIN_ZOOM: u8 = 3;
+
 /// A transit line's class: layer `transit`, kind `rail`, detail naming the mode.
 ///
 /// The kind stays `rail` (what the reference style's `roads_rail` matches) while the detail
 /// distinguishes a subway from a tram — which is what lets the renderer vary width by mode
-/// while keying colour off `transit_color`.
-pub fn transit_class(mode: &str) -> Option<Class> {
+/// while keying colour off `transit_color`. An intercity line's detail is `intercity` rather
+/// than its mode, which is what the style's country-zoom `transit-intercity` filters on.
+pub fn transit_class(mode: &str, intercity: bool) -> Option<Class> {
     if !MODES.contains(&mode) {
         return None;
     }
     Some(Class {
         layer: LAYER_TRANSIT,
         kind: kind("rail"),
-        kind_detail: detail(mode),
+        kind_detail: detail(if intercity { "intercity" } else { mode }),
         flags: 0,
         area: false,
-        min_zoom: MIN_ZOOM,
+        min_zoom: if intercity { INTERCITY_MIN_ZOOM } else { MIN_ZOOM },
         min_area_px: 0.0,
     })
 }
@@ -130,7 +137,11 @@ pub fn stream_routes(
         let Some(mode) = prop(&feature.props, "mode") else {
             return Err(at("no `mode` property"));
         };
-        let Some(class) = transit_class(&mode) else {
+        // Absent is an ordinary line, like the lane inputs below; present and not 0/1 is an error.
+        let Some(intercity) = byte_prop(&feature.props, "intercity", 0).filter(|v| *v <= 1) else {
+            return Err(at("an `intercity` property that is not 0 or 1"));
+        };
+        let Some(class) = transit_class(&mode, intercity == 1) else {
             return Err(at(&format!("`{mode}` is not a mode this layer carries")));
         };
         let Some(color) = prop(&feature.props, "color").as_deref().and_then(hex_rrggbb) else {
@@ -270,7 +281,7 @@ mod tests {
     #[test]
     fn every_mode_has_a_class_and_they_all_share_one_floor() {
         for mode in MODES {
-            let class = transit_class(mode).expect("a class");
+            let class = transit_class(mode, false).expect("a class");
             assert_eq!(class.layer, dict::LAYER_TRANSIT);
             assert_eq!(dict::KINDS[class.kind as usize - 1], "rail");
             assert_eq!(dict::DETAILS[class.kind_detail as usize - 1], *mode);
@@ -280,7 +291,42 @@ mod tests {
             // features the archive does not hold.
             assert_eq!(class.min_zoom, 8, "{mode}");
         }
-        assert!(transit_class("bus").is_none());
+        assert!(transit_class("bus", false).is_none());
+    }
+
+    #[test]
+    fn an_intercity_line_surfaces_at_country_zoom() {
+        let class = transit_class("train", true).expect("a class");
+        assert_eq!(dict::DETAILS[class.kind_detail as usize - 1], "intercity");
+        assert_eq!(class.min_zoom, 3);
+        assert_eq!(dict::KINDS[class.kind as usize - 1], "rail", "still drawn by transit-rail");
+        assert!(transit_class("bus", true).is_none(), "still only the rail modes");
+
+        let path = scratch("intercity.geojsonseq");
+        let coords = "[-122.4,37.7],[-118.2,34.0]";
+        std::fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                feature("0057A8", "train", coords).replace("\"mode\":\"train\"", "\"mode\":\"train\",\"intercity\":1"),
+                feature("0057A8", "train", coords),
+            ),
+        )
+        .expect("write");
+        let spill = scratch("intercity.features");
+        let mut sink = crate::store::Sink::create(&spill).expect("sink");
+        assert_eq!(stream_routes(&path, (-180.0, -90.0, 180.0, 90.0), &mut sink).expect("read"), 2);
+        let store = sink.finish(&spill).expect("finish");
+        let mut reader = store.reader().expect("reader");
+        let floors: Vec<u8> = std::iter::from_fn(|| reader.next().expect("read")).map(|f| f.class.min_zoom).collect();
+        assert_eq!(floors, vec![3, 8], "flagged, then an ordinary line");
+
+        std::fs::write(&path, feature("0057A8", "train", coords).replace("\"mode\":\"train\"", "\"mode\":\"train\",\"intercity\":2") + "\n")
+            .expect("write");
+        let mut sink = crate::store::Sink::create(&spill).expect("sink");
+        assert!(stream_routes(&path, (-180.0, -90.0, 180.0, 90.0), &mut sink).is_err(), "2 is not a flag");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&spill);
     }
 
     #[test]

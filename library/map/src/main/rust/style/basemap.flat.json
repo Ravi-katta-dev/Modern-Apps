@@ -684,6 +684,20 @@
       "dash": [2, 0]
     },
     {
+      "id": "transit-intercity",
+      "authored": "roads_rail",
+      "source": "transit",
+      "type": "line",
+      "kinds": ["rail"],
+      "details": ["intercity"],
+      "toggle": "transit",
+      "minzoom": 3,
+      "maxzoom": 7,
+      "light": "#8b93a8",
+      "dark": "#4b5468",
+      "width": { "interpolate": "linear", "stops": [[3, 1.5], [7, 2.5]] }
+    },
+    {
       "id": "transit-rail",
       "authored": "roads_rail",
       "source": "transit",

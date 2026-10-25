@@ -350,6 +350,23 @@ fn transit_lanes_step_with_zoom_over_a_constant_spacing() {
     }
 }
 
+/// Long-distance rail draws at country zoom, where it is the only transit in the archive
+/// (`schema::transit::INTERCITY_MIN_ZOOM`), and hands over to `transit-rail` at its floor so the
+/// two never draw the same line twice.
+#[test]
+fn intercity_rail_covers_the_zooms_below_the_network() {
+    let intercity = find("transit-intercity");
+    let rail = find("transit-rail");
+    assert_eq!(intercity.min_zoom, 3);
+    assert_eq!(intercity.max_zoom + 1, rail.min_zoom, "hands over exactly at the network floor");
+    assert_eq!(intercity.toggle, Some(Toggle::Transit), "only with the transit layer on");
+    assert_eq!(intercity.detail_ids, vec![super::detail_id("intercity").expect("an interned detail")]);
+    for zoom in [3.0, 5.0, 7.0] {
+        let width = intercity.width.at(zoom);
+        assert!(width > 0.0 && width <= rail.width.at(zoom), "z{zoom}: {width} Dp");
+    }
+}
+
 /// The road carriageway: `roads-carriageway` is the road layer drawn as a surface, it only
 /// appears once the camera is close enough to make lane markings legible, and its width ramp is
 /// **one lane** rather than a whole road — the renderer multiplies by the feature's lane count,

@@ -33,6 +33,9 @@
 #[path = "transit_shapes_extra2.rs"]
 mod extra2;
 
+#[path = "transit_shapes_intercity.rs"]
+mod intercity;
+
 #[path = "transit_shapes_extra.rs"]
 #[cfg(test)]
 mod extra;
@@ -151,6 +154,8 @@ struct Line {
     lanes: u8,
     /// How far into its lane this piece sits, over 255. See [`bundle`].
     taper: u8,
+    /// Long-distance rail, carried from country zoom. See [`intercity`].
+    intercity: bool,
 }
 
 /// What one feed contributes, before the cross-feed passes.
@@ -280,7 +285,7 @@ fn read_feed(spec: &FeedSpec) -> Result<FeedLines, String> {
 
     let mut out = FeedLines { routes_kept: rail.len(), ..FeedLines::default() };
     for (route_id, shape_ids) in &by_route {
-        let (mode, color, fallback, route) = &rail[route_id.as_str()];
+        let (mode, color, fallback, route, long_type) = &rail[route_id.as_str()];
         let before = out.lines.len();
         // Every distinct shape, whole. What a route publishes is one alignment per
         // direction plus a short-turn or a branch variant or two, all of them overlapping,
@@ -293,13 +298,11 @@ fn read_feed(spec: &FeedSpec) -> Result<FeedLines, String> {
                 continue;
             }
             out.shapes_read += 1;
+            let points: Vec<(i32, i32)> =
+                shape.lat_e7.iter().zip(&shape.lon_e7).map(|(&lat, &lon)| (lat, lon)).collect();
             out.lines.push(Line {
-                points: shape
-                    .lat_e7
-                    .iter()
-                    .zip(&shape.lon_e7)
-                    .map(|(&lat, &lon)| (lat, lon))
-                    .collect(),
+                intercity: intercity::is_intercity(*long_type, &points),
+                points,
                 color: *color,
                 mode,
                 fallback: *fallback,
@@ -319,9 +322,9 @@ fn read_feed(spec: &FeedSpec) -> Result<FeedLines, String> {
     Ok(out)
 }
 
-/// `route_id` → `(mode, colour, is a fallback colour, display name)` for every
-/// rail route in the feed. Everything else, bus included, is dropped here.
-fn rail_routes(routes: &Csv) -> HashMap<String, (&'static str, u32, bool, String)> {
+/// `route_id` → `(mode, colour, is a fallback colour, display name, is long-distance by type)`
+/// for every rail route in the feed. Everything else, bus included, is dropped here.
+fn rail_routes(routes: &Csv) -> HashMap<String, (&'static str, u32, bool, String, bool)> {
     let mut out = HashMap::new();
     for row in &routes.rows {
         let id = routes.get(row, "route_id");
@@ -337,7 +340,10 @@ fn rail_routes(routes: &Csv) -> HashMap<String, (&'static str, u32, bool, String
         let short = routes.get(row, "route_short_name").trim();
         let long = routes.get(row, "route_long_name").trim();
         let name = if short.is_empty() { long } else { short };
-        out.insert(id.to_string(), (mode, color, fallback, name.to_string()));
+        out.insert(
+            id.to_string(),
+            (mode, color, fallback, name.to_string(), intercity::is_long_distance_type(route_type)),
+        );
     }
     out
 }
@@ -351,7 +357,7 @@ fn rail_routes(routes: &Csv) -> HashMap<String, (&'static str, u32, bool, String
 /// pair, because the output has to be byte-identical between runs.
 fn shape_ids_by_route(
     trips: &Csv,
-    rail: &HashMap<String, (&'static str, u32, bool, String)>,
+    rail: &HashMap<String, (&'static str, u32, bool, String, bool)>,
 ) -> BTreeMap<String, BTreeSet<String>> {
     let mut out: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for row in &trips.rows {

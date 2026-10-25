@@ -143,7 +143,11 @@ pub(crate) fn run_with_timer(
             //
             // A ceiling rather than a ban, so the two-services-on-one-track case the tests
             // pin still works. Above it the track is already saying everything it can.
-            if mode_cover.crowd_reaches_walked(&walked, MAX_SERVICES_PER_TRACK) {
+            //
+            // Intercity lines are exempt: at country zoom they are the only transit drawn, so
+            // losing one to a crowded shared corridor (the Northeast Corridor carries a dozen
+            // commuter services) would cut a gap in the national network.
+            if !line.intercity && mode_cover.crowd_reaches_walked(&walked, MAX_SERVICES_PER_TRACK) {
                 crowded += 1;
                 continue;
             }
@@ -199,8 +203,14 @@ pub(crate) fn run_with_timer(
         write!(
             buf,
             "]}},\"properties\":{{\"color\":\"{:06X}\",\"mode\":\"{}\",\"ordinal\":{},\
-             \"lanes\":{},\"taper\":{},\"route\":\"",
-            line.color, line.mode, line.ordinal, line.lanes, line.taper,
+             \"lanes\":{},\"taper\":{},{}\"route\":\"",
+            intercity::drawn_color(line.color, line.intercity, fallback_color(line.mode)),
+            line.mode,
+            line.ordinal,
+            line.lanes,
+            line.taper,
+            // Only when set, so every other line is written exactly as before.
+            if line.intercity { "\"intercity\":1," } else { "" },
         )
         .map_err(io_err)?;
         json_escape(line.route.as_bytes(), &mut buf);
@@ -219,11 +229,12 @@ pub(crate) fn run_with_timer(
          {without_shape} with no usable shape, {shapes_read} shape(s) read, \
          {deduped} republished byte-for-byte, {merged} already drawn in their colour, \
          {crowded} over track already carrying {MAX_SERVICES_PER_TRACK} services, \
-         {} line(s), {bundled} in a shared corridor, \
+         {} line(s), {} intercity, {bundled} in a shared corridor, \
          {fell_back} on a per-mode fallback colour)",
         out_path.display(),
         specs.len(),
         lines.len(),
+        lines.iter().filter(|l| l.intercity).count(),
     );
     Ok(())
 }

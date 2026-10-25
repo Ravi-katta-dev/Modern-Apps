@@ -65,7 +65,8 @@ fn the_vendored_flat_style_parses() {
             count(LayerKind::Line, true),
             count(LayerKind::Symbol, true)
         ),
-        (0, 1, 7),
+        // Two toggled lines: `transit-rail`, and `transit-intercity` below its floor.
+        (0, 2, 7),
         "the optional layer set",
     );
     assert_eq!(style.background, (0xFF80DEEA, 0xFF0D1B2A));
