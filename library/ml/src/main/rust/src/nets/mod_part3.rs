@@ -5,6 +5,12 @@
 /// drift apart.
 const CONV_POINT_TILE: u32 = 16;
 
+/// `TILE` in `shaders/conv_point_int8.comp`: output channels and positions per workgroup.
+///
+/// Separate from [`CONV_POINT_TILE`] because the int8 shader dropped shared-memory tiling for
+/// register blocking and covers a larger tile - see its header. **Must equal `TILE` there.**
+const CONV_POINT_INT8_TILE: u32 = 32;
+
 /// `ROWS` in `shaders/conv_vec_int8.comp`: output channels per workgroup.
 ///
 /// That shader is dispatched one workgroup per group of this many channels, so [`Builder::emit`]

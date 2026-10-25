@@ -1,5 +1,5 @@
 #version 450
-//! `conv_point.comp` with int8 weights, dequantised by one scale per output channel.
+//! A `1 x 1` convolution with int8 weights over a sequence: an int8-by-fp16 matrix product.
 //!
 //! `out[o][p] = act(scale[o] * sum_i W[o][i] * in[i][p] + bias[o])`, `p` over positions.
 //!
@@ -7,106 +7,178 @@
 //!
 //! `conv_int8.comp` is shaped like `conv.comp`: one invocation per output element, each reading
 //! its own weight row from global memory with no reuse. That is survivable for a spatial kernel
-//! and catastrophic for a wide `1 x 1` over a short sequence — the same 15.2 GFLOP/s against a
-//! device peak of order 1000 that `conv_point.comp` exists to fix.
+//! and catastrophic for a wide `1 x 1` over a sequence, which is every encoder projection and every
+//! prefill: the weight row is re-read once per position.
 //!
-//! Supertonic's sampler is 92% pointwise convolution by parameter count and runs `2 * STEPS`
-//! times per utterance, so quantising it onto the untiled path would move almost all of its work
-//! onto the slow one and take text-to-speech past real time. Quantising is a size win only if the
-//! tiled shape has an int8 form, which is this.
+//! # Register blocking, not shared-memory tiling
 //!
-//! # What differs from `conv_point.comp`
+//! Each invocation owns a 4 x 4 block - four output channels by four positions - and the 64 of a
+//! workgroup tile a 32 x 32 block of the output, eight across and eight down. Every weight word read
+//! feeds four positions and every activation read feeds four channels, which is the whole of the
+//! reuse; it is held in registers rather than staged through shared memory.
 //!
-//! Two lines, and nothing structural. The weight tile is staged from `int8_at` through the 32-bit
-//! view of the weights buffer rather than read as fp16, and the finished accumulator is scaled
-//! before the bias is added. Everything else — the tiling, the 2 x 2 register blocking, both
-//! barriers — is that shader unchanged; see it for why the tiling is shaped the way it is.
+//! The previous version staged 16 x 16 tiles of both operands through shared memory with two
+//! barriers per 16 input channels. On Mali, shared memory is ordinary cached memory and a barrier
+//! stalls the whole workgroup, so that bought no reuse the cache was not already giving and paid
+//! for it 128 times per 1,024-wide projection: on a Pixel 8 it reached 9-16 GMAC/s, which made it
+//! 98% of NLLB's encoder and a third of whisper's.
 //!
-//! The scale is per **output channel**, which is the tile's row axis, so an invocation's two rows
-//! carry two scales and each applies to a whole finished accumulator. A per-input-channel scale
-//! could not be hoisted out of the inner loop this way.
+//! # Four input channels per weight load
 //!
-//! `p.weight` is a **32-bit word** offset, as in `conv_int8.comp`. `p.act_weight` holds the scale
-//! tensor as an fp16 element index, which is why `Act::PRelu` cannot ride along.
+//! Int8 weights pack four to a 32-bit word along the input axis, so one load from the word view
+//! gives four taps of one output channel. That needs every row to start on a word, which is
+//! `in_c % 4 == 0`; every projection in every net here satisfies it, and the rare one that does not
+//! takes the element-at-a-time loop instead.
+//!
+//! # The scale
+//!
+//! Per **output channel**, so each of an invocation's four rows carries one scale applied to its
+//! finished accumulators. `p.weight` is a **32-bit word** offset, as in `conv_int8.comp`;
+//! `p.act_weight` holds the scale tensor as an fp16 element index, which is why `Act::PRelu`
+//! cannot ride along.
+//!
+//! # Wide loads
+//!
+//! When `in_c % 16 == 0` and the position count is a multiple of four - every encoder and prefill
+//! here - weights are read sixteen taps at a time through the `uvec4` view and activations four
+//! positions at a time through a read-only `f16vec4` view of the arena. Scalar loads were the
+//! limit: one 32-bit load per four MACs. The narrow paths below remain for anything else.
 
 #include "common.glsl"
 
-/// Output channels and positions per workgroup, and input channels per staging step.
-#define TILE 16u
+/// The arena again, four fp16 elements per entry, for the wide activation loads.
+///
+/// The same binding as `arena`; reads only, and only of ranges no op in this dispatch writes, so
+/// the alias is never a hazard. Indexing needs the element offset divisible by four, which the
+/// arena's 16-byte allocation alignment and a position count divisible by four together give.
+layout(std430, binding = 0) readonly buffer ArenaQuad {
+    f16vec4 arena_quad[];
+};
 
-/// The staged blocks. `TILE * TILE` each, so 2 KB of shared memory at fp32.
-shared float weight_tile[TILE][TILE];
-shared float input_tile[TILE][TILE];
+/// Output channels and positions per workgroup: 8 x 8 invocations of 4 x 4 each.
+///
+/// **Must equal `CONV_POINT_INT8_TILE` in `nets`**, which counts the workgroups.
+#define TILE 32u
+
+/// Channels and positions per invocation.
+#define BLOCK 4u
 
 void main() {
-    // The tile this workgroup owns. Uniform across the workgroup, so returning early cannot
-    // strand a barrier — every invocation takes the same branch.
     uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
     if (tile >= p.count) {
         return;
     }
     uint positions = p.out_h * p.out_w;
     uint tiles_across = (positions + TILE - 1u) / TILE;
-    uint channel_base = (tile / tiles_across) * TILE;
-    uint position_base = (tile % tiles_across) * TILE;
-
-    // This invocation's 2 x 2 corner of the tile.
     uint lid = gl_LocalInvocationID.x;
-    uint local_row = (lid >> 3u) * 2u;
-    uint local_col = (lid & 7u) * 2u;
+    uint channel_base = (tile / tiles_across) * TILE + (lid >> 3u) * BLOCK;
+    uint position_base = (tile % tiles_across) * TILE + (lid & 7u) * BLOCK;
 
-    float acc[2][2] = { { 0.0, 0.0 }, { 0.0, 0.0 } };
-
-    for (uint k0 = 0u; k0 < p.in_c; k0 += TILE) {
-        // Stage both blocks. 256 elements each, 64 invocations, so four apiece. Out-of-range
-        // entries are zeroed rather than skipped, which lets the inner loop run unguarded.
-        for (uint n = 0u; n < 4u; n++) {
-            uint slot = lid + n * 64u;
-            uint r = slot >> 4u;
-            uint c = slot & 15u;
-
-            uint channel = channel_base + r;
-            uint k_weight = k0 + c;
-            weight_tile[r][c] = (channel < p.out_c && k_weight < p.in_c)
-                ? float(int8_at(p.weight, channel * p.in_c + k_weight))
-                : 0.0;
-
-            uint k_input = k0 + r;
-            uint position = position_base + c;
-            input_tile[r][c] = (k_input < p.in_c && position < positions)
-                ? float(arena[p.in0 + k_input * positions + position])
-                : 0.0;
-        }
-        barrier();
-
-        for (uint k = 0u; k < TILE; k++) {
-            float a0 = weight_tile[local_row][k];
-            float a1 = weight_tile[local_row + 1u][k];
-            float b0 = input_tile[k][local_col];
-            float b1 = input_tile[k][local_col + 1u];
-            acc[0][0] += a0 * b0;
-            acc[0][1] += a0 * b1;
-            acc[1][0] += a1 * b0;
-            acc[1][1] += a1 * b1;
-        }
-        // Both barriers are needed: the second stops the next step's staging from overwriting
-        // tiles an invocation is still reading.
-        barrier();
+    // Rows past the last channel read the last row instead, so the inner loop needs no guard;
+    // their results are discarded at the store.
+    uint rows[BLOCK];
+    for (uint i = 0u; i < BLOCK; i++) {
+        rows[i] = min(channel_base + i, p.out_c - 1u);
+    }
+    // Columns past the last position are read as zero and never stored.
+    bool live[BLOCK];
+    for (uint j = 0u; j < BLOCK; j++) {
+        live[j] = position_base + j < positions;
     }
 
-    for (uint i = 0u; i < 2u; i++) {
-        uint channel = channel_base + local_row + i;
+    float acc[BLOCK][BLOCK];
+    for (uint i = 0u; i < BLOCK; i++) {
+        for (uint j = 0u; j < BLOCK; j++) {
+            acc[i][j] = 0.0;
+        }
+    }
+
+    bool wide = (p.in_c & 15u) == 0u && (positions & 3u) == 0u && (p.in0 & 3u) == 0u
+        && (p.weight & 3u) == 0u;
+    if (wide) {
+        // Whole quads only: the position count is a multiple of four, so a quad is live or not.
+        if (position_base >= positions) {
+            return;
+        }
+        uint quads = positions >> 2u;
+        uint quad = (p.in0 + position_base) >> 2u;
+        uint rows16[BLOCK];
+        for (uint i = 0u; i < BLOCK; i++) {
+            rows16[i] = (p.weight + ((rows[i] * p.in_c) >> 2u)) >> 2u;
+        }
+        vec4 sum[BLOCK];
+        for (uint i = 0u; i < BLOCK; i++) {
+            sum[i] = vec4(0.0);
+        }
+        for (uint k = 0u; k < p.in_c; k += 16u) {
+            uvec4 w[BLOCK];
+            for (uint i = 0u; i < BLOCK; i++) {
+                w[i] = weights128[rows16[i] + (k >> 4u)];
+            }
+            for (uint t = 0u; t < 16u; t++) {
+                vec4 x = vec4(arena_quad[quad + (k + t) * quads]);
+                for (uint i = 0u; i < BLOCK; i++) {
+                    float tap = float(bitfieldExtract(int(w[i][t >> 2u]), int((t & 3u) << 3u), 8));
+                    sum[i] += tap * x;
+                }
+            }
+        }
+        for (uint i = 0u; i < BLOCK; i++) {
+            for (uint j = 0u; j < BLOCK; j++) {
+                acc[i][j] = sum[i][j];
+            }
+        }
+    } else if ((p.in_c & 3u) == 0u) {
+        uint words[BLOCK];
+        for (uint i = 0u; i < BLOCK; i++) {
+            words[i] = p.weight + ((rows[i] * p.in_c) >> 2u);
+        }
+        for (uint k = 0u; k < p.in_c; k += 4u) {
+            float x[4][BLOCK];
+            for (uint t = 0u; t < 4u; t++) {
+                uint at = p.in0 + (k + t) * positions + position_base;
+                for (uint j = 0u; j < BLOCK; j++) {
+                    x[t][j] = live[j] ? float(arena[at + j]) : 0.0;
+                }
+            }
+            for (uint i = 0u; i < BLOCK; i++) {
+                int word = int(weights32[words[i] + (k >> 2u)]);
+                for (uint t = 0u; t < 4u; t++) {
+                    float w = float(bitfieldExtract(word, int(t << 3u), 8));
+                    for (uint j = 0u; j < BLOCK; j++) {
+                        acc[i][j] += w * x[t][j];
+                    }
+                }
+            }
+        }
+    } else {
+        for (uint k = 0u; k < p.in_c; k++) {
+            uint at = p.in0 + k * positions + position_base;
+            float x[BLOCK];
+            for (uint j = 0u; j < BLOCK; j++) {
+                x[j] = live[j] ? float(arena[at + j]) : 0.0;
+            }
+            for (uint i = 0u; i < BLOCK; i++) {
+                float w = float(int8_at(p.weight, rows[i] * p.in_c + k));
+                for (uint j = 0u; j < BLOCK; j++) {
+                    acc[i][j] += w * x[j];
+                }
+            }
+        }
+    }
+
+    for (uint i = 0u; i < BLOCK; i++) {
+        uint channel = channel_base + i;
         if (channel >= p.out_c) {
             continue;
         }
         float scale = float(weights[p.act_weight + channel]);
         float offset = float(weights[p.bias + channel]);
-        for (uint j = 0u; j < 2u; j++) {
-            uint position = position_base + local_col + j;
-            if (position >= positions) {
+        for (uint j = 0u; j < BLOCK; j++) {
+            if (!live[j]) {
                 continue;
             }
-            uint index = channel * positions + position;
+            uint index = channel * positions + position_base + j;
             float value = quant_store(fused_store(acc[i][j] * scale + offset, p.act, channel, index));
             arena[p.out_at + index] = float16_t(value);
         }

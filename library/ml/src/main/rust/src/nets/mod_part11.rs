@@ -51,6 +51,23 @@ pub(crate) mod tests {
             "the Q2_K gemv shader and Rust disagree on channels per workgroup"
         );
     }
+    /// `CONV_POINT_INT8_TILE` must equal `TILE` in the int8 tiled shader.
+    ///
+    /// Rust dispatches one workgroup per `TILE x TILE` block and the shader owns that block, so a
+    /// mismatch leaves part of every projection unwritten - plausible wrong numbers, not an error.
+    #[test]
+    fn the_int8_tile_matches_its_shader() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("shaders")
+            .join("conv_point_int8.comp");
+        let source = std::fs::read_to_string(&path).expect("the shader reads");
+        let tile: u32 = source
+            .lines()
+            .find_map(|line| line.trim_start().strip_prefix("#define TILE"))
+            .and_then(|rest| rest.trim().trim_end_matches('u').parse().ok())
+            .expect("conv_point_int8.comp declares TILE");
+        assert_eq!(tile, CONV_POINT_INT8_TILE);
+    }
     use super::*;
 
     /// A [`WeightSource`] that knows only shapes.

@@ -44,6 +44,8 @@ impl<'a> Builder<'a> {
                 // shader instead. It is the whole of a SMaLL-100 decode step.
                 let vector = tiled && positions == 1;
                 let tiles = so.c.div_ceil(CONV_POINT_TILE) * positions.div_ceil(CONV_POINT_TILE);
+                let int8_tiles =
+                    so.c.div_ceil(CONV_POINT_INT8_TILE) * positions.div_ceil(CONV_POINT_INT8_TILE);
                 // One workgroup per row-group: 2 channels for int8, 8 for int4 and Q2_K —
                 // the three gemv shaders diverged, so each kind counts its own rows.
                 let rows = match quant {
@@ -72,7 +74,8 @@ impl<'a> Builder<'a> {
                 // Workgroups for the staged kinds, output elements for the untiled one.
                 let count = match kind {
                     Kind::ConvVecInt8 | Kind::ConvVecInt4 | Kind::ConvVecQ2K => rows,
-                    Kind::ConvPointInt8 | Kind::ConvPointInt4 | Kind::ConvPointQ2K => tiles,
+                    Kind::ConvPointInt8 => int8_tiles,
+                    Kind::ConvPointInt4 | Kind::ConvPointQ2K => tiles,
                     _ => so.len(),
                 };
                 ops.push(Op::Dispatch {

@@ -400,6 +400,48 @@ fn a_tiled_int8_convolution_agrees_with_the_reference() {
 
 #[test]
 #[ignore = "needs a Vulkan device"]
+fn a_tiled_int8_convolution_agrees_across_many_tiles_and_both_loops() {
+    // Several 32 x 32 workgroup tiles in both axes, each axis ending on a partial one, run once
+    // through each of the shader's three loops: sixteen-tap wide loads (`in_c % 16 == 0` and a
+    // width divisible by four), the packed-word loop (`in_c % 4 == 0`) and the element-at-a-time
+    // one. A residual-free projection with no activation, so a wrong tap shows directly in the
+    // numbers rather than being squashed by a saturating activation.
+    for (out_channels, in_channels, width) in [(70u32, 64u32, 76u32), (70, 64, 75), (45, 30, 40)] {
+        let kernel: Vec<i8> = (0..(out_channels * in_channels) as i32)
+            .map(|i| ((i * 53) % 251 - 125) as i8)
+            .collect();
+        let scales: Vec<f32> = (0..out_channels).map(|c| 0.003_906_25 * (1.0 + (c % 7) as f32)).collect();
+        let blob = write_mixed(
+            graph::SUPERTONIC_VE,
+            &[
+                Fixture::I8(vec![out_channels, in_channels, 1, 1], kernel),
+                Fixture::F16(vec![out_channels], scales),
+                Fixture::F16(vec![out_channels], spread(out_channels as usize, 0.4)),
+            ],
+        );
+        let weights = Weights::parse(&blob, graph::SUPERTONIC_VE).expect("the fixture blob parses");
+        let input = spread((in_channels * width) as usize, 0.2);
+        let mut builder = Builder::new(&weights);
+        let first = builder.input(Shape::new(in_channels, 1, width));
+        let last = builder.conv_int8(
+            first,
+            0,
+            out_channels,
+            (1, 1),
+            (1, 1),
+            (1, 1),
+            (0, 0, 0, 0),
+            1,
+            Act::None,
+        );
+        let plan = builder.finish(&[last]).expect("the fixture plan builds");
+        let what = format!("a tiled int8 convolution {out_channels}x{in_channels} over {width}");
+        compare(&what, plan, weights.data().to_vec(), &[&input]);
+    }
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
 fn report_the_tiled_int8_convolution_against_the_tiled_fp16_one() {
     // The measurement Phase 2 of the int8 plan is gated on, printed by
     // `cargo test -- --ignored --nocapture`. `conv_point_int8.comp` exists so that quantising
