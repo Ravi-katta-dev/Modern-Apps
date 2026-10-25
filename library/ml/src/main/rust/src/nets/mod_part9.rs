@@ -43,7 +43,6 @@ impl<'a> Builder<'a> {
                 // every 64 invocations, so a single-position pointwise convolution goes to the gemv
                 // shader instead. It is the whole of a SMaLL-100 decode step.
                 let vector = tiled && positions == 1;
-                let tiles = so.c.div_ceil(CONV_POINT_TILE) * positions.div_ceil(CONV_POINT_TILE);
                 let int8_tiles =
                     so.c.div_ceil(CONV_POINT_INT8_TILE) * positions.div_ceil(CONV_POINT_INT8_TILE);
                 // One workgroup per row-group: 2 channels for int8, 8 for int4 and Q2_K —
