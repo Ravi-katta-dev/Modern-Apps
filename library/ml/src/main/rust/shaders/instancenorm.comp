@@ -23,9 +23,50 @@
 //! `scripts/ml/modnet_fold.py`), so `epsilon` is the only parameter and it
 //! arrives in the push block.
 
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 #include "common.glsl"
+#include "reduce.glsl"
+
+void row_mode() {
+    uint channel = reduce_row();
+    if (channel >= p.count) {
+        return;
+    }
+    // `count` is `in_c`, so `channel` walks the channels and the plane extent
+    // is that channel's contiguous run. Lanes stride it, so adjacent lanes
+    // read adjacent elements. See `reduce.glsl` for why: MODNet's planes reach
+    // 128x128, which one invocation walks serially at 16 ms a channel.
+    uint plane = p.in_h * p.in_w;
+    uint base = channel * plane;
+    uint lane = gl_LocalInvocationID.x;
+    uint lanes = gl_WorkGroupSize.x;
+    float epsilon = uintBitsToFloat(p.param1_bits);
+
+    float total = 0.0;
+    for (uint i = lane; i < plane; i += lanes) {
+        total += float(arena[p.in0 + base + i]);
+    }
+    float mean = workgroup_sum(total) / float(plane);
+
+    float variance = 0.0;
+    for (uint i = lane; i < plane; i += lanes) {
+        float centred = float(arena[p.in0 + base + i]) - mean;
+        variance += centred * centred;
+    }
+    float inverse = 1.0 / sqrt(workgroup_sum(variance) / float(plane) + epsilon);
+
+    for (uint i = lane; i < plane; i += lanes) {
+        float centred = float(arena[p.in0 + base + i]) - mean;
+        arena[p.out_at + base + i] = float16_t(centred * inverse);
+    }
+}
 
 void main() {
+    if (reduce_row_mode()) {
+        row_mode();
+        return;
+    }
     uint channel = global_index();
     if (channel >= p.count) {
         return;

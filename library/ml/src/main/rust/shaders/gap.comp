@@ -9,10 +9,43 @@
 //! ONNX calls this `ReduceMean` with `axes = [2, 3]` and `keepdims = 1`, which is why the
 //! output keeps its two trailing unit dimensions and `mul_bcast.comp` can index it by
 //! channel alone.
+//!
+//! # Row mode
+//!
+//! With `p.kw == 1` one 64-lane workgroup owns one channel and its lanes stride the
+//! plane, like `instancenorm.comp`. Selected by the emit arm for large planes; small
+//! maps keep one invocation per channel. See `reduce.glsl`.
 
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 #include "common.glsl"
+#include "reduce.glsl"
+
+void row_mode() {
+    uint channel = reduce_row();
+    if (channel >= p.count) {
+        return;
+    }
+    uint plane = p.in0 + channel * p.in_h * p.in_w;
+    uint elements = p.in_h * p.in_w;
+    uint lane = gl_LocalInvocationID.x;
+    uint lanes = gl_WorkGroupSize.x;
+
+    float total = 0.0;
+    for (uint i = lane; i < elements; i += lanes) {
+        total += float(arena[plane + i]);
+    }
+
+    if (lane == 0u) {
+        arena[p.out_at + channel] = float16_t(workgroup_sum(total) / float(elements));
+    }
+}
 
 void main() {
+    if (reduce_row_mode()) {
+        row_mode();
+        return;
+    }
     uint channel = global_index();
     if (channel >= p.count) {
         return;
