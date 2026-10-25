@@ -226,3 +226,58 @@ fn a_gemma_combine_projection_gemv_agrees_with_the_reference() {
     );
     compare("a gemma combine-projection gemv", plan, weights.data().to_vec(), &[&input]);
 }
+
+/// An int4 1x1 convolution over `positions` columns, checked against the reference; asserts it
+/// lowered to the tiled GEMM (`conv_point_int4.comp`).
+fn int4_gemm_fixture(label: &str, out_channels: u32, in_channels: u32, positions: u32, act: Act) {
+    let blocks = in_channels.div_ceil(32);
+    let kernel: Vec<i8> =
+        (0..(out_channels * in_channels) as i32).map(|i| ((i * 7 + i / 5) % 16 - 8) as i8).collect();
+    let scales: Vec<f32> =
+        (0..out_channels * blocks).map(|i| 0.007_812_5 * (1.0 + (i % 5) as f32)).collect();
+    let biases: Vec<f32> = spread(out_channels as usize, 1.3);
+    let blob = write_mixed(
+        graph::SUPERTONIC_VE,
+        &[
+            Fixture::I4(vec![out_channels, in_channels, 1, 1], kernel),
+            Fixture::F16(vec![out_channels, blocks], scales),
+            Fixture::F16(vec![out_channels], biases),
+        ],
+    );
+    let weights = Weights::parse(&blob, graph::SUPERTONIC_VE).expect("the int4 fixture parses");
+    let input = spread((in_channels * positions) as usize, 0.5);
+    let mut builder = Builder::new(&weights);
+    let first = builder.input(Shape::new(in_channels, 1, positions));
+    let last = builder.conv_int4(first, 0, out_channels, act);
+    let plan = builder.finish(&[last]).expect("the int4 gemm fixture plan builds");
+    assert!(
+        plan.ops.iter().any(|op| matches!(
+            op,
+            crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvPointInt4, .. }
+        )),
+        "a multi-position int4 convolution must lower to the tiled shader",
+    );
+    compare(label, plan, weights.data().to_vec(), &[&input]);
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_gemma_prefill_query_gemm_agrees_with_the_reference() {
+    // Sliding `q_proj` over a 200-token prompt: whole 32x32 tiles, quad-aligned positions.
+    int4_gemm_fixture("a gemma prefill query gemm", 2048, 1536, 200, Act::None);
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_ragged_prefill_gemm_agrees_with_the_reference() {
+    // 37 positions straddle quads and leave a partial tile; 1000 channels leave a partial row
+    // tile; 2048 taps is 64 blocks.
+    int4_gemm_fixture("a ragged prefill gemm", 1000, 2048, 37, Act::Gelu);
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn an_unblocked_prefill_gemm_agrees_with_the_reference() {
+    // 100 taps is not a whole number of 32-tap blocks: the per-tap scalar path.
+    int4_gemm_fixture("an unblocked prefill gemm", 40, 100, 9, Act::None);
+}

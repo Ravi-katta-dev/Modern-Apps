@@ -1,31 +1,27 @@
 #version 450
 //! `conv_point_int8.comp` for a **4-bit** kernel with **per-block** scales.
 //!
-//! # Where the scale goes
-//!
-//! Into the staged weight tile, not the accumulator. The int8 shader multiplies the finished
-//! accumulator by one per-row scale; a per-block scale cannot wait that long, because a tile's
-//! accumulator has already summed taps from more than one row's worth of blocks by the time it
-//! is stored.
-//!
-//! What makes that cheap here is that `TILE` is 16 and `I4_BLOCK` is 32, and the loop steps `k0`
-//! by `TILE`: taps `k0 .. k0 + 15` are therefore always inside a single block, so one scale
-//! covers the whole staged tile row and is fetched once per staged element rather than once per
-//! multiply-accumulate. **This is only true while `TILE` divides `I4_BLOCK`** - the assertion is
-//! recorded in `nets::gemma4`'s tests rather than being expressible here.
+//! Same register-blocked layout: a 32 x 32 output tile per workgroup, 4 channels x 4 positions
+//! per lane, no shared memory. When `in_c` is a multiple of `I4_BLOCK` (32) and the weights are
+//! 16-byte aligned, one `uvec4` load is a whole block of one row, the 32 taps of a block
+//! accumulate unscaled, and the row's block scale multiplies the partial once. That is the
+//! difference from the int8 shader, which scales the finished accumulator: a per-block scale has
+//! to reach each block's sum.
 //!
 //! # Push fields
 //!
 //! As `conv_point_int8.comp`, with `p.act_weight` a rank-2 `(out_channels, blocks)` table instead
-//! of a rank-1 per-row one.
-
+//! of a rank-1 per-row one. Dispatched with `CONV_POINT_INT8_TILE` tiles.
 #include "common.glsl"
 
-/// Output channels and positions per workgroup, and input channels per staging step.
-#define TILE 16u
-/// The staged blocks. `TILE * TILE` each, so 2 KB of shared memory at fp32.
-shared float weight_tile[TILE][TILE];
-shared float input_tile[TILE][TILE];
+/// The arena as quads of fp16, for the wide activation loads. Read-only, and never a range this
+/// dispatch writes.
+layout(std430, binding = 0) readonly buffer ArenaQuad {
+    f16vec4 arena_quad[];
+};
+
+#define TILE 32u
+#define BLOCK 4u
 
 void main() {
     uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
@@ -34,58 +30,114 @@ void main() {
     }
     uint positions = p.out_h * p.out_w;
     uint tiles_across = (positions + TILE - 1u) / TILE;
-    uint channel_base = (tile / tiles_across) * TILE;
-    uint position_base = (tile % tiles_across) * TILE;
-    uint blocks = (p.in_c + I4_BLOCK - 1u) / I4_BLOCK;
     uint lid = gl_LocalInvocationID.x;
-    uint local_row = (lid >> 3u) * 2u;
-    uint local_col = (lid & 7u) * 2u;
-    float acc[2][2] = { { 0.0, 0.0 }, { 0.0, 0.0 } };
-    for (uint k0 = 0u; k0 < p.in_c; k0 += TILE) {
-        for (uint n = 0u; n < 4u; n++) {
-            uint slot = lid + n * 64u;
-            uint r = slot >> 4u;
-            uint c = slot & 15u;
-            uint channel = channel_base + r;
-            uint k_weight = k0 + c;
-            // The scale is folded in here, so the inner product below is unchanged from the int8
-            // shader's and the accumulator needs no second pass.
-            weight_tile[r][c] = (channel < p.out_c && k_weight < p.in_c)
-                ? float(int4_at(p.weight, channel * p.in_c + k_weight))
-                    * int4_scale(channel, k_weight / I4_BLOCK, blocks)
-                : 0.0;
-            uint k_input = k0 + r;
-            uint position = position_base + c;
-            input_tile[r][c] = (k_input < p.in_c && position < positions)
-                ? float(arena[p.in0 + k_input * positions + position])
-                : 0.0;
-        }
-        barrier();
-        for (uint k = 0u; k < TILE; k++) {
-            float a0 = weight_tile[local_row][k];
-            float a1 = weight_tile[local_row + 1u][k];
-            float b0 = input_tile[k][local_col];
-            float b1 = input_tile[k][local_col + 1u];
-            acc[0][0] += a0 * b0;
-            acc[0][1] += a0 * b1;
-            acc[1][0] += a1 * b0;
-            acc[1][1] += a1 * b1;
-        }
-        barrier();
+    uint channel_base = (tile / tiles_across) * TILE + (lid >> 3u) * BLOCK;
+    uint position_base = (tile % tiles_across) * TILE + (lid & 7u) * BLOCK;
+    uint blocks = (p.in_c + I4_BLOCK - 1u) / I4_BLOCK;
+    // Rows past the output read the last row and are dropped at the store.
+    uint rows[BLOCK];
+    for (uint i = 0u; i < BLOCK; i++) {
+        rows[i] = min(channel_base + i, p.out_c - 1u);
     }
-    for (uint i = 0u; i < 2u; i++) {
-        uint channel = channel_base + local_row + i;
+    bool live[BLOCK];
+    for (uint j = 0u; j < BLOCK; j++) {
+        live[j] = position_base + j < positions;
+    }
+    float acc[BLOCK][BLOCK];
+    for (uint i = 0u; i < BLOCK; i++) {
+        for (uint j = 0u; j < BLOCK; j++) {
+            acc[i][j] = 0.0;
+        }
+    }
+    if ((p.in_c & 31u) == 0u && (p.weight & 3u) == 0u) {
+        // No barriers in this shader, so a lane with no live position may leave.
+        if (position_base >= positions) {
+            return;
+        }
+        // A row starts at word `p.weight + row * in_c / 8`, a whole `uvec4` when both terms are.
+        uint rows32[BLOCK];
+        for (uint i = 0u; i < BLOCK; i++) {
+            rows32[i] = (p.weight >> 2u) + rows[i] * (p.in_c >> 5u);
+        }
+        vec4 sum[BLOCK];
+        for (uint i = 0u; i < BLOCK; i++) {
+            sum[i] = vec4(0.0);
+        }
+        bool aligned = (positions & 3u) == 0u && (p.in0 & 3u) == 0u;
+        uint quads = positions >> 2u;
+        uint quad = (p.in0 + position_base) >> 2u;
+        uint first = p.in0 + position_base;
+        uint last_quad = (p.in0 + p.in_c * positions - 1u) >> 2u;
+        for (uint block = 0u; block < blocks; block++) {
+            uvec4 w[BLOCK];
+            for (uint i = 0u; i < BLOCK; i++) {
+                w[i] = weights128[rows32[i] + block];
+            }
+            vec4 part[BLOCK];
+            for (uint i = 0u; i < BLOCK; i++) {
+                part[i] = vec4(0.0);
+            }
+            uint k = block * I4_BLOCK;
+            for (uint t = 0u; t < I4_BLOCK; t++) {
+                vec4 x;
+                if (aligned) {
+                    x = vec4(arena_quad[quad + (k + t) * quads]);
+                } else {
+                    // Four positions straddling two quads; the clamp keeps the tail read in
+                    // bounds, and the lanes it substitutes are not live.
+                    uint at = first + (k + t) * positions;
+                    uint q = at >> 2u;
+                    uint s = at & 3u;
+                    f16vec4 a = arena_quad[q];
+                    f16vec4 b = arena_quad[min(q + 1u, last_quad)];
+                    f16vec4 h = s == 0u ? a
+                        : s == 1u ? f16vec4(a.yzw, b.x)
+                        : s == 2u ? f16vec4(a.zw, b.xy)
+                        : f16vec4(a.w, b.xyz);
+                    x = vec4(h);
+                }
+                for (uint i = 0u; i < BLOCK; i++) {
+                    float tap = float(bitfieldExtract(int(w[i][t >> 3u]), int((t & 7u) << 2u), 4));
+                    part[i] += tap * x;
+                }
+            }
+            for (uint i = 0u; i < BLOCK; i++) {
+                sum[i] += part[i] * int4_scale(rows[i], block, blocks);
+            }
+        }
+        for (uint i = 0u; i < BLOCK; i++) {
+            for (uint j = 0u; j < BLOCK; j++) {
+                acc[i][j] = sum[i][j];
+            }
+        }
+    } else {
+        // Any `in_c`: a nibble and its block scale per tap.
+        for (uint k = 0u; k < p.in_c; k++) {
+            uint at = p.in0 + k * positions + position_base;
+            float x[BLOCK];
+            for (uint j = 0u; j < BLOCK; j++) {
+                x[j] = live[j] ? float(arena[at + j]) : 0.0;
+            }
+            for (uint i = 0u; i < BLOCK; i++) {
+                float w = float(int4_at(p.weight, rows[i] * p.in_c + k))
+                    * int4_scale(rows[i], k / I4_BLOCK, blocks);
+                for (uint j = 0u; j < BLOCK; j++) {
+                    acc[i][j] += w * x[j];
+                }
+            }
+        }
+    }
+    for (uint i = 0u; i < BLOCK; i++) {
+        uint channel = channel_base + i;
         if (channel >= p.out_c) {
             continue;
         }
         float offset = float(weights[p.bias + channel]);
-        for (uint j = 0u; j < 2u; j++) {
-            uint position = position_base + local_col + j;
-            if (position >= positions) {
+        for (uint j = 0u; j < BLOCK; j++) {
+            if (!live[j]) {
                 continue;
             }
-            // Already scaled in the staging above, so only the bias is left.
-            uint index = channel * positions + position;
+            uint index = channel * positions + position_base + j;
             float value = quant_store(fused_store(acc[i][j] + offset, p.act, channel, index));
             arena[p.out_at + index] = float16_t(value);
         }
