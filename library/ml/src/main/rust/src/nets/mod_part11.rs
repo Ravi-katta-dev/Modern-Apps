@@ -58,6 +58,8 @@ pub(crate) mod tests {
     #[test]
     fn the_int8_tile_matches_its_shader() {
         assert_eq!(tile_of("conv_point_int8.comp"), CONV_POINT_INT8_TILE);
+        // The Q2_K tiled shader shares the int8 one's geometry and its workgroup count.
+        assert_eq!(tile_of("conv_point_q2k.comp"), CONV_POINT_INT8_TILE);
     }
 
     /// `ATTN_TILE` must equal `TILE` in both attention shaders' tiled modes, for the same reason.

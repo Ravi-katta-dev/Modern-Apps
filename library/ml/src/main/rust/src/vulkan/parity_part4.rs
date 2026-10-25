@@ -38,6 +38,43 @@ fn a_q2k_gemv_agrees_with_the_reference() {
 
 #[test]
 #[ignore = "needs a Vulkan device"]
+fn a_tiled_q2k_convolution_agrees_with_the_reference() {
+    // `conv_point_q2k.comp` over arbitrary superblock bytes: two superblocks of taps over 36
+    // positions (the word path, two partial tiles of channels) and 300 taps over 10 positions
+    // (the element path, a partial superblock and a position count not divisible by four).
+    for (out_channels, in_channels, width) in [(40u32, 512u32, 36u32), (13, 300, 10)] {
+        let blocks = in_channels.div_ceil(crate::weights::Q2K_BLOCK);
+        let bytes: Vec<u8> = (0..out_channels * blocks * crate::weights::Q2K_BYTES)
+            .map(|i| (i.wrapping_mul(2_246_822_519) >> 11) as u8)
+            .collect();
+        let pairs: Vec<f32> = (0..out_channels * blocks * 2)
+            .map(|i| 0.04 + 0.01 * ((i * 5) % 9) as f32)
+            .collect();
+        let blob = write_mixed(
+            graph::SUPERTONIC_VE,
+            &[
+                Fixture::Q2K(vec![out_channels, in_channels], bytes),
+                Fixture::F16(vec![out_channels * blocks * 2], pairs),
+                Fixture::F16(vec![out_channels], spread(out_channels as usize, 0.6)),
+            ],
+        );
+        let weights = Weights::parse(&blob, graph::SUPERTONIC_VE).expect("the fixture blob parses");
+        let input = spread((in_channels * width) as usize, 0.25);
+        let mut builder = Builder::new(&weights);
+        let first = builder.input(Shape::new(in_channels, 1, width));
+        let last = builder.conv_q2k(first, 0, out_channels, Act::None);
+        let plan = builder.finish(&[last]).expect("the tiled q2k plan builds");
+        assert!(plan.ops.iter().any(|op| matches!(
+            op,
+            crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvPointQ2K, .. }
+        )));
+        let what = format!("a tiled q2k convolution {out_channels}x{in_channels} over {width}");
+        compare(&what, plan, weights.data().to_vec(), &[&input]);
+    }
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
 fn a_wide_gemv_agrees_with_the_reference() {
     // `conv_vec_int8.comp`'s sixteen-tap path over several strides per lane (2,080 inputs is two
     // passes of 1,024 and a partial third) and an odd channel count, so the last workgroup's second

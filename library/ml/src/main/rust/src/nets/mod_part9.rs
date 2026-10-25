@@ -74,8 +74,8 @@ impl<'a> Builder<'a> {
                 // Workgroups for the staged kinds, output elements for the untiled one.
                 let count = match kind {
                     Kind::ConvVecInt8 | Kind::ConvVecInt4 | Kind::ConvVecQ2K => rows,
-                    Kind::ConvPointInt8 => int8_tiles,
-                    Kind::ConvPointInt4 | Kind::ConvPointQ2K => tiles,
+                    Kind::ConvPointInt8 | Kind::ConvPointQ2K => int8_tiles,
+                    Kind::ConvPointInt4 => tiles,
                     _ => so.len(),
                 };
                 ops.push(Op::Dispatch {

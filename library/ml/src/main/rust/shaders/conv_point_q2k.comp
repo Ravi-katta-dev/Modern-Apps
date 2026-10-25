@@ -1,129 +1,166 @@
 #version 450
-//! `conv_point_int8.comp` with GGUF Q2_K weights, dequantised by one `(d, dmin)` pair per superblock.
+//! A `1 x 1` convolution with GGUF Q2_K weights over a sequence: a Q2_K-by-fp16 matrix product.
 //!
 //! `out[o][p] = act(sum over superblocks of (d_all*(q*lo) - d_min*hi) * x + bias[o])`,
-//! `p` over positions.
+//! `p` over positions. MADLAD's encoder and prefill.
 //!
-//! # What differs from `conv_point_int8.comp`
+//! # Shape
 //!
-//! The weight tile is staged from Q2_K superblocks rather than int8 bytes, and the scale
-//! cannot hoist out of the inner loop: each 16-tap lane carries its own `(lo, hi)` scale
-//! byte, so the dequantised value is staged (fp32, one tile) rather than the codes. The
-//! `(d, dmin)` pair is per 256-tap superblock and constant across the tile's `k0` step
-//! only when the step stays inside one superblock — at `TILE` 16 it always does, since
-//! 16 taps never span a 256-tap block.
+//! `conv_point_int8.comp`'s: each invocation owns four output channels by four positions and a
+//! workgroup a 32 x 32 block, with the reuse held in registers rather than staged through shared
+//! memory. The previous version staged 16 x 16 dequantised tiles with two barriers per 16 taps; on a
+//! Pixel 8 it ran MADLAD's 192 encoder projections in 1.3 s.
 //!
-//! Everything else — the tiling, the 2 x 2 register blocking, both barriers — is that
-//! shader unchanged; see it for why the tiling is shaped the way it is.
+//! # Sixteen taps per weight word
+//!
+//! When `in_c % 256 == 0`, the position count is a multiple of four and the activation base is
+//! 4-aligned - every MADLAD projection - the loop walks the superblock's `qs` one 32-bit word at a
+//! time, as `conv_vec_q2k.comp` does: one word is the 2-bit codes of 16 taps, four per code lane.
+//! Each lane's affine pair factors out of its four taps,
+//! `sum((dall*lo*c - dmin*hi) * x) = dall*lo*sum(c*x) - dmin*hi*sum(x)`, and the activations are
+//! read four positions at a time through a read-only `f16vec4` view, shared by the four rows.
+//! Anything else takes an element-at-a-time loop through `q2k_code`/`q2k_scale`.
 //!
 //! `p.weight` is a **32-bit word** offset to the Q2_K payload, as in `conv_int8.comp`.
-//! `p.act_weight` holds the `(d, dmin)` table as an fp16 element index: pair `2*b` and
-//! `2*b+1` for superblock `b` of the row. `Act::PRelu` cannot ride along, for the same
-//! reason as the int8 pair.
+//! `p.act_weight` holds the `(d, dmin)` table as an fp16 element index: pair `2*b` and `2*b+1` for
+//! superblock `b` of the row. `Act::PRelu` cannot ride along, for the same reason as the int8 pair.
 
 #include "common.glsl"
 
-/// Output channels and positions per workgroup, and input channels per staging step.
-#define TILE 16u
+layout(std430, binding = 0) readonly buffer ArenaQuad {
+    f16vec4 arena_quad[];
+};
 
-/// Taps one Q2_K superblock covers. Mirrors `weights::Q2K_BLOCK`.
-#define Q2K_BLOCK 256u
+/// Output channels and positions per workgroup: 8 x 8 invocations of 4 x 4 each.
+///
+/// **Must equal `CONV_POINT_INT8_TILE` in `nets`**, which counts this kind's workgroups too.
+#define TILE 32u
 
-/// The staged blocks. `TILE * TILE` each, so 2 KB of shared memory at fp32.
-shared float weight_tile[TILE][TILE];
-shared float input_tile[TILE][TILE];
+/// Channels and positions per invocation.
+#define BLOCK 4u
 
 void main() {
-    // The tile this workgroup owns. Uniform across the workgroup, so returning early cannot
-    // strand a barrier — every invocation takes the same branch.
     uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
     if (tile >= p.count) {
         return;
     }
     uint positions = p.out_h * p.out_w;
     uint tiles_across = (positions + TILE - 1u) / TILE;
-    uint channel_base = (tile / tiles_across) * TILE;
-    uint position_base = (tile % tiles_across) * TILE;
-
-    // This invocation's 2 x 2 corner of the tile.
     uint lid = gl_LocalInvocationID.x;
-    uint local_row = (lid >> 3u) * 2u;
-    uint local_col = (lid & 7u) * 2u;
-
-    float acc[2][2] = { { 0.0, 0.0 }, { 0.0, 0.0 } };
-
+    uint channel_base = (tile / tiles_across) * TILE + (lid >> 3u) * BLOCK;
+    uint position_base = (tile % tiles_across) * TILE + (lid & 7u) * BLOCK;
+    if (position_base >= positions) {
+        return;
+    }
     uint blocks = (p.in_c + Q2K_BLOCK - 1u) / Q2K_BLOCK;
-    for (uint k0 = 0u; k0 < p.in_c; k0 += TILE) {
-        // Stage both blocks. 256 elements each, 64 invocations, so four apiece. Out-of-range
-        // entries are zeroed rather than skipped, which lets the inner loop run unguarded.
-        //
-        // A 16-tap staging step never spans a 256-tap superblock, so one `(d, dmin)` pair
-        // and 16 lane scales serve the whole step. The dequantised values are staged rather
-        // than the codes: the scale varies per lane, so staging codes would still need the
-        // scales beside them.
-        for (uint n = 0u; n < 4u; n++) {
-            uint slot = lid + n * 64u;
-            uint r = slot >> 4u;
-            uint c = slot & 15u;
 
-            uint channel = channel_base + r;
-            uint k_weight = k0 + c;
-            // This tap's superblock, lane and position inside it.
-            uint block = k_weight / Q2K_BLOCK;
-            uint inblock = k_weight % Q2K_BLOCK;
-            uint half_idx = inblock / 128u;
-            uint pair = (inblock % 128u) / 32u;
-            uint l = inblock % 16u;
-            uint odd = (inblock % 32u) / 16u;
-            // Superblock byte offset of this row's block: rows are contiguous runs of
-            // `blocks` superblocks.
-            uint sbo = (p.weight * 4u) + (channel * blocks + block) * 84u;
-            uint sc = q2k_scale(sbo, half_idx, pair * 2u + odd);
-            uint code = q2k_code(sbo, half_idx, inblock);
-            uint pair_at = p.act_weight + (channel * blocks + block) * 2u;
-            float d = float(weights[pair_at]);
-            float m = float(weights[pair_at + 1u]);
-            weight_tile[r][c] = (channel < p.out_c && k_weight < p.in_c)
-                ? (d * d * float(code) * float(sc & 15u) - m * d * float(sc >> 4u))
-                : 0.0;
-
-            uint k_input = k0 + r;
-            uint position = position_base + c;
-            input_tile[r][c] = (k_input < p.in_c && position < positions)
-                ? float(arena[p.in0 + k_input * positions + position])
-                : 0.0;
+    uint rows[BLOCK];
+    for (uint i = 0u; i < BLOCK; i++) {
+        rows[i] = min(channel_base + i, p.out_c - 1u);
+    }
+    bool live[BLOCK];
+    for (uint j = 0u; j < BLOCK; j++) {
+        live[j] = position_base + j < positions;
+    }
+    float acc[BLOCK][BLOCK];
+    for (uint i = 0u; i < BLOCK; i++) {
+        for (uint j = 0u; j < BLOCK; j++) {
+            acc[i][j] = 0.0;
         }
-        barrier();
-
-        for (uint k = 0u; k < TILE; k++) {
-            float a0 = weight_tile[local_row][k];
-            float a1 = weight_tile[local_row + 1u][k];
-            float b0 = input_tile[k][local_col];
-            float b1 = input_tile[k][local_col + 1u];
-            acc[0][0] += a0 * b0;
-            acc[0][1] += a0 * b1;
-            acc[1][0] += a1 * b0;
-            acc[1][1] += a1 * b1;
-        }
-        // Both barriers are needed: the second stops the next step's staging from overwriting
-        // tiles an invocation is still reading.
-        barrier();
     }
 
-    for (uint i = 0u; i < 2u; i++) {
-        uint channel = channel_base + local_row + i;
+    bool by_word = (p.in_c % Q2K_BLOCK) == 0u && (positions & 3u) == 0u && (p.in0 & 3u) == 0u;
+    if (by_word) {
+        uint quads = positions >> 2u;
+        uint quad0 = (p.in0 + position_base) >> 2u;
+        vec4 sum[BLOCK];
+        for (uint i = 0u; i < BLOCK; i++) {
+            sum[i] = vec4(0.0);
+        }
+        for (uint unit = 0u; unit < blocks * 16u; unit++) {
+            uint block = unit >> 4u;
+            uint w = unit & 15u;
+            uint half_idx = w >> 3u;
+            uint odd = (w >> 2u) & 1u;
+            uint first = block * Q2K_BLOCK + half_idx * 128u + odd * 16u + (w & 3u) * 4u;
+            // Per row: the code word, the two scale words for this half, and the affine pair.
+            uint codes[BLOCK];
+            uint scales[BLOCK][2];
+            float dall[BLOCK];
+            float dmin[BLOCK];
+            for (uint i = 0u; i < BLOCK; i++) {
+                uint sb = p.weight + (rows[i] * blocks + block) * 21u;
+                codes[i] = weights32[sb + 4u + w];
+                scales[i][0] = weights32[sb + half_idx * 2u];
+                scales[i][1] = weights32[sb + half_idx * 2u + 1u];
+                uint pair = p.act_weight + (rows[i] * blocks + block) * 2u;
+                float d = float(weights[pair]);
+                dall[i] = d * d;
+                dmin[i] = float(weights[pair + 1u]) * d;
+            }
+            for (uint q = 0u; q < 4u; q++) {
+                // Taps `first + q*32 + 0..3`, four positions each.
+                vec4 x[4];
+                for (uint t = 0u; t < 4u; t++) {
+                    x[t] = vec4(arena_quad[quad0 + (first + q * 32u + t) * quads]);
+                }
+                vec4 xsum = x[0] + x[1] + x[2] + x[3];
+                uint shift = q << 1u;
+                uint byte = (((q & 1u) << 1u) + odd) << 3u;
+                for (uint i = 0u; i < BLOCK; i++) {
+                    uint sc = (scales[i][q >> 1u] >> byte) & 255u;
+                    vec4 cx = float((codes[i] >> shift) & 3u) * x[0]
+                            + float((codes[i] >> (shift + 8u)) & 3u) * x[1]
+                            + float((codes[i] >> (shift + 16u)) & 3u) * x[2]
+                            + float((codes[i] >> (shift + 24u)) & 3u) * x[3];
+                    sum[i] += dall[i] * float(sc & 15u) * cx - dmin[i] * float(sc >> 4u) * xsum;
+                }
+            }
+        }
+        for (uint i = 0u; i < BLOCK; i++) {
+            for (uint j = 0u; j < BLOCK; j++) {
+                acc[i][j] = sum[i][j];
+            }
+        }
+    } else {
+        for (uint k = 0u; k < p.in_c; k++) {
+            uint block = k / Q2K_BLOCK;
+            uint inblock = k % Q2K_BLOCK;
+            uint half_idx = inblock / 128u;
+            uint lane = (inblock % 128u) / 32u;
+            uint odd = (inblock % 32u) / 16u;
+            uint at = p.in0 + k * positions + position_base;
+            float x[BLOCK];
+            for (uint j = 0u; j < BLOCK; j++) {
+                x[j] = live[j] ? float(arena[at + j]) : 0.0;
+            }
+            for (uint i = 0u; i < BLOCK; i++) {
+                uint sbo = (p.weight * 4u) + (rows[i] * blocks + block) * Q2K_BYTES;
+                uint sc = q2k_scale(sbo, half_idx, lane * 2u + odd);
+                uint code = q2k_code(sbo, half_idx, inblock);
+                uint pair = p.act_weight + (rows[i] * blocks + block) * 2u;
+                float d = float(weights[pair]);
+                float m = float(weights[pair + 1u]);
+                float value = d * d * float(code) * float(sc & 15u) - m * d * float(sc >> 4u);
+                for (uint j = 0u; j < BLOCK; j++) {
+                    acc[i][j] += value * x[j];
+                }
+            }
+        }
+    }
+
+    for (uint i = 0u; i < BLOCK; i++) {
+        uint channel = channel_base + i;
         if (channel >= p.out_c) {
             continue;
         }
-        // Already scaled inside the loop (per-lane scales cannot hoist), so only the bias
-        // is left.
+        // Already scaled inside the loop (per-lane scales cannot hoist), so only the bias is left.
         float offset = float(weights[p.bias + channel]);
-        for (uint j = 0u; j < 2u; j++) {
-            uint position = position_base + local_col + j;
-            if (position >= positions) {
+        for (uint j = 0u; j < BLOCK; j++) {
+            if (!live[j]) {
                 continue;
             }
-            uint index = channel * positions + position;
+            uint index = channel * positions + position_base + j;
             float value = quant_store(fused_store(acc[i][j] + offset, p.act, channel, index));
             arena[p.out_at + index] = float16_t(value);
         }
