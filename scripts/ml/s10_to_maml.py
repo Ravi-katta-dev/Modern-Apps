@@ -38,6 +38,15 @@ from tflite.Model import Model
 S10 = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'analysis',
                    'base-sections', 'Section10_TFLiteModel_tf_lite_prefill_decode.tflite')
 
+# Base-bundle Section 3 (per-layer embedder). Its 35 composite tables
+# (tensors 10..44 -> buffers 11..45, [262144,256] signed nibbles + 1 F32
+# scale/row, zp all 0) decode cos 1.000000 vs the live S3 signature runner,
+# so they are the exact source the golden uses. Preferred over the artisan
+# file when present (the artisan tables are a different checkpoint's
+# arrangement: global XOR-2 code multisets, ~0.30 position-wise agreement).
+S3 = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'analysis',
+                  'base-sections', 'Section3_TFLiteModel_tf_lite_per_layer_embedder.tflite')
+
 # GPU tied-head chunking (2026-09-26): HEAD_SPLITS rank-4 fp16 chunks of the
 # head table, each small enough to fit one Vulkan segment window (~96 MiB at
 # guaranteed 128 MiB maxStorageBufferRange). 16 x 16384 x 1536 x 2B ~= 50 MB
@@ -114,6 +123,39 @@ class S10Reader:
         s = np.array([q.Scale(i) for i in range(q.ScaleLength())], dtype=np.float32)
         assert s.size == rows, (ti, s.size, rows)
         return raw * s[:, None]
+
+
+class S3Reader:
+    """Section-3 per-layer tables (tensors 10..44 -> buffers 11..45).
+
+    Each composite is [262144,256] signed nibbles (lo-first) with 1 F32
+    scale/row (zp all 0): table[i] = nibbles * scales. Proven cos 1.000000
+    vs the live S3 `per_layer_embedder` runner on sampled tokens.
+    """
+
+    def __init__(self, path):
+        with open(path, 'rb') as f:
+            self.sec = f.read()
+        self.model = Model.GetRootAs(bytearray(self.sec), 0)
+        self.sg = self.model.Subgraphs(0)
+
+    def table(self, index):
+        ti = 10 + index
+        t = self.sg.Tensors(ti)
+        b = self.model.Buffers(t.Buffer())
+        raw = np.frombuffer(bytes(b.DataAsNumpy()), dtype=np.uint8)
+        assert raw.size >= 262144 * 128, (ti, raw.size)
+        raw = raw[:262144 * 128]
+        lo = (raw & 0xF).astype(np.float32)
+        hi = ((raw >> 4) & 0xF).astype(np.float32)
+        flat = np.empty(262144 * 256, dtype=np.float32)
+        flat[0::2] = lo
+        flat[1::2] = hi
+        flat = np.where(flat >= 8, flat - 16, flat).reshape(262144, 256)
+        q = t.Quantization()
+        s = np.array([q.Scale(i) for i in range(q.ScaleLength())], dtype=np.float32)
+        assert s.size == 262144, (ti, s.size)
+        return flat * s[:, None]
 
 
 # tensor ids mapped in collect_text (verified against the graph walk).
@@ -398,30 +440,37 @@ def collect_embed(rdr):
     tensors.extend([codes, scale, bias])
     layers.append(mc.Layer(len(layers), 'Embedding4', 'input_embedding',
                            'Embedding4 2-bit source', len(tensors) - 3, 3))
-    # Per-layer mmap tables: S10 carries none; artisan's signed-nibble read is
-    # proven vs S3, so transcribe via a LitertlmReader over the artisan file.
+    # Per-layer mmap tables: S10 carries none (that is Section 3, not
+    # Section 10). Prefer S3's own tables (exact golden source); fall back
+    # to the artisan file's signed-nibble read when S3 is absent.
     art_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'analysis',
                             'gpu-sections',
                             'Section2_TFLiteModel_tf_lite_artisan_text_decoder.tflite')
-    art = lt.LitertlmReader(art_path)
+    s3rdr = S3Reader(S3) if os.path.exists(S3) else None
+    art = lt.LitertlmReader(art_path) if s3rdr is None else None
+    if s3rdr is None and art is None:
+        raise SystemExit('collect_embed needs S3 (analysis/base-sections/...) or the artisan file')
     emit8(fid, layers, tensors, 'transformer.embedder.per_layer_model_projection.w',
           rdr.dequant8(312, 8960, 1536))
     emit_vec(layers, tensors, 'transformer.embedder.per_layer_projection_norm.scale',
              rdr.f32(305))
     for index in range(35):
-        at = f'transformer.layer_{index}.per_layer_embeddings.w'
-        w = np.frombuffer(art.raw(at), dtype=np.uint8)
-        assert w.size >= 262144 * 128, f'{at}: {w.size}'
-        w = w[:262144 * 128]
-        lo = (w & 0xF).astype(np.float32)
-        hi = ((w >> 4) & 0xF).astype(np.float32)
-        flat = np.empty(262144 * 256, dtype=np.float32)
-        flat[0::2] = lo
-        flat[1::2] = hi
-        flat = np.where(flat >= 8, flat - 16, flat).reshape(262144, 256)
-        s = np.frombuffer(art.raw(at + '_quantized_scale'), dtype=np.float32)
-        assert s.size == 262144, f'{at} scales: {s.size}'
-        out = flat * s[:, None]
+        if s3rdr is not None:
+            out = s3rdr.table(index)
+        else:
+            at = f'transformer.layer_{index}.per_layer_embeddings.w'
+            w = np.frombuffer(art.raw(at), dtype=np.uint8)
+            assert w.size >= 262144 * 128, f'{at}: {w.size}'
+            w = w[:262144 * 128]
+            lo = (w & 0xF).astype(np.float32)
+            hi = ((w >> 4) & 0xF).astype(np.float32)
+            flat = np.empty(262144 * 256, dtype=np.float32)
+            flat[0::2] = lo
+            flat[1::2] = hi
+            flat = np.where(flat >= 8, flat - 16, flat).reshape(262144, 256)
+            s = np.frombuffer(art.raw(at + '_quantized_scale'), dtype=np.float32)
+            assert s.size == 262144, f'{at} scales: {s.size}'
+            out = flat * s[:, None]
         codes, scale = fid.quantise4(f'layer_{index}.per_layer_embeddings', out)
         bias = np.zeros(262144, dtype=np.float32)
         tensors.extend([codes, scale, bias])
