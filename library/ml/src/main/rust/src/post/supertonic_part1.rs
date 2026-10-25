@@ -40,6 +40,13 @@ impl Voice {
 /// noise + text_emb -> latent     the sampler, [`STEPS`] steps of two guidance branches
 /// latent -> waveform             the vocoder
 /// ```
+///
+/// The sampler and the vocoder run at [`pad_positions`]`(frames)` rather than `frames` itself,
+/// so the int8 pointwise dispatches take the shader's wide-load path; the waveform is then
+/// truncated back to `frames * SAMPLES_PER_FRAME` samples. Bit-identical to running unpadded:
+/// the sampler's inputs replicate the edge (which its symmetric padding clamps to anyway),
+/// the vocoder is causal (real outputs never read the tail), and the tail is sliced before
+/// anything observable.
 pub fn synthesise(
     stages: &mut dyn Stages,
     conditioning: &Conditioning,
@@ -59,14 +66,28 @@ pub fn synthesise(
     with_token.extend_from_slice(&ids);
     let log_seconds = stages.duration(&embed_lanes(&with_token), &voice.duration)?;
     let frames = duration_net::latent_frames(duration_net::seconds(log_seconds) / SPEED);
+    let padded = pad_positions(frames);
 
     let conditioning_text = stages.text(&embed_lanes(&ids), &voice.text)?;
 
-    let query_angles = rotary_angles(&conditioning.theta, frames)?;
+    // Normalised by the real length, built out to the padded one: the real positions
+    // keep the exact angles the unpadded plan used and the tail is never read. The key
+    // table is over the characters, which are never padded (padding keys would steal
+    // softmax mass).
+    let query_angles = rotary_angles_over(&conditioning.theta, frames, padded)?;
     let key_angles = rotary_angles(&conditioning.theta, chars)?;
     let unconditional_text = unconditional_text(&conditioning.text_token, chars)?;
 
-    let mut latent = noise(net::LATENT as usize * frames as usize);
+    // The noise covers the real frames; the tail replicates the edge so the sampler's
+    // edge-padded depthwise reads what the unpadded plan's clamps produced. It stays padded
+    // for all sixteen steps — the plan is recorded at the padded shape — and is sliced once,
+    // below, before the vocoder.
+    let mut latent = replicate_edge(
+        &noise(net::LATENT as usize * frames as usize),
+        net::LATENT as usize,
+        frames as usize,
+        padded as usize,
+    )?;
     for step in 0..STEPS as usize {
         let shifts = conditioning
             .shifts
@@ -87,7 +108,19 @@ pub fn synthesise(
         latent = self::step(&latent, &conditional, &unconditional, STEPS)?;
     }
 
-    stages.vocoder(&latent, frames)
+    // The vocoder runs padded and its tail is truncated: it is causal, so the real prefix
+    // never read the tail and the extra samples are beyond the predicted duration anyway.
+    // Truncating the waveform rather than the latent keeps every stage at one shape.
+    let waveform = stages.vocoder(&latent, padded)?;
+    let samples =
+        frames as usize * crate::nets::supertonic_vocoder::SAMPLES_PER_FRAME as usize;
+    if waveform.len() < samples {
+        return Err(format!(
+            "a vocoder pass over {padded} frames returned {} samples, not {samples}",
+            waveform.len()
+        ));
+    }
+    Ok(waveform[..samples].to_vec())
 }
 
 /// One Euler step: combine the two guidance branches and advance the latent.
