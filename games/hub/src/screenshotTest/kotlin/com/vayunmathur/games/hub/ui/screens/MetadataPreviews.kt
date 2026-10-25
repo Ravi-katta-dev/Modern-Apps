@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
@@ -12,6 +13,7 @@ import com.vayunmathur.games.hub.data.YuuUiModel
 import com.vayunmathur.games.hub.data.entities.ActivityEventEntity
 import com.vayunmathur.games.hub.data.entities.HubGameEntity
 import com.vayunmathur.games.hub.data.entities.YuuFaceConfig
+import com.vayunmathur.games.hub.ui.components.AvatarIcon
 import com.vayunmathur.games.hub.ui.yuu.YuuEditorActions
 import com.vayunmathur.games.hub.ui.yuu.YuuEditorUiState
 import com.vayunmathur.games.hub.ui.yuu.YuuListActions
@@ -24,6 +26,12 @@ import com.vayunmathur.games.hub.util.ProfileActions
 import com.vayunmathur.games.hub.util.ProfileUiState
 import com.vayunmathur.games.hub.viewmodel.CrossGameStats
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.IconDashboard
+import com.vayunmathur.library.ui.IconEmojiEvents
+import com.vayunmathur.library.ui.IconSportsEsports
+import com.vayunmathur.library.ui.PagerTab
+import com.vayunmathur.library.ui.TabStyle
+import com.vayunmathur.library.ui.TabbedPagerScaffold
 
 /** Phone-shaped, roughly 1080x2340 at xxhdpi — comfortably above the F-Droid minimum. */
 private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
@@ -85,59 +93,92 @@ class MetadataPreviews {
     @Preview(name = "1-dashboard", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Dashboard() {
-        DynamicTheme(darkTheme = true) {
-            DashboardScreen(
-                state = DashboardUiState(
-                    playerName = "Alex Rivera",
-                    level = 4,
-                    title = "Casual Gamer",
-                    totalXp = 1225,
-                    stats = stats,
-                    recentlyPlayed = games.take(3),
-                    recentActivity = listOf(
-                        ActivityEventEntity(id = 1, type = ActivityEventEntity.TYPE_SESSION_COMPLETED, gameId = "chess", title = "Played Chess", description = "Session 25m", timestamp = now - HOUR),
-                        ActivityEventEntity(id = 2, type = ActivityEventEntity.TYPE_ACHIEVEMENT_UNLOCKED, gameId = "solitaire", title = "Card Shark", description = "Won 10 games", timestamp = now - 2 * HOUR),
-                        ActivityEventEntity(id = 3, type = ActivityEventEntity.TYPE_LEVEL_UP, title = "Reached level 4", description = "Casual Gamer", timestamp = now - 6 * HOUR),
-                    ),
-                    achievementProgressByGame = achievementProgress,
-                    installedGameIds = games.mapTo(mutableSetOf()) { it.gameId },
-                ),
-                actions = DashboardActions.Noop,
-            )
-        }
+        ChromePreview(selectedTab = 0)
     }
 
     @PreviewTest
     @Preview(name = "2-games", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Games() {
-        DynamicTheme(darkTheme = true) {
-            GamesListScreen(
-                state = GamesListUiState(
-                    games = games,
-                    achievementProgressByGame = achievementProgress,
-                    installedGameIds = games.mapTo(mutableSetOf()) { it.gameId },
-                ),
-                actions = GamesListActions.Noop,
-            )
-        }
+        ChromePreview(selectedTab = 1)
     }
 
     @PreviewTest
     @Preview(name = "3-profile", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Profile() {
-        DynamicTheme(darkTheme = true) {
-            ProfileScreen(
-                state = ProfileUiState(
-                    playerName = "Alex Rivera",
-                    avatarSymbol = "stadia_controller",
-                    level = 4,
-                    title = "Casual Gamer",
-                    totalXp = 1225,
-                    stats = stats,
+        ChromePreview(selectedTab = 3)
+    }
+
+    @Composable
+    private fun DashboardContent() {
+        DashboardScreen(
+            state = DashboardUiState(
+                playerName = "Alex Rivera",
+                level = 4,
+                title = "Casual Gamer",
+                totalXp = 1225,
+                stats = stats,
+                recentlyPlayed = games.take(3),
+                recentActivity = listOf(
+                    ActivityEventEntity(id = 1, type = ActivityEventEntity.TYPE_SESSION_COMPLETED, gameId = "chess", title = "Played Chess", description = "Session 25m", timestamp = now - HOUR),
+                    ActivityEventEntity(id = 2, type = ActivityEventEntity.TYPE_ACHIEVEMENT_UNLOCKED, gameId = "solitaire", title = "Card Shark", description = "Won 10 games", timestamp = now - 2 * HOUR),
+                    ActivityEventEntity(id = 3, type = ActivityEventEntity.TYPE_LEVEL_UP, title = "Reached level 4", description = "Casual Gamer", timestamp = now - 6 * HOUR),
                 ),
-                actions = ProfileActions.Noop,
+                achievementProgressByGame = achievementProgress,
+                installedGameIds = games.mapTo(mutableSetOf()) { it.gameId },
+            ),
+            actions = DashboardActions.Noop,
+        )
+    }
+
+    @Composable
+    private fun GamesContent() {
+        GamesListScreen(
+            state = GamesListUiState(
+                games = games,
+                achievementProgressByGame = achievementProgress,
+                installedGameIds = games.mapTo(mutableSetOf()) { it.gameId },
+            ),
+            actions = GamesListActions.Noop,
+        )
+    }
+
+    @Composable
+    private fun ProfileContent() {
+        ProfileScreen(
+            state = ProfileUiState(
+                playerName = "Alex Rivera",
+                avatarSymbol = "stadia_controller",
+                level = 4,
+                title = "Casual Gamer",
+                totalXp = 1225,
+                stats = stats,
+            ),
+            actions = ProfileActions.Noop,
+        )
+    }
+
+    /**
+     * The app's real tab chrome around preview screen content: the same
+     * [TabbedPagerScaffold] with the same Home/Games/Achievements/Profile tabs
+     * the activity declares (release build — no dev-only Yuu tab). Achievements
+     * needs its ViewModel, so it shows an empty page (never visible — only the
+     * selected tab renders); the rest are the real screens with literal state.
+     */
+    @Composable
+    private fun ChromePreview(selectedTab: Int) {
+        DynamicTheme(darkTheme = true) {
+            val tabs = listOf(
+                PagerTab("Home", { IconDashboard() }) { DashboardContent() },
+                PagerTab("Games", { IconSportsEsports() }) { GamesContent() },
+                PagerTab("Achievements", { IconEmojiEvents() }) { Box(Modifier.fillMaxSize()) },
+                PagerTab("Profile", { AvatarIcon(symbol = "stadia_controller") }) { ProfileContent() },
+            )
+            TabbedPagerScaffold(
+                tabs = tabs,
+                pagerState = rememberPagerState(initialPage = selectedTab, pageCount = { tabs.size }),
+                tabStyle = TabStyle.BottomNav,
             )
         }
     }
