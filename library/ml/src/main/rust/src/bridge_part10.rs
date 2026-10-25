@@ -183,15 +183,15 @@ fn build_madlad<'l>(
         return Err(format!("a tokenizer of {} pieces, not {}", parsed.len(), madlad::VOCAB));
     }
 
-    // The smallest legal encoder, immediately replaced: `Net::new` needs a plan and the real shapes
-    // are not known until a sentence arrives. `Net::rebuild` only ever grows the arena.
-    let net = Reshaped::streamed(
+    // Decode step first, then the smallest encoder, for the reason `build_nllb` gives.
+    let mut net = Reshaped::streamed(
         context::shared()?,
         weights.offsets(),
         &weights,
-        madlad::Mode::Encode { len: SMALLEST },
+        madlad::Mode::DecodeStep { src_len: WARM_SRC_LEN },
         madlad_plan,
     )?;
+    net.at(madlad::Mode::Encode { len: SMALLEST })?;
     Ok(MadladHandle { net, weights, tokenizer })
 }
 

@@ -135,6 +135,11 @@ pub extern "system" fn Java_com_vayunmathur_library_ml_MlNative_createNllb<'l>(
     .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
+/// The source length translation nets record their decode step at during load. Any length
+/// warms the kernels; this one also sizes the arena for typical sentences, so the first
+/// translation neither re-records cold nor grows it.
+const WARM_SRC_LEN: u32 = 64;
+
 fn build_nllb<'l>(
     env: &Env,
     file: File,
@@ -158,15 +163,18 @@ fn build_nllb<'l>(
         return Err(format!("a tokenizer of {} pieces, not {}", parsed.len(), nllb::VOCAB));
     }
 
-    // The smallest legal encoder, immediately replaced: `Net::new` needs a plan and the real shapes
-    // are not known until a sentence arrives. `Net::rebuild` only ever grows the arena.
-    let net = Reshaped::streamed(
+    // Recorded on a decode step first, then the smallest encoder: the first recording of each
+    // kernel costs the driver ~1.7 ms per dispatch (~155 ms for the decode plan), which would
+    // otherwise land on the first translation's switch into decoding. `Net::rebuild` only ever
+    // grows the arena, so the real encoder shapes replace the placeholder cheaply.
+    let mut net = Reshaped::streamed(
         context::shared()?,
         weights.offsets(),
         &weights,
-        nllb::Mode::Encode { len: SMALLEST },
+        nllb::Mode::DecodeStep { src_len: WARM_SRC_LEN },
         nllb_plan,
     )?;
+    net.at(nllb::Mode::Encode { len: SMALLEST })?;
     Ok(NllbHandle { net, weights, tokenizer })
 }
 
