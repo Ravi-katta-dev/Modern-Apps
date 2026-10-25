@@ -26,7 +26,10 @@ impl Graph {
             lanes: section(ARCHIVE_KIND_GRAPH_LANES),
             elevation: section(ARCHIVE_KIND_GRAPH_ELEVATION),
         };
-        Graph::assemble(
+        // Borrowed from the mapping the graph is about to own, so it outlives
+        // the overlay that views it.
+        let overlay = section(ARCHIVE_KIND_GRAPH_OVERLAY).map(|b| (b.as_ptr(), b.len()));
+        let mut g = Graph::assemble(
             sections,
             GraphOwnership {
                 nodes: None,
@@ -38,6 +41,12 @@ impl Graph {
                 archive: Some(region),
                 buffers: Vec::new(),
             },
-        )
+        )?;
+        if let Some((ptr, len)) = overlay {
+            let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+            // Absent, stale or malformed all mean the same thing: no overlay.
+            g.overlay = Overlay::parse(bytes, g.node_count, g.edge_count);
+        }
+        Some(g)
     }
 }

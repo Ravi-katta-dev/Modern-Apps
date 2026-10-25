@@ -35,6 +35,11 @@ pub const ARCHIVE_KIND_POI_SPATIAL: u8 = 11;
 pub const ARCHIVE_KIND_POI_WORDS: u8 = 12;
 /// Transit `<feed>.transit` payload: `TRIX` pack.
 pub const ARCHIVE_KIND_TRANSIT: u8 = 13;
+/// Graph `overlay.bin` payload: the `MOVL` highway overlay (optional).
+pub const ARCHIVE_KIND_GRAPH_OVERLAY: u8 = 14;
+/// Highest kind this build writes. Readers accept any non-zero kind and skip
+/// the ones they do not know, so a newer archive still opens in an older app.
+pub const ARCHIVE_KIND_MAX_KNOWN: u8 = ARCHIVE_KIND_GRAPH_OVERLAY;
 
 /// `metadata.bin` (`MARG`) magic, little-endian `u32`.
 pub const GRAPH_MAGIC: u32 = 0x4752_414D;

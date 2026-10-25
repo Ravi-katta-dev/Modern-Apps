@@ -88,7 +88,13 @@ pub fn reconstruct_path(
     let mut curr = ctx.target_node;
     let mut safety = 0u32;
     while curr != 0xFFFF_FFFF && safety < 1_000_000 {
-        path_nodes.push(curr);
+        // Overlay hops name the same junction twice (full id, then overlay id),
+        // and overlay edges are full-graph edges, so mapping back and dropping the
+        // repeat leaves an ordinary full-graph path.
+        let full = g.full_node_of(curr);
+        if path_nodes.last() != Some(&full) {
+            path_nodes.push(full);
+        }
         curr = scratch.get_entry(curr).p_fwd;
         safety += 1;
     }

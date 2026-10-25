@@ -57,6 +57,7 @@ fn main() -> std::process::ExitCode {
         Some("bench") => bench(&args[1..]),
         Some("dump") => dump(&args[1..]),
         Some("dump-compare") => dump_compare(&args[1..]),
+        Some("sections") => sections(&args[1..]),
         _ => Err(USAGE.to_string()),
     };
     match r {
@@ -72,12 +73,14 @@ fn main() -> std::process::ExitCode {
 const USAGE: &str = "\
 usage:
   route_diff gen-pairs --graph DIR --out FILE [--count N]
-  route_diff report    --graph DIR --pairs FILE --out FILE
+  route_diff report    --graph DIR --pairs FILE --out FILE [--overlay FILE]
   route_diff compare   --baseline FILE --candidate FILE [--tol-mm N] [--tol-10ms N]
   route_diff geometry  --baseline DIR --candidate DIR
-  route_diff bench     --graph DIR --pairs FILE [--passes N] [--cold]
+  route_diff bench     --graph DIR --pairs FILE [--passes N] [--cold] [--verbose] [--overlay FILE]
+  route_diff dump 
   route_diff dump         --graph DIR --out FILE
-  route_diff dump-compare --baseline FILE --candidate FILE [--limit N]";
+  route_diff dump-compare --baseline FILE --candidate FILE [--limit N]
+  route_diff sections     --archive FILE [--dump KIND]";
 
 fn flag(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
@@ -87,10 +90,53 @@ fn need(args: &[String], name: &str) -> Result<String, String> {
     flag(args, name).ok_or_else(|| format!("missing {name}\n{USAGE}"))
 }
 
+/// Print `kind offset len` for every sidecar section of a `.mamaps`, reading
+/// only the footer and directory, so sections can be cut out with `dd`.
+fn sections(args: &[String]) -> Result<bool, String> {
+    use std::io::{Read as _, Seek as _, SeekFrom};
+    use tilecodec::mamaps::archive::{ArchiveEntry, ArchiveFooter};
+    let path = need(args, "--archive")?;
+    let mut f = std::fs::File::open(&path).map_err(|e| format!("{path}: {e}"))?;
+    let mut read_at = |at: SeekFrom, len: usize| -> Result<Vec<u8>, String> {
+        let mut buf = vec![0u8; len];
+        f.seek(at).and_then(|_| f.read_exact(&mut buf)).map_err(|e| format!("{path}: {e}"))?;
+        Ok(buf)
+    };
+    let footer = ArchiveFooter::parse(&read_at(SeekFrom::End(-32), 32)?).map_err(|e| e.0)?;
+    let dir = read_at(SeekFrom::Start(footer.dir_offset), footer.dir_len as usize)?;
+    let count = u32::from_le_bytes(dir[0..4].try_into().expect("4 bytes")) as usize;
+    let dump: Option<u8> = flag(args, "--dump").map(|k| k.parse().map_err(|e| format!("--dump: {e}"))).transpose()?;
+    for i in 0..count {
+        let e = ArchiveEntry::parse(&dir[4 + i * 32..]).map_err(|e| e.0)?;
+        match dump {
+            None => println!("{} {} {}", e.kind, e.offset, e.len),
+            Some(k) if k == e.kind => {
+                f.seek(SeekFrom::Start(e.offset)).map_err(|e| e.to_string())?;
+                let mut out = std::io::stdout().lock();
+                std::io::copy(&mut (&mut f).take(e.len), &mut out).map_err(|e| e.to_string())?;
+                return Ok(true);
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(dump.is_none())
+}
+
 fn load(dir: &str) -> Result<Graph, String> {
     Graph::load(dir).or_else(|| Graph::load_archive(&archive_path(dir))).ok_or_else(|| {
         format!("cannot load a graph from {dir} (missing/short files, or a bad metadata.bin header)")
     })
+}
+
+/// [`load`], then attach `--overlay FILE` when given.
+fn load_with_overlay(dir: &str, args: &[String]) -> Result<Graph, String> {
+    let mut g = load(dir)?;
+    if let Some(path) = flag(args, "--overlay") {
+        if !g.attach_overlay_file(&path) {
+            return Err(format!("{path}: not an overlay for this graph"));
+        }
+    }
+    Ok(g)
 }
 
 // ---------------------------------------------------------------------------
@@ -204,7 +250,7 @@ fn report(args: &[String]) -> Result<bool, String> {
     let pairs_path = need(args, "--pairs")?;
     let out = need(args, "--out")?;
 
-    let g = load(&dir)?;
+    let g = load_with_overlay(&dir, args)?;
     let pairs = read_pairs(&pairs_path)?;
     let speeds = TrafficSpeeds::default();
     let mut scratch = RoutingScratchpad::new();
@@ -575,13 +621,14 @@ fn bench(args: &[String]) -> Result<bool, String> {
         return Err("--passes wants at least one".to_string());
     }
     let cold = args.iter().any(|a| a == "--cold");
+    let verbose = args.iter().any(|a| a == "--verbose");
     if cold {
         let evicted = evict(&dir)?;
         println!("evicted {evicted} pack file(s) from the page cache");
     }
 
     let load_started = std::time::Instant::now();
-    let g = load(&dir)?;
+    let g = load_with_overlay(&dir, args)?;
     let load_ms = load_started.elapsed().as_secs_f64() * 1e3;
 
     let pairs = read_pairs(&pairs_path)?;
@@ -605,9 +652,22 @@ fn bench(args: &[String]) -> Result<bool, String> {
                 pair.mode, &mut scratch, &mut heap,
             );
             if let Some(mut ctx) = ctx {
+                let hierarchical = ctx.hierarchy;
                 perform_search_loop(
                     &g, &speeds, &mut ensure, pair.mode, &mut ctx, &mut scratch, &mut heap,
                 );
+                if verbose {
+                    println!(
+                        "    {} mode={} {:.0} ms iterations={} hierarchy={} fell_back={} routed={}",
+                        pair.kind,
+                        pair.mode,
+                        one.elapsed().as_secs_f64() * 1e3,
+                        ctx.iterations,
+                        hierarchical,
+                        hierarchical && !ctx.hierarchy,
+                        ctx.target_node != 0xFFFF_FFFF || ctx.direct.is_some(),
+                    );
+                }
                 if ctx.target_node != 0xFFFF_FFFF || ctx.direct.is_some() {
                     let steps = reconstruct_path(&g, &speeds, pair.mode, &ctx, &mut scratch);
                     p.routed += 1;

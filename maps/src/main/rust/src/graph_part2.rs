@@ -391,6 +391,7 @@ impl Graph {
             nodes_view,
             edges_view,
             elevation_view,
+            overlay: None,
             lon_to_mm_scale,
             time_scale_fixed,
             edge_time_multipliers,

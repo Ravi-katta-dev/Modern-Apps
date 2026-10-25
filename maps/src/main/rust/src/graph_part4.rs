@@ -18,7 +18,7 @@
 use tilecodec::mamaps::archive::{
     ARCHIVE_KIND_GRAPH_ELEVATION, ARCHIVE_KIND_GRAPH_INTERMEDIATE, ARCHIVE_KIND_GRAPH_LANES,
     ARCHIVE_KIND_GRAPH_META, ARCHIVE_KIND_GRAPH_NAMES, ARCHIVE_KIND_GRAPH_NODES,
-    ARCHIVE_KIND_GRAPH_EDGES, ArchiveView,
+    ARCHIVE_KIND_GRAPH_EDGES, ARCHIVE_KIND_GRAPH_OVERLAY, ArchiveView,
 };
 use tilecodec::mamaps::header::Header;
 
@@ -462,6 +462,7 @@ impl Graph {
             nodes_view,
             edges_view,
             elevation_view,
+            overlay: None,
             lon_to_mm_scale,
             time_scale_fixed,
             edge_time_multipliers,

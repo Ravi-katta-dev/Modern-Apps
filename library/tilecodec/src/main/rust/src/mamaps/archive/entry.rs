@@ -18,6 +18,12 @@ pub struct ArchiveEntry {
     pub extra: u64,
 }
 
+/// Whether this build defines section `kind`. Writers (the packer) stay strict
+/// with this; readers skip what it rejects.
+pub fn is_known_kind(kind: u8) -> bool {
+    (1..=ARCHIVE_KIND_MAX_KNOWN).contains(&kind)
+}
+
 impl ArchiveEntry {
     pub fn parse(buf: &[u8]) -> Result<ArchiveEntry> {
         if buf.len() < ARCHIVE_ENTRY_LEN {
@@ -27,23 +33,11 @@ impl ArchiveEntry {
             return err("a single-archive entry has non-zero reserved bytes");
         }
         let kind = buf[0];
-        if !matches!(
-            kind,
-            ARCHIVE_KIND_GRAPH_META
-                | ARCHIVE_KIND_GRAPH_NODES
-                | ARCHIVE_KIND_GRAPH_EDGES
-                | ARCHIVE_KIND_GRAPH_INTERMEDIATE
-                | ARCHIVE_KIND_GRAPH_NAMES
-                | ARCHIVE_KIND_GRAPH_LANES
-                | ARCHIVE_KIND_GRAPH_ELEVATION
-                | ARCHIVE_KIND_POI_INDEX
-                | ARCHIVE_KIND_POI_NAMES
-                | ARCHIVE_KIND_POI_ATTRS
-                | ARCHIVE_KIND_POI_SPATIAL
-                | ARCHIVE_KIND_POI_WORDS
-                | ARCHIVE_KIND_TRANSIT
-        ) {
-            return err(format!("a single-archive entry names unknown section kind {kind}"));
+        // Any non-zero kind parses: an unknown one is a section from a newer
+        // writer, which `ArchiveView::section` lookups simply never ask for.
+        // Failing closed here made every older app refuse a newer archive.
+        if kind == 0 {
+            return err("a single-archive entry names section kind 0");
         }
         let u32_at = |o: usize| u32::from_le_bytes([buf[o], buf[o + 1], buf[o + 2], buf[o + 3]]);
         let u64_at = |o: usize| {

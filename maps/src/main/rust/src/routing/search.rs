@@ -44,6 +44,38 @@ pub struct RoutingContext {
     /// A route that stays on the edge it started on, when both ends snapped to
     /// the same road. See [`direct_path`].
     pub direct: Option<Direct>,
+    /// Whether the search hops onto the highway overlay away from both ends.
+    /// See [`is_local`].
+    pub hierarchy: bool,
+}
+
+/// Driving routes at least this long (straight line) use the highway overlay
+/// when the graph has one.
+const HIERARCHY_MIN_MM: u32 = 150_000_000;
+/// Within this distance of either end the search expands every road; beyond it
+/// a full-graph node only hops onto the overlay.
+pub const OVERLAY_LOCAL_MM: u32 = 30_000_000;
+
+/// Whether a point is close enough to either end to expand the full graph.
+///
+/// Plain A* on a cross-country route expands every residential street inside an
+/// ellipse a thousand kilometres wide, and because nodes are stored in spatial
+/// order the arterials it follows are scattered across the whole node table, so
+/// every step inflates another block. Away from both ends the search runs on the
+/// overlay instead: the same arterial edges at the same costs, stored densely.
+/// Transitions between a full node and its overlay twin cost nothing and change
+/// nothing about the heuristic, so A* stays consistent. Routes are near-optimal
+/// rather than provably optimal: a minor-road shortcut far from both ends is not
+/// seen.
+#[inline]
+fn is_local(g: &Graph, lat_e7: i32, lon_e7: i32, ctx: &RoutingContext) -> bool {
+    fast_dist_mm(g, lat_e7, lon_e7, ctx.start.proj_lat, ctx.start.proj_lon) < OVERLAY_LOCAL_MM
+        || near_end(g, lat_e7, lon_e7, ctx)
+}
+
+#[inline]
+fn near_end(g: &Graph, lat_e7: i32, lon_e7: i32, ctx: &RoutingContext) -> bool {
+    fast_dist_mm(g, lat_e7, lon_e7, ctx.end.proj_lat, ctx.end.proj_lon) < OVERLAY_LOCAL_MM
 }
 
 /// A route from the start projection to the end projection that never leaves the
@@ -211,22 +243,12 @@ pub fn prepare_routing(
         ensure_traffic(start.proj_lat, start.proj_lon);
     }
 
-    let push = |node: u32, travel_dist_mm: u32, scratch: &mut RoutingScratchpad, heap: &mut RadixHeap| {
-        let t_actual = get_edge_time_10ms(
-            g, traffic, INVALID_EDGE, travel_dist_mm, start.type_, start.speed_limit, mode,
-        );
-        {
-            let entry = scratch.get_entry(node);
-            entry.g_fwd = t_actual;
-        }
-        let n_data = g.get_node(node);
-        let h = heuristic_time_10ms(g, n_data.lat_e7, n_data.lon_e7, end.proj_lat, end.proj_lon, mode);
-        heap.push(t_actual.wrapping_add(h), node);
-    };
-    push(start.node_a, start.dist_a_mm, scratch, heap);
-    push(start.node_b, start.dist_b_mm, scratch, heap);
-
+    seed(g, traffic, &start, &end, mode, scratch, heap);
     let direct = direct_path(g, traffic, &start, &end, mode);
+    let hierarchy = mode == DRIVING
+        && g.overlay().is_some()
+        && accurate_dist_mm(start.proj_lat, start.proj_lon, end.proj_lat, end.proj_lon)
+            >= HIERARCHY_MIN_MM;
 
     Some(RoutingContext {
         start,
@@ -234,7 +256,31 @@ pub fn prepare_routing(
         target_node: 0xFFFF_FFFF,
         iterations: 0,
         direct,
+        hierarchy,
     })
+}
+
+/// Push the start edge's two endpoints onto the open set.
+fn seed(
+    g: &Graph,
+    traffic: &TrafficSpeeds,
+    start: &SnappedEdge,
+    end: &SnappedEdge,
+    mode: i32,
+    scratch: &mut RoutingScratchpad,
+    heap: &mut RadixHeap,
+) {
+    let mut push = |node: u32, travel_dist_mm: u32| {
+        let t_actual = get_edge_time_10ms(
+            g, traffic, INVALID_EDGE, travel_dist_mm, start.type_, start.speed_limit, mode,
+        );
+        scratch.get_entry(node).g_fwd = t_actual;
+        let n_data = g.get_node(node);
+        let h = heuristic_time_10ms(g, n_data.lat_e7, n_data.lon_e7, end.proj_lat, end.proj_lon, mode);
+        heap.push(t_actual.wrapping_add(h), node);
+    };
+    push(start.node_a, start.dist_a_mm);
+    push(start.node_b, start.dist_b_mm);
 }
 
 /// Polyline of `edge_idx` in source-to-target order, falling back to the straight
@@ -395,7 +441,31 @@ fn direct_path(
 }
 
 /// A* main loop. Fills `ctx.target_node` on success.
+///
+/// A hierarchical search that finds nothing (an end whose only way out is a long
+/// minor road) is retried over every road, so pruning can cost time but never a
+/// route.
 pub fn perform_search_loop(
+    g: &Graph,
+    traffic: &TrafficSpeeds,
+    ensure_traffic: &mut dyn FnMut(i32, i32),
+    mode: i32,
+    ctx: &mut RoutingContext,
+    scratch: &mut RoutingScratchpad,
+    heap: &mut RadixHeap,
+) {
+    search(g, traffic, ensure_traffic, mode, ctx, scratch, heap);
+    if ctx.hierarchy && ctx.target_node == 0xFFFF_FFFF {
+        ctx.hierarchy = false;
+        ctx.iterations = 0;
+        scratch.reset();
+        heap.clear();
+        seed(g, traffic, &ctx.start, &ctx.end, mode, scratch, heap);
+        search(g, traffic, ensure_traffic, mode, ctx, scratch, heap);
+    }
+}
+
+fn search(
     g: &Graph,
     traffic: &TrafficSpeeds,
     ensure_traffic: &mut dyn FnMut(i32, i32),
@@ -414,18 +484,27 @@ pub fn perform_search_loop(
     // apart rather than a few metres, so the wrong choice costs the length of
     // the street. Score both completions and keep the better one.
     let mut best_total = u32::MAX;
+    let n_full = g.node_count;
+    let overlay = if ctx.hierarchy { g.overlay() } else { None };
+    let (end_lat, end_lon) = (ctx.end.proj_lat, ctx.end.proj_lon);
     while !heap.empty() && ctx.iterations < 25_000_000 {
         ctx.iterations += 1;
         let (score, u) = heap.pop();
 
         let u_cost = scratch.get_entry(u).g_fwd;
-        if u >= g.node_count {
-            continue;
-        }
-        let n_u = g.node(u);
-        let h_u = heuristic_time_10ms(
-            g, n_u.lat_e7, n_u.lon_e7, ctx.end.proj_lat, ctx.end.proj_lon, mode,
-        );
+        let (lat_u, lon_u) = if u < n_full {
+            let n = g.node(u);
+            (n.lat_e7, n.lon_e7)
+        } else {
+            match overlay {
+                Some(ov) if u - n_full < ov.node_count => {
+                    let n = ov.node(u - n_full);
+                    (n.lat_e7, n.lon_e7)
+                }
+                _ => continue,
+            }
+        };
+        let h_u = heuristic_time_10ms(g, lat_u, lon_u, end_lat, end_lon, mode);
         // A node is re-pushed every time its cost improves, so older entries for it
         // linger in the heap. The fresh entry pops first and already expanded the
         // node at this same cost, so expanding a stale one again finds nothing new.
@@ -458,37 +537,69 @@ pub fn perform_search_loop(
         }
 
         if mode == DRIVING {
-            ensure_traffic(n_u.lat_e7, n_u.lon_e7);
+            ensure_traffic(lat_u, lon_u);
         }
-        let (s, e_ptr) = g.edge_range(u);
 
-        for i in s..e_ptr {
-            let edge = g.edge(u, i);
-            if !is_mode_allowed(edge.type_, mode) {
-                continue;
+        let mut improve = |v: u32, new_g: u32| -> bool {
+            let entry_v = scratch.get_entry(v);
+            let better = new_g < entry_v.g_fwd;
+            if better {
+                entry_v.g_fwd = new_g;
+                entry_v.p_fwd = u;
             }
+            better
+        };
+        let mut push = |v: u32, new_g: u32, lat_v: i32, lon_v: i32| {
+            heap.push(new_g.wrapping_add(heuristic_time_10ms(g, lat_v, lon_v, end_lat, end_lon, mode)), v);
+        };
 
-            let travel_time =
-                get_edge_time_10ms(g, traffic, i, edge.dist_mm, edge.type_, edge.speed_limit, mode);
-
-            let v = edge.target;
-            let new_g = u_cost.wrapping_add(travel_time);
-            let update = {
-                let entry_v = scratch.get_entry(v);
-                if new_g < entry_v.g_fwd {
-                    entry_v.g_fwd = new_g;
-                    entry_v.p_fwd = u;
-                    true
-                } else {
-                    false
+        if u >= n_full {
+            let Some(ov) = overlay else { continue };
+            let o = u - n_full;
+            let (s, e_ptr) = ov.edge_range(o);
+            for i in s..e_ptr {
+                let edge = ov.edge(i);
+                if edge.target >= ov.node_count || !is_mode_allowed(edge.type_, mode) {
+                    continue;
                 }
-            };
-            if update {
-                let n_v = g.get_node(v);
-                let h = heuristic_time_10ms(
-                    g, n_v.lat_e7, n_v.lon_e7, ctx.end.proj_lat, ctx.end.proj_lon, mode,
+                let travel_time = get_edge_time_10ms(
+                    g, traffic, edge.full_edge, edge.dist_mm, edge.type_, edge.speed_limit, mode,
                 );
-                heap.push(new_g.wrapping_add(h), v);
+                let (v, new_g) = (n_full + edge.target, u_cost.wrapping_add(travel_time));
+                if improve(v, new_g) {
+                    let t = ov.node(edge.target);
+                    push(v, new_g, t.lat_e7, t.lon_e7);
+                }
+            }
+            // Back onto the full graph only where the destination's local roads are.
+            if near_end(g, lat_u, lon_u, ctx) {
+                let full = ov.node(o).full_node;
+                if improve(full, u_cost) {
+                    push(full, u_cost, lat_u, lon_u);
+                }
+            }
+            continue;
+        }
+
+        if overlay.is_none() || is_local(g, lat_u, lon_u, ctx) {
+            let (s, e_ptr) = g.edge_range(u);
+            for i in s..e_ptr {
+                let edge = g.edge(u, i);
+                if !is_mode_allowed(edge.type_, mode) {
+                    continue;
+                }
+                let travel_time =
+                    get_edge_time_10ms(g, traffic, i, edge.dist_mm, edge.type_, edge.speed_limit, mode);
+                let new_g = u_cost.wrapping_add(travel_time);
+                if improve(edge.target, new_g) {
+                    let n_v = g.get_node(edge.target);
+                    push(edge.target, new_g, n_v.lat_e7, n_v.lon_e7);
+                }
+            }
+        }
+        if let Some(o) = overlay.and_then(|ov| ov.of_full(u)) {
+            if improve(n_full + o, u_cost) {
+                push(n_full + o, u_cost, lat_u, lon_u);
             }
         }
     }

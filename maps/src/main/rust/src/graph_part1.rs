@@ -81,6 +81,9 @@ pub struct Graph {
     edges_view: Option<BlockedView>,
     elevation_view: Option<BlockedView>,
 
+    /// The optional highway overlay. See `graph_overlay.rs`.
+    overlay: Option<Overlay>,
+
     // Derived cost tables (computed in `load`, matching the C++ `init`).
     pub lon_to_mm_scale: [u32; 4096],
     pub time_scale_fixed: [u64; 4],

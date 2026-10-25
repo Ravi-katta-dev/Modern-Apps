@@ -88,19 +88,42 @@ fn the_footer_is_32_bytes_behind_mama8() {
     assert!(ArchiveFooter::parse(&bad).is_err(), "bad magic is refused");
 }
 
-/// Fail-watched: entries are 32 bytes, kinds are the thirteen defined, and
-/// the directory is `count` + entries padded to 8. A revert of the stride
-/// quotes `left: 24, right: 32`.
+/// Fail-watched: entries are 32 bytes, the overlay is kind 14, and any non-zero
+/// kind parses (so a newer writer's section does not lock out older readers)
+/// while only the defined ones count as known.
 #[test]
-fn entries_are_32_bytes_with_thirteen_known_kinds() {
+fn entries_are_32_bytes_and_unknown_kinds_parse() {
     let e = ArchiveEntry { kind: ARCHIVE_KIND_TRANSIT, flags: 0, offset: 8192, len: 128, extra: 0 };
     assert_eq!(e.serialize().len(), 32, "entries must stay 32 B");
     assert_eq!(ArchiveEntry::parse(&e.serialize()).expect("parse"), e);
     assert_eq!(ARCHIVE_KIND_GRAPH_META, 1, "graph meta is kind 1");
     assert_eq!(ARCHIVE_KIND_TRANSIT, 13, "transit is kind 13");
-    let mut bad = e.serialize();
-    bad[0] = 99;
-    assert!(ArchiveEntry::parse(&bad).is_err(), "unknown kind");
+    assert_eq!(ARCHIVE_KIND_GRAPH_OVERLAY, 14, "the highway overlay is kind 14");
+    let mut future = e.serialize();
+    future[0] = 99;
+    assert_eq!(ArchiveEntry::parse(&future).expect("a future kind parses").kind, 99);
+    assert!(!is_known_kind(99) && is_known_kind(ARCHIVE_KIND_GRAPH_OVERLAY) && !is_known_kind(0));
+    let mut zero = e.serialize();
+    zero[0] = 0;
+    assert!(ArchiveEntry::parse(&zero).is_err(), "kind 0 is never a section");
+}
+
+/// An archive carrying a section this build has never heard of still opens,
+/// and the known sections around it still slice.
+#[test]
+fn an_archive_with_an_unknown_section_still_opens() {
+    let mut transit = vec![0u8; 80 + 20 * 16];
+    transit[0..4].copy_from_slice(&TRANSIT_MAGIC.to_le_bytes());
+    transit[4..8].copy_from_slice(&TRANSIT_VERSION.to_le_bytes());
+    transit[8..12].copy_from_slice(&20u32.to_le_bytes());
+    let mut header = v7_header(0);
+    let payloads = vec![(ARCHIVE_KIND_TRANSIT, transit.clone(), 0), (99u8, vec![7u8; 24], 0)];
+    let bytes = assemble(&header, &payloads);
+    header.file_len = bytes.len() as u64;
+    let bytes = assemble(&header, &payloads);
+    let view = ArchiveView::parse(&bytes, &header).expect("an unknown kind is skipped, not refused");
+    assert_eq!(view.section(&bytes, ARCHIVE_KIND_TRANSIT), Some(&transit[..]));
+    assert_eq!(view.section(&bytes, 99), Some(&[7u8; 24][..]));
 }
 
 /// Fail-watched: the sidecar starts past the tile data — never inside the header tail

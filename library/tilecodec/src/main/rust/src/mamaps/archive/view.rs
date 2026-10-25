@@ -69,7 +69,7 @@ impl ArchiveView {
         let count = u32::from_le_bytes([dir[0], dir[1], dir[2], dir[3]]) as usize;
         if count > 32 {
             return err(format!(
-                "a single-archive directory names {count} sections, past the 13 this format defines"
+                "a single-archive directory names {count} sections, past the 32 a directory may hold"
             ));
         }
         let want = ARCHIVE_DIR_HEADER_LEN + count * ARCHIVE_ENTRY_LEN;
