@@ -51,8 +51,9 @@
 //!
 //! 256,206 classes at 1024 channels is ~250 MiB of int8, and `maxStorageBufferRange`'s guaranteed
 //! minimum is 128 MiB — so `scripts/ml/maml_convert.py` emits the tied weight as **four**
-//! tensors over disjoint class ranges, [`Mode::DecodeStep`] emits four `ConvVecInt8` ops, and
-//! `post::translate` argmaxes over all four — which it already did, because it argmaxes anyway.
+//! tensors over disjoint class ranges, and [`Mode::DecodeStep`] emits four `ConvVecInt8` ops, then
+//! concatenates them on the device and reduces them with [`Builder::argmax`], so a step reads back
+//! one token id rather than 512 KB of logits.
 //!
 //! 256,206 is not divisible by 4, so the splits are uneven: the first two hold 64,052 classes
 //! each and the last two 64,051 (see [`split_classes`]). No range is padded — padding would add
@@ -76,6 +77,17 @@
 //! [`Builder::attn_scores`] applies `1 / sqrt(head_dim)` itself, and `head_dim` is 64, which is
 //! exactly the model's `self.scaling`. So nothing folds a query scale, and `sqrt(d_model)` stays
 //! in the host gather rather than folded into the embedding.
+//!
+//! # Cross-attention K and V are computed once per sentence
+//!
+//! They depend only on the encoder output, so [`Mode::Encode`] projects them with the decoder's
+//! weights and copies them into persistent tensors that [`Mode::DecodeStep`] reads. Recomputing
+//! them per token cost `24 * src_len` million multiply-accumulates a step, more than the rest of
+//! the step put together at any realistic sentence length.
+//!
+//! Both passes declare those tensors first, through [`declare_cross_caches`], because
+//! [`Builder::finish`] gives pinned tensors offsets in declaration order: that is what puts them at
+//! the same arena offsets in both plans. See `nets::gemma4`'s caches for the same constraint.
 //!
 //! # Pre-norm
 //!
@@ -161,6 +173,10 @@ pub(crate) const ENCODER_LAYER_TENSORS: usize = 2 + 4 * 3 + 2 + 3 + 3;
 /// Tensors per decoder layer: an encoder layer plus a cross-attention norm and four projections.
 pub(crate) const DECODER_LAYER_TENSORS: usize = ENCODER_LAYER_TENSORS + 2 + 4 * 3;
 
+/// Where a decoder layer's cross-attention K and V projections start within the layer: after
+/// the self-attention norm and four projections, the cross norm and the cross query.
+pub(crate) const CROSS_KV_WITHIN_LAYER: usize = 2 + 4 * 3 + 2 + 3;
+
 /// The first of the four head splits. They come first, because the embedding is read before
 /// anything else and the file is written in forward order.
 pub(crate) const HEAD: usize = 0;
@@ -198,7 +214,7 @@ pub enum Mode {
         /// Source tokens, after [`embed_positions`].
         len: u32,
     },
-    /// One decoder step: the token just produced in, its logits out.
+    /// One decoder step: the token just produced in, the greedy next token out.
     ///
     /// A step is **one query** against `prefix + 1` keys — the positions already decoded plus this
     /// one — which is causal by construction and needs no mask.
@@ -234,6 +250,27 @@ impl Layers {
         self.next += 3;
         index
     }
+}
+
+/// Decoder layer `layer`'s cross-attention K and V projections: two kernels, scales and biases.
+///
+/// [`Mode::Encode`] reads them and [`Mode::DecodeStep`] does not.
+pub(crate) fn cross_kv(layer: usize) -> std::ops::Range<usize> {
+    let start = DECODER + layer * DECODER_LAYER_TENSORS + CROSS_KV_WITHIN_LAYER;
+    start..start + 6
+}
+
+/// Every decoder layer's cross-attention K and V caches, `[d_model, 1, src_len]` each.
+///
+/// Must be the first pinned tensors either pass declares. See the module docs.
+pub(crate) fn declare_cross_caches(b: &mut Builder, src_len: u32) -> Vec<(Id, Id)> {
+    (0..DECODER_LAYERS)
+        .map(|_| {
+            let k = b.persistent(Shape::new(D_MODEL, 1, src_len));
+            let v = b.persistent(Shape::new(D_MODEL, 1, src_len));
+            (k, v)
+        })
+        .collect()
 }
 
 /// A `1 x 1` convolution with an int8 kernel, which every projection here is.
@@ -286,10 +323,14 @@ fn encode(weights: &dyn WeightSource, len: u32) -> Result<Plan, String> {
     let l = &mut Layers { next: ENCODER };
     let mut builder = Builder::new(weights);
     let b = &mut builder;
-    // The tied weight and the whole decoder belong to the other pass. The trailing encoder
-    // norm is part of this range, so it runs to `DECODER` rather than to `ENCODER_NORM`.
-    name_host_tensors(b, std::slice::from_ref(&(ENCODER..DECODER)));
+    // The tied weight and the decoder belong to the other pass, except the cross-attention K and V
+    // projections, which run here once. The trailing encoder norm is part of the first range, so it
+    // runs to `DECODER` rather than to `ENCODER_NORM`.
+    let mut read = vec![ENCODER..DECODER];
+    read.extend((0..DECODER_LAYERS).map(cross_kv));
+    name_host_tensors(b, &read);
 
+    let caches = declare_cross_caches(b, len);
     let x = b.input(Shape::new(D_MODEL, 1, len));
     let mut x = x;
     for _ in 0..ENCODER_LAYERS {
@@ -304,6 +345,15 @@ fn encode(weights: &dyn WeightSource, len: u32) -> Result<Plan, String> {
     if l.next != DECODER {
         return Err(format!("the encoder norm ends at {}, not {DECODER}", l.next));
     }
+    for (layer, &(cache_k, cache_v)) in caches.iter().enumerate() {
+        let kv = &mut Layers { next: cross_kv(layer).start };
+        let k = point(b, kv, out, D_MODEL, Act::None);
+        let v = point(b, kv, out, D_MODEL, Act::None);
+        b.copy_into(k, cache_k);
+        b.copy_into(v, cache_v);
+    }
+    // The encoder state is still the output, although the host no longer needs it: a pass must
+    // have one, and a persistent tensor cannot be one without being pinned twice.
     builder.finish(&[out])
 }
 

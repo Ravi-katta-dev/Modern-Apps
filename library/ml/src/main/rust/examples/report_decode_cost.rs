@@ -107,7 +107,8 @@ fn main() {
     println!("           {arena_mb:.1} MB of arena, including the KV cache it now holds");
     println!();
 
-    // A token and an encoder output. The values do not matter to the timing, only the shapes.
+    // A token. The value does not matter to the timing, only the shape. The cross-attention K and
+    // V the encoder pass would leave in the arena are whatever it holds, which is also fine here.
     let embedded = match nllb::embed_positions(weights.reader(), &[2], 0) {
         Ok(values) => values,
         Err(why) => {
@@ -115,13 +116,12 @@ fn main() {
             return;
         }
     };
-    let source = vec![0.01f32; (nllb::D_MODEL * SRC_LEN) as usize];
 
     // One discarded step: the first submit pays for pipeline warm-up and for faulting the weights
     // into device memory, neither of which a steady-state token pays.
     if let Err(why) = net
         .set_params(StepParams { prefix: 0, window_start: 0 })
-        .and_then(|()| net.infer_raw_many(&[&embedded, &source]).map(|_| ()))
+        .and_then(|()| net.infer_raw(&embedded).map(|_| ()))
     {
         println!("the warm-up step failed: {why}");
         return;
@@ -136,7 +136,7 @@ fn main() {
             println!("step {step} could not set params: {why}");
             return;
         }
-        if let Err(why) = net.infer_raw_many(&[&embedded, &source]) {
+        if let Err(why) = net.infer_raw(&embedded) {
             println!("step {step} did not submit: {why}");
             return;
         }

@@ -437,10 +437,9 @@ pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_destroy<'
 
 /// `[rows, columns]` to `[columns, rows]`.
 ///
-/// The encoder output crosses the `translate::Nets` seam as `[positions, d_model]` and this runtime
+/// MADLAD's encoder output crosses its `Nets` seam as `[positions, d_model]` and this runtime
 /// works in `[d_model, positions]`, so it is transposed once on the way out and once per step on
-/// the way back in. Eight kilobytes for a sentence, against a trait whose documented shape would
-/// otherwise be wrong.
+/// the way back in.
 fn transpose(values: &[f32], rows: usize, columns: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; values.len()];
     for row in 0..rows {

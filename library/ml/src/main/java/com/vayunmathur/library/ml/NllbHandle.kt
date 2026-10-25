@@ -47,9 +47,10 @@ import java.text.Normalizer
  *
  * # Threading
  *
- * Not thread-safe, and more sharply than the other handles here: a translation re-records
- * the network once per decoded token, so two concurrent calls would interleave recordings
- * of the same command buffer. A caller must hold a lock across [translate] and [close].
+ * Not thread-safe: the self-attention KV cache and the cross-attention K and V live on the
+ * device between calls, and a translation re-records the network on the way in, so two
+ * concurrent calls would clobber each other's state. A caller must hold a lock across
+ * [translate] and [close].
  */
 class NllbHandle private constructor(private val directory: File) : AutoCloseable {
     private var handle: Long = 0L

@@ -7,10 +7,9 @@
 ///
 /// [`Reshaped`] keyed by [`nllb::Mode`]. The encoder and the decode step (which computes the tied
 /// head itself) are two passes over **one** ~600 MiB file, so two `Net`s would upload it twice.
-/// A rebuild is a `device_wait_idle` and a re-record, and a decode step's cache grows by one
-/// position each time, so a translation of `n` tokens costs `n + 1` of them. That is the known
-/// cost of holding the KV cache on the host, and it is what a future prefix bound in
-/// [`crate::nets::Push`] would remove.
+/// Both plans are keyed on the source length, so a translation pays two re-records - into the
+/// encoder and back into the decode step - and the decode steps themselves pay none: the step
+/// number reaches the plan through [`StepParams`], not through the key.
 ///
 /// # The weights file stays open
 ///
@@ -32,10 +31,11 @@ fn nllb_plan(offsets: &Offsets, mode: nllb::Mode) -> Result<Plan, String> {
 
 /// The two GPU passes, as [`translate::Nets`] wants them.
 ///
-/// There is no host-side KV cache any more: the decode plan holds one in the arena and writes to
-/// it in place. A sentence cannot leak into the next one because switching back to
-/// [`nllb::Mode::Encode`] and out again re-records the plan, and the first step of a translation
-/// writes row zero before reading anything.
+/// Nothing but the token crosses to the device per step and nothing but the next token comes back:
+/// the self-attention KV cache and the cross-attention K and V the encoder pass computed all live
+/// in the arena. A sentence cannot leak into the next one because the encoder pass rewrites the
+/// cross K and V, and the first step of a translation writes self-attention row zero before
+/// reading anything.
 struct NllbNets<'a> {
     net: &'a mut Reshaped<nllb::Mode>,
     weights: &'a Streamed,
@@ -50,27 +50,21 @@ impl NllbNets<'_> {
 }
 
 impl translate::Nets for NllbNets<'_> {
-    fn encode(&mut self, source: &[u32]) -> Result<Vec<f32>, String> {
+    fn encode(&mut self, source: &[u32]) -> Result<(), String> {
         let len = u32::try_from(source.len()).map_err(|_| "a source longer than u32")?;
         let reader = self.weights.reader();
         // The embedding, `sqrt(d_model)` and the sinusoidal positions, all on the host. See
         // `nets::nllb` for why none of that is a shader.
         let embedded = nllb::embed_positions(reader, source, 0)?;
         let net = self.net.at(nllb::Mode::Encode { len })?;
-        let out = one_output(net.infer_raw(&embedded)?)?;
+        // The output is the encoder state, which the decode steps never need: the pass has
+        // already left their cross-attention K and V in the arena.
+        net.infer_raw(&embedded)?;
         self.src_len = len;
-        // The plan produces `[d_model, 1, len]`; the trait's contract is `[len, d_model]`. One
-        // transpose here rather than a comment that disagrees with the trait.
-        Ok(transpose(&out, nllb::D_MODEL as usize, source.len()))
+        Ok(())
     }
 
-    fn decode_step(
-        &mut self,
-        token: u32,
-        step: usize,
-        encoded: &[f32],
-    ) -> Result<Vec<f32>, String> {
-        let width = nllb::D_MODEL as usize;
+    fn decode_step(&mut self, token: u32, step: usize) -> Result<u32, String> {
         let cache_len = u32::try_from(step).map_err(|_| "a step past u32")?;
         if cache_len >= nllb::MAX_DECODE_POSITIONS {
             return Err(format!(
@@ -78,43 +72,27 @@ impl translate::Nets for NllbNets<'_> {
                 nllb::MAX_DECODE_POSITIONS
             ));
         }
+        if self.src_len == 0 {
+            return Err("a decode step before the encoder ran".into());
+        }
         let reader = self.weights.reader();
         // `past = step`, which is what puts this token at position `step + 2`.
         let embedded = nllb::embed_positions(reader, &[token], cache_len)?;
-        if !encoded.len().is_multiple_of(width) {
-            return Err(format!("{} encoder values is not a whole number of {width}", encoded.len()));
-        }
-        let src_len = (encoded.len() / width) as u32;
-        if src_len != self.src_len {
-            return Err(format!("a step over {src_len} source positions after {}", self.src_len));
-        }
-        // Back to `[d_model, 1, src_len]`, which is what the cross-attention projections read.
-        let source = transpose(encoded, encoded.len() / width, width);
 
-        // The key no longer carries the step, so this matches after the first decode step and
-        // `at` stops re-recording. The KV cache stays in the arena between submits.
-        let net = self.net.at(nllb::Mode::DecodeStep { src_len })?;
-        // The one thing that changes per token, and it is a memcpy rather than a re-record.
+        // Keyed on the source length only, so this re-records once per translation, on the
+        // switch out of `Encode`.
+        let net = self.net.at(nllb::Mode::DecodeStep { src_len: self.src_len })?;
         net.set_params(StepParams { prefix: cache_len, window_start: 0 })?;
-        let out = net.infer_raw_many(&[&embedded, &source])?;
-
-        // Four logits splits and nothing else: the K and V rows are written straight into the
-        // device-side cache by the plan, so there is no cache to bring back.
-        if out.len() != nllb::HEAD_SPLITS {
-            return Err(format!(
-                "a decode step returned {} tensors, not {}",
-                out.len(),
-                nllb::HEAD_SPLITS
-            ));
+        // `Builder::argmax`'s pair: `lo = id % 2048`, `hi = id / 2048`.
+        let pair = one_output(net.infer_raw(&embedded)?)?;
+        let [lo, hi] = pair[..] else {
+            return Err(format!("the greedy id holds {} values, not 2", pair.len()));
+        };
+        let id = hi as u32 * 2048 + lo as u32;
+        if id >= nllb::VOCAB {
+            return Err(format!("the greedy id {id} is past the {}-entry vocabulary", nllb::VOCAB));
         }
-        let mut logits = Vec::with_capacity(nllb::VOCAB as usize);
-        for half in out.iter().take(nllb::HEAD_SPLITS) {
-            logits.extend_from_slice(half);
-        }
-        if logits.len() != nllb::VOCAB as usize {
-            return Err(format!("{} logits, not {}", logits.len(), nllb::VOCAB));
-        }
-        Ok(logits)
+        Ok(id)
     }
 }
 
@@ -221,7 +199,7 @@ pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_translate
             return Ok(std::ptr::null_mut());
         }
         // SAFETY: the caller guarantees the handle came from `createNllb` and is still live. It is
-        // `&mut` because a decode step re-records the net, and Kotlin serialises calls on one handle.
+        // `&mut` because a translation re-records the net, and Kotlin serialises calls on one handle.
         let handle = unsafe { &mut *(handle as *mut NllbHandle) };
         let translated = match text.try_to_string(env) {
             Ok(text) => run_nllb(handle, &text, source_token, target_token),

@@ -144,15 +144,10 @@ fn decode(
         |offsets, mode| nllb::build(offsets, mode),
     )?;
 
-    // The encoder, once. Its output conditions every step.
+    // The encoder, once. It leaves every layer's cross-attention K and V in the arena.
     let embedded = nllb::embed_positions(weights.reader(), &pair.source, 0)?;
-    let encoded = {
-        let at = net.at(nllb::Mode::Encode { len: src_len })?;
-        let out = at.infer_raw(&embedded)?;
-        out.into_iter().next().ok_or("the encoder returned nothing")?
-    };
+    net.at(nllb::Mode::Encode { len: src_len })?.infer_raw(&embedded)?;
 
-    let width = nllb::D_MODEL as usize;
     let mut produced = Vec::new();
     let mut token = EOS;
     for step in 0..MAX_TOKENS {
@@ -165,18 +160,14 @@ fn decode(
         // never again. The KV cache stays in the arena between submits.
         let at = net.at(nllb::Mode::DecodeStep { src_len })?;
         at.set_params(StepParams { prefix: cache_len, window_start: 0 })?;
-        let out = at.infer_raw_many(&[&embedded, &encoded])?;
-
-        let mut logits: Vec<f32> = Vec::with_capacity(nllb::VOCAB as usize);
-        for split in out.iter().take(nllb::HEAD_SPLITS) {
-            logits.extend_from_slice(split);
-        }
-        if logits.len() != nllb::VOCAB as usize {
-            return Err(format!("{} logits, not {} (width {width})", logits.len(), nllb::VOCAB));
-        }
+        let out = at.infer_raw(&embedded)?;
+        let pair_out = out.into_iter().next().ok_or("the step returned nothing")?;
+        let [lo, hi] = pair_out[..] else {
+            return Err(format!("the greedy id holds {} values, not 2", pair_out.len()));
+        };
 
         // Step 0's argmax is discarded: HuggingFace forces the target language token there.
-        let next = if step == 0 { pair.target } else { argmax(&logits)? };
+        let next = if step == 0 { pair.target } else { hi as u32 * 2048 + lo as u32 };
         if next == EOS {
             break;
         }
@@ -186,20 +177,6 @@ fn decode(
         token = next;
     }
     Ok(produced)
-}
-
-/// Largest index, ties to the lowest, NaN skipped. Matches `post::translate::argmax`.
-fn argmax(logits: &[f32]) -> Result<u32, String> {
-    let mut best: Option<(usize, f32)> = None;
-    for (index, &value) in logits.iter().enumerate() {
-        if value.is_nan() {
-            continue;
-        }
-        if best.is_none_or(|(_, top)| value > top) {
-            best = Some((index, value));
-        }
-    }
-    best.map(|(index, _)| index as u32).ok_or_else(|| "no finite logit".to_string())
 }
 
 /// Pull the pairs out of the fixture.

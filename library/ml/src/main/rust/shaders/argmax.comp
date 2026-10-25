@@ -43,13 +43,14 @@ void main() {
     best_val[lane] = mine_val;
     best_idx[lane] = mine_idx;
     barrier();
-    // Lane 0 folds the 64 lane-maxima. Strict `>` keeps the FIRST index on
-    // ties, matching the host `argmax` loop.
+    // Lane 0 folds the 64 lane-maxima. Each lane holds its own first index, but lanes interleave,
+    // so an equal value from a later lane can still be the earlier index - the tie compares
+    // indices, which is what keeps the FIRST index globally, matching the host `argmax` loop.
     if (lane == 0u) {
         float top_val = best_val[0];
         uint top_idx = best_idx[0];
         for (uint l = 1u; l < 64u; l++) {
-            if (best_val[l] > top_val) {
+            if (best_val[l] > top_val || (best_val[l] == top_val && best_idx[l] < top_idx)) {
                 top_val = best_val[l];
                 top_idx = best_idx[l];
             }

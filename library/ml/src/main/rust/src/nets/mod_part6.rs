@@ -156,6 +156,22 @@ impl<'a> Builder<'a> {
         self.nodes.push(Node::CacheWrite { row, cache });
     }
 
+    /// Copy `src` into `dst`, a [`Builder::persistent`] tensor of the same shape, as one
+    /// [`Op::Copy`].
+    ///
+    /// For a pass that fills a tensor a *later, differently shaped* plan reads. Unlike
+    /// [`Builder::cache_write`] it ignores the step's prefix, which belongs to the other plan.
+    pub fn copy_into(&mut self, src: Id, dst: Id) {
+        let (ss, sd) = (self.shape_of(src), self.shape_of(dst));
+        if ss != sd {
+            self.fail(format!("copying {ss:?} into {sd:?}"));
+        }
+        if !self.pinned.contains(&dst) {
+            self.fail("copying into a tensor that is not persistent".into());
+        }
+        self.nodes.push(Node::Concat { parts: vec![src], out: dst });
+    }
+
     /// Clamp to the `[min, max]` pair at `weight_index`, a `[2]` fp16 tensor.
     ///
     /// The bounds are weights rather than arguments because Gemma 4's vision tower has 177 of

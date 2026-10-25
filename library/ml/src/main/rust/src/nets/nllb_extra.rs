@@ -71,12 +71,21 @@ mod tests {
     /// that read the wrong range would name the right one and still be wrong.
     fn read_by(mode: Mode) -> Vec<std::ops::Range<usize>> {
         let mut ranges = Vec::new();
+        let cross: Vec<_> = (0..DECODER_LAYERS).map(cross_kv).collect();
         match mode {
-            Mode::Encode { .. } => ranges.push(ENCODER..DECODER),
+            Mode::Encode { .. } => {
+                ranges.push(ENCODER..DECODER);
+                ranges.extend(cross);
+            }
             Mode::DecodeStep { .. } => {
-                // The decode step computes the tied head itself, so it reads both ends of the file.
+                // The decode step computes the tied head itself, so it reads both ends of the file,
+                // minus the cross-attention K and V the encode pass ran.
                 ranges.push(HEAD..ENCODER);
-                ranges.push(DECODER..TENSORS);
+                ranges.extend(
+                    (DECODER..TENSORS)
+                        .filter(|index| !cross.iter().any(|range| range.contains(index)))
+                        .map(|index| index..index + 1),
+                );
             }
         }
         ranges
@@ -108,8 +117,13 @@ mod tests {
                 *counts.entry(super::super::tests::name_of(*kind)).or_insert(0usize) += 1;
             }
         }
-        // Six int8 convolutions per layer: q, k, v, the output projection, fc1 and fc2.
-        assert_eq!(counts.get("ConvInt8"), Some(&(ENCODER_LAYERS * 6)), "{counts:?}");
+        // Six int8 convolutions per layer: q, k, v, the output projection, fc1 and fc2 - and the
+        // decoder's cross-attention K and V, computed here once per sentence.
+        assert_eq!(
+            counts.get("ConvInt8"),
+            Some(&(ENCODER_LAYERS * 6 + DECODER_LAYERS * 2)),
+            "{counts:?}"
+        );
         // Three norms per layer would be post-norm. Pre-norm is two, plus one at the end.
         assert_eq!(counts.get("LayerNorm"), Some(&(ENCODER_LAYERS * 2 + 1)), "{counts:?}");
         assert_eq!(counts.get("AttnScores"), Some(&ENCODER_LAYERS), "{counts:?}");
@@ -154,6 +168,56 @@ mod tests {
     }
 
     #[test]
+    fn the_encode_pass_leaves_the_cross_caches_where_the_decode_step_reads_them() {
+        // The whole of the cross-attention cache rests on this: two differently shaped plans
+        // agreeing on where 24 persistent tensors are. If they disagree the decoder attends over
+        // the other plan's activations - no crash, no shape error, fluent wrong output.
+        let (_, encode) = plan(Mode::Encode { len: LEN });
+        let (_, step) = plan(Mode::DecodeStep { src_len: LEN });
+        let caches = DECODER_LAYERS * 2;
+        assert_eq!(encode.pinned[..caches], step.pinned[..caches]);
+        for binding in &encode.pinned[..caches] {
+            assert_eq!(binding.shape, Shape::new(D_MODEL, 1, LEN));
+        }
+
+        // The encode pass writes every one of them, whole.
+        let written: Vec<_> = encode
+            .ops
+            .iter()
+            .filter_map(|op| match *op {
+                Op::Copy { dst, elems, .. } => Some((dst, elems)),
+                _ => None,
+            })
+            .collect();
+        for binding in &encode.pinned[..caches] {
+            assert!(
+                written.contains(&(binding.at, D_MODEL * LEN)),
+                "the encode pass never fills the cache at {}",
+                binding.at
+            );
+        }
+
+        // And the decode step's cross-attention reads them rather than anything it computed.
+        let starts: Vec<u32> = encode.pinned[..caches].iter().map(|b| b.at).collect();
+        let mut reads = 0;
+        for op in &step.ops {
+            match op {
+                Op::Dispatch { kind: Kind::AttnScores, push, .. } => {
+                    assert!(starts.contains(&push.in1), "cross K from {}: {push:?}", push.in1);
+                    reads += 1;
+                }
+                Op::Dispatch { kind: Kind::AttnApply, push, .. } => {
+                    assert!(starts.contains(&push.in1), "cross V from {}: {push:?}", push.in1);
+                    reads += 1;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(reads, caches);
+        assert_no_aliasing(&encode);
+    }
+
+    #[test]
     fn a_decode_step_is_twelve_layers_of_two_attentions() {
         let (_, plan) = plan(Mode::DecodeStep { src_len: LEN });
         let mut counts = std::collections::BTreeMap::new();
@@ -162,11 +226,12 @@ mod tests {
                 *counts.entry(super::super::tests::name_of(*kind)).or_insert(0usize) += 1;
             }
         }
-        // Ten int8 convolutions per layer — two attentions of four plus fc1 and fc2 — and the four
-        // splits of the tied head.
+        // Eight int8 convolutions per layer - the self-attention's four, the cross-attention's
+        // query and output, fc1 and fc2 - and the four splits of the tied head. The cross K and V
+        // are the encode pass's.
         assert_eq!(
             counts.get("ConvInt8"),
-            Some(&(DECODER_LAYERS * 10 + HEAD_SPLITS)),
+            Some(&(DECODER_LAYERS * 8 + HEAD_SPLITS)),
             "{counts:?}"
         );
         // Three norms per layer, pre-norm, plus the trailing one.
@@ -184,24 +249,21 @@ mod tests {
         // Three residuals per layer — half of which fold into their producing
         // convolution's store. See `Builder::add`.
         assert_eq!(counts.get("Add"), Some(&18), "{counts:?}");
+        // And the greedy pick, on the device.
+        assert_eq!(counts.get("Argmax"), Some(&1), "{counts:?}");
         assert_no_aliasing(&plan);
     }
 
     #[test]
-    fn a_decode_step_takes_only_the_token_and_the_source() {
+    fn a_decode_step_takes_only_the_token_and_returns_only_the_next_one() {
         let (_, plan) = plan(Mode::DecodeStep { src_len: LEN });
-        // The token and the encoder output, and nothing else: the KV cache is on the device.
-        // This is the shape of the change - twenty-four cache bindings used to be uploaded on
-        // every token, growing by a position each time.
-        assert_eq!(plan.inputs.len(), 2);
+        // The token, and nothing else: the self-attention cache and the cross-attention K and V are
+        // on the device. The encoder output used to be uploaded here on every token.
+        assert_eq!(plan.inputs.len(), 1);
         assert_eq!(plan.inputs[0].shape, Shape::new(D_MODEL, 1, 1));
-        assert_eq!(plan.inputs[1].shape, Shape::new(D_MODEL, 1, LEN));
-        // Four logits splits, and no cache rows coming back.
-        assert_eq!(plan.outputs.len(), HEAD_SPLITS);
-        let classes: u32 = plan.outputs.iter().take(HEAD_SPLITS).map(|b| b.shape.c).sum();
-        assert_eq!(classes, VOCAB);
-        assert_eq!(plan.outputs[0].shape.c, CLASSES_PER_SPLIT);
-        assert_eq!(plan.outputs[HEAD_SPLITS - 1].shape.c, CLASSES_PER_TAIL_SPLIT);
+        // `Builder::argmax`'s two lanes, rather than 256,206 logits.
+        assert_eq!(plan.outputs.len(), 1);
+        assert_eq!(plan.outputs[0].shape, Shape::new(2, 1, 1));
     }
 
     #[test]
@@ -279,27 +341,20 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(int8.len(), DECODER_LAYERS * 10 + HEAD_SPLITS);
+        assert_eq!(int8.len(), DECODER_LAYERS * 8 + HEAD_SPLITS);
 
-        // The split is not "everything": the cross-attention's key and value projections read the
-        // **encoder output**, which is `src_len` positions, so they stay tiled and are the only
-        // multi-position work a decode step does. Everything else — the four self-attention
-        // projections, the cross-attention's query and output, both feed-forwards and all four
-        // head splits — is one position.
-        let (vector, tiled): (Vec<_>, Vec<_>) =
-            int8.iter().partition(|(kind, _, _)| *kind == Kind::ConvVecInt8);
-        assert_eq!(vector.len(), DECODER_LAYERS * 8 + HEAD_SPLITS, "single-position");
-        assert_eq!(tiled.len(), DECODER_LAYERS * 2, "the cross-attention K and V");
-        for (kind, push, _) in &tiled {
-            assert_eq!(*kind, Kind::ConvPointInt8, "{push:?}");
-            assert_eq!(push.out_w, LEN, "{push:?}");
+        // Every one of them: with the cross-attention K and V moved to the encode pass, a decode
+        // step does no multi-position work at all.
+        for (kind, push, _) in &int8 {
+            assert_eq!(*kind, Kind::ConvVecInt8, "{push:?}");
         }
+        let vector = &int8;
         // One workgroup per group of `CONV_VEC_ROWS` output channels, 64 invocations each.
         //
         // Derived rather than written out: the group size is an occupancy tuning knob and was
         // eight when this was written. Hard-coding it here meant tuning it failed a test about
         // NLLB's decode shape, which is not what this is checking.
-        for (_, push, invocations) in &vector {
+        for (_, push, invocations) in vector {
             assert_eq!(push.out_h * push.out_w, 1, "{push:?}");
             assert_eq!(push.count, push.out_c.div_ceil(super::super::CONV_VEC_ROWS), "{push:?}");
             assert_eq!(*invocations, push.count * 64, "{push:?}");
@@ -308,19 +363,33 @@ mod tests {
 
     #[test]
     fn the_head_is_four_ops_over_disjoint_class_ranges() {
-        // Together the four splits are the whole vocabulary, which is what `post::translate`
-        // argmaxes. The last two splits are one class short each.
+        // Together the four splits are the whole vocabulary, which is what the device argmax
+        // reduces over. The last two splits are one class short each.
         let source = Shapes::new(TENSORS);
         let plan = build(&source, Mode::DecodeStep { src_len: LEN })
             .expect("the step builds");
         let heads: Vec<_> = plan
-            .outputs
+            .ops
             .iter()
-            .take(HEAD_SPLITS)
-            .map(|b| b.shape.c)
+            .filter_map(|op| match op {
+                Op::Dispatch { kind: Kind::ConvVecInt8, push, .. } if push.out_c > FFN => {
+                    Some(push.out_c)
+                }
+                _ => None,
+            })
             .collect();
         assert_eq!(heads, vec![64_052, 64_052, 64_051, 64_051]);
         assert_eq!(heads.iter().sum::<u32>(), VOCAB);
+        // The argmax runs over all of them at once, in id order.
+        let argmax: Vec<_> = plan
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Dispatch { kind: Kind::Argmax, push, .. } => Some(push.count),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(argmax, vec![VOCAB]);
     }
 
     #[test]

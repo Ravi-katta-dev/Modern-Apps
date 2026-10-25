@@ -27,8 +27,8 @@ import kotlinx.coroutines.withContext
  *
  * # The lock is not only for the handle
  *
- * A translation re-records the network once per decoded token, so two concurrent calls
- * would interleave recordings of the same command buffer. The mutex therefore covers the
+ * A translation keeps its KV caches on the device and re-records the network on the way in,
+ * so two concurrent calls would clobber each other's state. The mutex therefore covers the
  * whole of [translate] rather than just the load, and [close] too.
  */
 class NllbTranslator(private val context: Context) : TranslationEngine {
