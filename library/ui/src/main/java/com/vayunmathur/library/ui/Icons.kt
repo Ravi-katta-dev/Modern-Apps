@@ -142,6 +142,7 @@ import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.ScreenShare
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
@@ -235,6 +236,7 @@ import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Store
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.ThumbDown
@@ -1769,3 +1771,11 @@ fun IconWifiFull(modifier: Modifier = Modifier, tint: Color = LocalContentColor.
 @Composable
 fun IconWifiOff(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
     AppIcon(Icons.Filled.WifiOff, "Offline", modifier, tint)
+
+@Composable
+fun IconMovie(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.Movie, "Movies", modifier, tint)
+
+@Composable
+fun IconStore(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.Store, "Store", modifier, tint)
