@@ -10,11 +10,11 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use modelrunner::nets::{nllb, whisper};
+use modelrunner::nets::{madlad, madlad_part1, nllb, whisper};
 use modelrunner::vulkan::context;
 use modelrunner::vulkan::reshape::Reshaped;
 use modelrunner::vulkan::run::{Net, StepParams};
-use modelrunner::weights::{graph, Weights};
+use modelrunner::weights::{graph, Streamed, Weights};
 
 /// Source tokens. A longish sentence, so cross-attention costs show.
 const SRC_LEN: u32 = 32;
@@ -28,7 +28,8 @@ fn main() {
     let result = match model {
         "nllb" => nllb_profile(args.get(1).map(String::as_str)),
         "whisper" => whisper_profile(args.get(1).map(String::as_str)),
-        other => Err(format!("unknown model {other:?}; known: nllb, whisper")),
+        "madlad" => madlad_profile(args.get(1).map(String::as_str)),
+        other => Err(format!("unknown model {other:?}; known: nllb, whisper, madlad")),
     };
     if let Err(why) = result {
         println!("failed: {why}");
@@ -171,6 +172,93 @@ fn whisper_profile(path: Option<&str>) -> Result<(), String> {
     print_kinds("decode step", decode);
     let encode = net.at(whisper::Mode::Encode)?;
     encode.infer_raw_many(&[&mel])?;
+    print_kinds("encode", encode);
+    Ok(())
+}
+
+/// Whether a MADLAD decode step takes the encoder output as an input. True at HEAD; false once the
+/// encode pass leaves the cross-attention K and V on the device.
+const MADLAD_STEP_TAKES_ENCODED: bool = false;
+
+/// MADLAD over a fixed 32-token source: three sentences of 24 greedy steps, ids and checksum
+/// printed so two builds can be compared. Streamed, because the file is a gigabyte.
+fn madlad_profile(path: Option<&str>) -> Result<(), String> {
+    const SRC_LEN: u32 = 32;
+    const STEPS: u32 = 24;
+    let path = path
+        .map(str::to_owned)
+        .or_else(|| std::env::var("MODELRUNNER_MADLAD").ok())
+        .ok_or("pass the madlad400.maml path or set MODELRUNNER_MADLAD")?;
+    let file = std::fs::File::open(&path).map_err(|e| format!("cannot open {path}: {e}"))?;
+    let len = file.metadata().map_err(|e| format!("cannot size {path}: {e}"))?.len();
+    let weights = Streamed::open(file, 0, len, graph::MADLAD)?;
+    let context = context::shared()?;
+
+    let started = Instant::now();
+    let mut net = Reshaped::streamed(
+        context,
+        weights.offsets(),
+        &weights,
+        madlad::Mode::Encode { len: SRC_LEN },
+        |offsets, mode| madlad::build(offsets, mode),
+    )?;
+    println!("load      {:>8.1} ms (upload + first record)", ms(started));
+
+    // A target tag then ordinary pieces then `</s>`, ids well inside the vocabulary.
+    let mut source: Vec<u32> = vec![256_000 - 1_000];
+    source.extend((0..SRC_LEN - 2).map(|i| 500 + i * 41));
+    source.push(1);
+    let embedded = madlad_part1::embed_positions(weights.reader(), &source, 0)?;
+    let queries: Vec<u32> = (0..SRC_LEN).collect();
+    let enc_bias =
+        madlad_part1::relative_bias(weights.reader(), madlad::TABLE_ENC, &queries, &queries, true)?;
+
+    let mut encode_ms = Vec::new();
+    let mut step_ms = Vec::new();
+    let mut ids = Vec::new();
+    for round in 0..3 {
+        let t = Instant::now();
+        let out = net.at(madlad::Mode::Encode { len: SRC_LEN })?.infer_raw_many(&[&embedded, &enc_bias])?;
+        encode_ms.push(ms(t));
+        let encoded = out.into_iter().next().ok_or("the encoder returned nothing")?;
+
+        let mut token = 0u32;
+        for step in 0..STEPS {
+            let row = madlad_part1::embed_positions(weights.reader(), &[token], step)?;
+            let keys: Vec<u32> = (0..=step).collect();
+            let live = madlad_part1::relative_bias(weights.reader(), madlad::TABLE_DEC, &[step], &keys, false)?;
+            let width = madlad::MAX_DECODE_POSITIONS as usize;
+            let mut bias = vec![0.0f32; madlad::HEADS as usize * width];
+            for head in 0..madlad::HEADS as usize {
+                bias[head * width..head * width + keys.len()]
+                    .copy_from_slice(&live[head * keys.len()..(head + 1) * keys.len()]);
+            }
+            let at = net.at(madlad::Mode::DecodeStep { src_len: SRC_LEN })?;
+            at.set_params(StepParams { prefix: step, window_start: 0 })?;
+            let mut inputs: Vec<&[f32]> = vec![&row];
+            if MADLAD_STEP_TAKES_ENCODED {
+                inputs.push(&encoded);
+            }
+            inputs.push(&bias);
+            let t = Instant::now();
+            let out = at.infer_raw_many(&inputs)?;
+            if step > 0 {
+                step_ms.push(ms(t));
+            }
+            token = greedy(&out).unwrap_or(1).min(madlad::VOCAB - 1);
+            if round == 0 {
+                ids.push(token);
+            }
+        }
+    }
+    println!("encode    {}", stats(&encode_ms));
+    println!("step      {}", stats(&step_ms));
+    println!("ids       {ids:?}");
+
+    let decode = net.at(madlad::Mode::DecodeStep { src_len: SRC_LEN })?;
+    print_kinds("decode step", decode);
+    let encode = net.at(madlad::Mode::Encode { len: SRC_LEN })?;
+    encode.infer_raw_many(&[&embedded, &enc_bias])?;
     print_kinds("encode", encode);
     Ok(())
 }

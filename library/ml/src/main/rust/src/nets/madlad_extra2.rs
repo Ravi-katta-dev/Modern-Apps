@@ -1,9 +1,12 @@
 use super::madlad::{
     DECODER, DECODER_LAYERS, DECODER_NORM, D_MODEL, ENCODER, EPSILON, HEAD_LM,
-    HEAD_SPLITS, HEADS, INNER, MAX_DECODE_POSITIONS, TABLE_DEC, TABLE_ENC, TENSORS,
+    HEAD_SPLITS, HEADS, INNER, MAX_DECODE_POSITIONS, TABLE_ENC,
 };
 use super::{Act, Builder, Id, Plan, Shape, WeightSource};
-use super::madlad::{Layers, cross_attention, feed_forward, name_host_tensors, point, split_classes};
+use super::madlad::{
+    cross_attention, cross_kv, declare_cross_caches, feed_forward, name_host_tensors, point,
+    split_classes, Layers,
+};
 
 /// One decoder step.
 ///
@@ -12,17 +15,15 @@ use super::madlad::{Layers, cross_attention, feed_forward, name_host_tensors, po
 /// | | shape | |
 /// | :--- | :--- | :--- |
 /// | 0 | `[1024, 1, 1]` | the current token, after [`embed_positions`] |
-/// | 1 | `[1024, 1, src_len]` | the encoder output, channel-major as the encoder produced it |
-/// | 2 | `[16, 1, MAX]` | the step's self-attention bias row, host-computed (see below) |
+/// | 1 | `[16, 1, MAX]` | the step's self-attention bias row, host-computed (see below) |
 ///
-/// # Outputs, in declaration order
+/// The encoder's contribution is not an input: [`super::madlad::Mode::Encode`] left every layer's
+/// cross-attention K and V in persistent tensors at the offsets this plan declares them at.
 ///
-/// | | shape | |
-/// | :--- | :--- | :--- |
-/// | 0..4 | `[64000, 1, 1]` | the four `lm_head` logits splits, concatenated by the host |
+/// # Output
 ///
-/// The K and V rows are no longer outputs: they are written straight into the device-side
-/// cache by the plan, and the host never sees them again.
+/// One: the greedy next token as the `[2, 1, 1]` pair [`Builder::argmax`] writes, from the four
+/// `lm_head` splits concatenated on the device. 256,000 logits used to come back every token.
 ///
 /// # The bias input
 ///
@@ -32,15 +33,6 @@ use super::madlad::{Layers, cross_attention, feed_forward, name_host_tensors, po
 /// followed by zeros: `softmax_prefix` normalises only the leading `prefix + 1` entries,
 /// and the stale tail never enters the maximum or the sum — the same bound the cached
 /// score map already reads.
-///
-/// # Why the cross-attention K and V are recomputed
-///
-/// As NLLB's: they depend only on the encoder output, so computing them once and caching
-/// them would save thirty-two 1024x2048 projections per step. They are not cached here
-/// because that would need a third pass and a second kind of persistence for a saving the
-/// logits projection dwarfs: the head is ~262 million multiply-accumulates per split-set
-/// against the whole decoder's ~1.6 billion. Worth revisiting only after `Kind::ConvVecInt8`
-/// makes the head cheap.
 pub(crate) fn decode_step(weights: &dyn WeightSource, src_len: u32) -> Result<Plan, String> {
     if src_len == 0 {
         return Err("a decode step with no source to attend over".into());
@@ -49,15 +41,22 @@ pub(crate) fn decode_step(weights: &dyn WeightSource, src_len: u32) -> Result<Pl
     let l = &mut Layers { next: DECODER };
     let mut builder = Builder::new(weights);
     let b = &mut builder;
-    // The decoder plus the logits head, which this pass computes in the same plan. The input
-    // table, the whole encoder and both bias tables belong elsewhere: the tables are read
-    // on the host, never by a shader, so the range ends at TABLE_ENC — ending it at
-    // TABLE_DEC would leave the encoder bias table in no-man's-land (named by neither
-    // pass's complement check).
-    name_host_tensors(b, &[HEAD_LM..ENCODER, DECODER..TABLE_ENC]);
+    // The decoder plus the logits head, minus the cross-attention K and V the encode pass ran.
+    // The input table, the whole encoder and both bias tables belong elsewhere: the tables are
+    // read on the host, never by a shader, so the range ends at TABLE_ENC.
+    let mut read = vec![HEAD_LM..ENCODER];
+    let mut at = DECODER;
+    for layer in 0..DECODER_LAYERS {
+        let skipped = cross_kv(layer);
+        read.push(at..skipped.start);
+        at = skipped.end;
+    }
+    read.push(at..TABLE_ENC);
+    name_host_tensors(b, &read);
 
+    // First, so the offsets match the encode pass's.
+    let cross = declare_cross_caches(b, src_len);
     let mut x = b.input(Shape::new(D_MODEL, 1, 1));
-    let encoded = b.input(Shape::new(D_MODEL, 1, src_len));
     let step_bias = b.input(Shape::new(HEADS, 1, MAX_DECODE_POSITIONS));
     // Every layer's cache pair, held on the device across steps rather than handed in and out.
     //
@@ -73,7 +72,7 @@ pub(crate) fn decode_step(weights: &dyn WeightSource, src_len: u32) -> Result<Pl
         })
         .collect();
 
-    for &(cache_k, cache_v) in &caches {
+    for (&(cache_k, cache_v), &(cross_k, cross_v)) in caches.iter().zip(&cross) {
         // Self-attention, pre-norm, against the cache this step is about to extend.
         let normed = b.rms_norm(x, l.take(), EPSILON);
         let q = point(b, l, normed, INNER, Act::None);
@@ -96,11 +95,10 @@ pub(crate) fn decode_step(weights: &dyn WeightSource, src_len: u32) -> Result<Pl
         let projected = point(b, l, mixed, D_MODEL, Act::None);
         x = b.add(x, projected);
 
-        // Cross-attention over the encoder output, which is channel-major and a different length,
-        // so it uses the ordinary pair rather than the cached one. No bias: cross-attention
+        // Cross-attention over the K and V the encode pass left behind. No bias: cross-attention
         // never carries a relative term.
         let normed = b.rms_norm(x, l.take(), EPSILON);
-        x = cross_attention(b, l, x, normed, encoded);
+        x = cross_attention(b, l, x, normed, cross_k, cross_v);
 
         x = feed_forward(b, l, x);
     }
@@ -112,14 +110,16 @@ pub(crate) fn decode_step(weights: &dyn WeightSource, src_len: u32) -> Result<Pl
         return Err(format!("the decoder norm ends at {}, not {TABLE_ENC}", l.next));
     }
 
-    // The untied logits head, in the same plan: a separate pass would mean a second `rebuild`
-    // and a round trip through the host for a `[1024]` vector. Four even splits of 64,000.
+    // The untied logits head, in the same plan. Four even splits of 64,000, concatenated on the
+    // device and reduced to the greedy token there.
     let head = &mut Layers { next: HEAD_LM };
-    let outputs: Vec<Id> = (0..HEAD_SPLITS)
+    let splits: Vec<Id> = (0..HEAD_SPLITS)
         .map(|split| point(b, head, state, split_classes(split), Act::None))
         .collect();
     if head.next != ENCODER {
         return Err(format!("the head claims {} tensors, not {ENCODER}", head.next));
     }
-    builder.finish(&outputs)
+    let row = b.concat(&splits);
+    let id = b.argmax(row);
+    builder.finish(&[id])
 }

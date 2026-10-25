@@ -81,17 +81,17 @@ pub const MAX_TOKENS: usize = 128;
 
 /// The two GPU stages, as a trait, so the loop below is host-testable.
 pub trait Nets {
-    /// The encoder over the whole source sequence, returning `[source.len(), 1024]`.
+    /// The encoder over the whole source sequence.
     ///
-    /// Run once. Its output conditions every decoder step, and the cross-attention keys and
-    /// values derived from it are computed on the first step and then frozen.
-    fn encode(&mut self, source: &[u32]) -> Result<Vec<f32>, String>;
+    /// Run once. It leaves every decoder layer's cross-attention K and V on the device, so
+    /// nothing comes back to the host.
+    fn encode(&mut self, source: &[u32]) -> Result<(), String>;
 
-    /// One decoder step: the previous token in, the logits over the vocabulary out.
+    /// One decoder step: the previous token in, the greedy next token out.
     ///
     /// `step` is the position, so the implementation knows where in its KV cache to write and
     /// which bias row to upload.
-    fn decode_step(&mut self, token: u32, step: usize, encoded: &[f32]) -> Result<Vec<f32>, String>;
+    fn decode_step(&mut self, token: u32, step: usize) -> Result<u32, String>;
 }
 
 /// Translate `text` into the language `tag` names (e.g. `"<2en>"`).
@@ -127,7 +127,7 @@ pub fn translate(
     source.extend(body);
     source.push(EOS);
 
-    let encoded = nets.encode(&source)?;
+    nets.encode(&source)?;
     profile(&format!("madlad: encoded {} tokens", source.len()));
 
     let mut produced: Vec<u32> = Vec::new();
@@ -135,14 +135,11 @@ pub fn translate(
     let t0 = std::time::Instant::now();
     for step in 0..MAX_TOKENS {
         let s0 = std::time::Instant::now();
-        let logits = nets.decode_step(token, step, &encoded)?;
+        let next = nets.decode_step(token, step)?;
         let dt = s0.elapsed();
         if step < 5 || step % 20 == 0 {
             profile(&format!("madlad: step {step} took {}ms", dt.as_millis()));
         }
-        let next = argmax(&logits).ok_or_else(|| {
-            format!("the decoder returned {} logits at step {step}", logits.len())
-        })?;
         if next == EOS {
             break;
         }
@@ -157,24 +154,6 @@ pub fn translate(
     Ok(table.decode(&produced))
 }
 
-/// The index of the largest value, or `None` for an empty slice.
-///
-/// Ties take the lowest index, which is what `argmax` does everywhere else and what makes a
-/// greedy decode reproducible. NaN never wins, so a net that produced one degrades to picking
-/// some other token rather than to whichever comparison happened first.
-fn argmax(logits: &[f32]) -> Option<u32> {
-    let mut best: Option<(usize, f32)> = None;
-    for (index, &value) in logits.iter().enumerate() {
-        if value.is_nan() {
-            continue;
-        }
-        if best.is_none_or(|(_, top)| value > top) {
-            best = Some((index, value));
-        }
-    }
-    best.map(|(index, _)| index as u32)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,39 +166,24 @@ mod tests {
         source: Vec<u32>,
         /// Every `(token, step)` the decoder saw.
         steps: Vec<(u32, usize)>,
-        vocabulary: usize,
     }
 
     impl Nets for Scripted {
-        fn encode(&mut self, source: &[u32]) -> Result<Vec<f32>, String> {
+        fn encode(&mut self, source: &[u32]) -> Result<(), String> {
             self.source = source.to_vec();
-            // One 1024-wide row per source token, as the real encoder returns.
-            Ok(vec![0.5; source.len() * 1024])
+            Ok(())
         }
 
-        fn decode_step(
-            &mut self,
-            token: u32,
-            step: usize,
-            encoded: &[f32],
-        ) -> Result<Vec<f32>, String> {
-            assert_eq!(encoded.len(), self.source.len() * 1024);
+        fn decode_step(&mut self, token: u32, step: usize) -> Result<u32, String> {
+            assert!(!self.source.is_empty(), "a step before the encoder ran");
             self.steps.push((token, step));
-            let mut logits = vec![0.0f32; self.vocabulary];
-            // The scripted token wins; running off the end asks for `EOS`.
-            let wanted = self.script.get(step).copied().unwrap_or(EOS);
-            logits[wanted as usize] = 1.0;
-            Ok(logits)
+            // Running off the end of the script asks for `EOS`.
+            Ok(self.script.get(step).copied().unwrap_or(EOS))
         }
     }
 
     fn scripted(script: &[u32]) -> Scripted {
-        Scripted {
-            script: script.to_vec(),
-            source: Vec::new(),
-            steps: Vec::new(),
-            vocabulary: 200,
-        }
+        Scripted { script: script.to_vec(), source: Vec::new(), steps: Vec::new() }
     }
 
     /// A table whose ids 10.. are the ASCII letters, so a script maps to readable text —
@@ -304,15 +268,5 @@ mod tests {
         assert_eq!(got, "");
         assert!(nets.source.is_empty(), "the encoder ran on nothing");
         assert!(nets.steps.is_empty(), "the decoder ran on nothing");
-    }
-
-    #[test]
-    fn argmax_takes_the_lowest_index_of_a_tie_and_skips_nan() {
-        assert_eq!(argmax(&[1.0, 3.0, 3.0, 2.0]), Some(1));
-        assert_eq!(argmax(&[f32::NAN, 1.0]), Some(1));
-        assert_eq!(argmax(&[f32::NAN]), None);
-        assert_eq!(argmax(&[]), None);
-        // Negative logits are normal — a softmax was never taken.
-        assert_eq!(argmax(&[-5.0, -1.0, -9.0]), Some(1));
     }
 }

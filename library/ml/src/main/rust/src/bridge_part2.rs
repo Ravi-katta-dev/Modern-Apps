@@ -437,9 +437,8 @@ pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_destroy<'
 
 /// `[rows, columns]` to `[columns, rows]`.
 ///
-/// MADLAD's encoder output crosses its `Nets` seam as `[positions, d_model]` and this runtime
-/// works in `[d_model, positions]`, so it is transposed once on the way out and once per step on
-/// the way back in.
+/// For a host-side consumer of a channel-major tensor, which this runtime produces and most host
+/// code wants position-major.
 fn transpose(values: &[f32], rows: usize, columns: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; values.len()];
     for row in 0..rows {

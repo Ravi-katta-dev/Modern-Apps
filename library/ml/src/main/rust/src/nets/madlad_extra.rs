@@ -212,20 +212,33 @@ mod tests {
     }
 
     #[test]
-    fn a_decode_step_takes_the_token_the_source_and_the_bias() {
+    fn a_decode_step_takes_the_token_and_the_bias_and_returns_the_next_token() {
         let (_, plan) = plan(Mode::DecodeStep { src_len: LEN });
-        // The token, the encoder output and the step's bias row — and nothing else: the KV
-        // cache is on the device.
-        assert_eq!(plan.inputs.len(), 3);
+        // The token and the step's bias row - and nothing else: both kinds of cache are on the
+        // device. The encoder output used to be uploaded here every step.
+        assert_eq!(plan.inputs.len(), 2);
         assert_eq!(plan.inputs[0].shape, Shape::new(D_MODEL, 1, 1));
-        assert_eq!(plan.inputs[1].shape, Shape::new(D_MODEL, 1, LEN));
-        assert_eq!(plan.inputs[2].shape, Shape::new(HEADS, 1, MAX_DECODE_POSITIONS));
-        // Four logits splits, and no cache rows coming back.
-        assert_eq!(plan.outputs.len(), HEAD_SPLITS);
-        let classes: u32 = plan.outputs.iter().take(HEAD_SPLITS).map(|b| b.shape.c).sum();
-        assert_eq!(classes, VOCAB);
-        assert_eq!(plan.outputs[0].shape.c, CLASSES_PER_SPLIT);
-        assert_eq!(plan.outputs[HEAD_SPLITS - 1].shape.c, CLASSES_PER_SPLIT);
+        assert_eq!(plan.inputs[1].shape, Shape::new(HEADS, 1, MAX_DECODE_POSITIONS));
+        // `Builder::argmax`'s two lanes, rather than 256,000 logits.
+        assert_eq!(plan.outputs.len(), 1);
+        assert_eq!(plan.outputs[0].shape, Shape::new(2, 1, 1));
+    }
+
+    #[test]
+    fn the_encode_pass_leaves_the_cross_caches_where_the_decode_step_reads_them() {
+        // Two plans agreeing on where 64 persistent tensors live. If they disagree the decoder
+        // attends over the other plan's activations and still produces fluent text.
+        let (_, encode) = plan(Mode::Encode { len: LEN });
+        let (_, step) = plan(Mode::DecodeStep { src_len: LEN });
+        let caches = DECODER_LAYERS * 2;
+        assert_eq!(encode.pinned[..caches], step.pinned[..caches]);
+        for binding in &encode.pinned[..caches] {
+            assert_eq!(binding.shape, Shape::new(INNER, 1, LEN));
+            let filled = encode.ops.iter().any(|op| {
+                matches!(*op, Op::Copy { dst, elems, .. } if dst == binding.at && elems == INNER * LEN)
+            });
+            assert!(filled, "the encode pass never fills the cache at {}", binding.at);
+        }
     }
 
     #[test]
@@ -292,19 +305,21 @@ mod tests {
 
     #[test]
     fn the_head_is_four_even_splits_over_disjoint_class_ranges() {
-        // Together the four splits are the whole vocabulary, which is what `post::madlad`
-        // argmaxes. Even splits: 256,000 = 4 x 64,000.
+        // Together the four splits are the whole vocabulary, which the device argmax reduces
+        // over in one pass. Even splits: 256,000 = 4 x 64,000.
         let source = Shapes::new(TENSORS);
         let plan = build(&source, Mode::DecodeStep { src_len: LEN })
             .expect("the step builds");
-        let heads: Vec<_> = plan
-            .outputs
+        let argmax: Vec<_> = plan
+            .ops
             .iter()
-            .take(HEAD_SPLITS)
-            .map(|b| b.shape.c)
+            .filter_map(|op| match op {
+                Op::Dispatch { kind: Kind::Argmax, push, .. } => Some(push.count),
+                _ => None,
+            })
             .collect();
-        assert_eq!(heads, vec![64_000, 64_000, 64_000, 64_000]);
-        assert_eq!(heads.iter().sum::<u32>(), VOCAB);
+        assert_eq!(argmax, vec![VOCAB]);
+        assert_eq!(split_classes(0) * HEAD_SPLITS as u32, VOCAB);
     }
 
     #[test]

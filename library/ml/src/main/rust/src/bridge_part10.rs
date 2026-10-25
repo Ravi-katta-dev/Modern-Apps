@@ -6,11 +6,10 @@
 /// # One net, two passes
 ///
 /// [`Reshaped`] keyed by [`madlad::Mode`]. The encoder and the decode step (which computes the
-/// untied logits head itself) are two passes over **one** ~2.9 GiB file, so two `Net`s would
-/// upload it twice. A rebuild is a `device_wait_idle` and a re-record, and a decode step's cache
-/// grows by one position each time, so a translation of `n` tokens costs `n + 1` of them. That is
-/// the known cost of holding the KV cache on the host, and it is what a future prefix bound in
-/// [`crate::nets::Push`] would remove.
+/// untied logits head itself) are two passes over **one** ~1 GiB file, so two `Net`s would
+/// upload it twice. Both are keyed on the source length, so a translation pays two re-records -
+/// into the encoder and back into the decode step - and the decode steps none: the step number
+/// reaches the plan through [`StepParams`].
 ///
 /// # The weights file stays open
 ///
@@ -40,10 +39,10 @@ fn madlad_plan(offsets: &Offsets, mode: madlad::Mode) -> Result<Plan, String> {
 
 /// The two GPU passes, as [`madlad_post::Nets`] wants them.
 ///
-/// There is no host-side KV cache any more: the decode plan holds one in the arena and writes to
-/// it in place. A sentence cannot leak into the next one because switching back to
-/// [`madlad::Mode::Encode`] and out again re-records the plan, and the first step of a translation
-/// writes row zero before reading anything.
+/// Only the token and its bias row cross to the device per step, and only the next token comes
+/// back: the self-attention KV cache and the cross-attention K and V the encoder pass computed all
+/// live in the arena. A sentence cannot leak into the next one because the encoder pass rewrites
+/// the cross K and V, and the first step writes self-attention row zero before reading anything.
 struct MadladNets<'a> {
     net: &'a mut Reshaped<madlad::Mode>,
     weights: &'a Streamed,
@@ -58,7 +57,7 @@ impl MadladNets<'_> {
 }
 
 impl madlad_post::Nets for MadladNets<'_> {
-    fn encode(&mut self, source: &[u32]) -> Result<Vec<f32>, String> {
+    fn encode(&mut self, source: &[u32]) -> Result<(), String> {
         let len = u32::try_from(source.len()).map_err(|_| "a source longer than u32")?;
         let reader = self.weights.reader();
         // The embedding with no scale and no positions — T5 has neither — all on the host.
@@ -68,20 +67,14 @@ impl madlad_post::Nets for MadladNets<'_> {
         let queries: Vec<u32> = (0..len).collect();
         let bias = madlad_part1::relative_bias(reader, madlad::TABLE_ENC, &queries, &queries, true)?;
         let net = self.net.at(madlad::Mode::Encode { len })?;
-        let out = one_output(net.infer_raw_many(&[&embedded, &bias])?)?;
+        // The output is the encoder state, which the decode steps never need: the pass has
+        // already left their cross-attention K and V in the arena.
+        net.infer_raw_many(&[&embedded, &bias])?;
         self.src_len = len;
-        // The plan produces `[d_model, 1, len]`; the trait's contract is `[len, d_model]`. One
-        // transpose here rather than a comment that disagrees with the trait.
-        Ok(transpose(&out, madlad::D_MODEL as usize, source.len()))
+        Ok(())
     }
 
-    fn decode_step(
-        &mut self,
-        token: u32,
-        step: usize,
-        encoded: &[f32],
-    ) -> Result<Vec<f32>, String> {
-        let width = madlad::D_MODEL as usize;
+    fn decode_step(&mut self, token: u32, step: usize) -> Result<u32, String> {
         let cache_len = u32::try_from(step).map_err(|_| "a step past u32")?;
         if cache_len >= madlad::MAX_DECODE_POSITIONS {
             return Err(format!(
@@ -89,17 +82,11 @@ impl madlad_post::Nets for MadladNets<'_> {
                 madlad::MAX_DECODE_POSITIONS
             ));
         }
+        if self.src_len == 0 {
+            return Err("a decode step before the encoder ran".into());
+        }
         let reader = self.weights.reader();
         let embedded = madlad_part1::embed_positions(reader, &[token], cache_len)?;
-        if !encoded.len().is_multiple_of(width) {
-            return Err(format!("{} encoder values is not a whole number of {width}", encoded.len()));
-        }
-        let src_len = (encoded.len() / width) as u32;
-        if src_len != self.src_len {
-            return Err(format!("a step over {src_len} source positions after {}", self.src_len));
-        }
-        // Back to `[d_model, 1, src_len]`, which is what the cross-attention projections read.
-        let source = transpose(encoded, encoded.len() / width, width);
 
         // The step's bias row: query `step` (absolute) against keys `0..=step`, causal, from
         // the decoder block-0 table. Padded with zeros to the plan width; `softmax_prefix`
@@ -114,30 +101,19 @@ impl madlad_post::Nets for MadladNets<'_> {
             bias[to..to + keys.len()].copy_from_slice(&row[from..from + keys.len()]);
         }
 
-        // The key no longer carries the step, so this matches after the first decode step and
-        // `at` stops re-recording. The KV cache stays in the arena between submits.
-        let net = self.net.at(madlad::Mode::DecodeStep { src_len })?;
-        // The one thing that changes per token, and it is a memcpy rather than a re-record.
+        // Keyed on the source length only, so this re-records once per translation.
+        let net = self.net.at(madlad::Mode::DecodeStep { src_len: self.src_len })?;
         net.set_params(StepParams { prefix: cache_len, window_start: 0 })?;
-        let out = net.infer_raw_many(&[&embedded, &source, &bias])?;
-
-        // Four logits splits and nothing else: the K and V rows are written straight into the
-        // device-side cache by the plan, so there is no cache to bring back.
-        if out.len() != madlad::HEAD_SPLITS {
-            return Err(format!(
-                "a decode step returned {} tensors, not {}",
-                out.len(),
-                madlad::HEAD_SPLITS
-            ));
+        // `Builder::argmax`'s pair: `lo = id % 2048`, `hi = id / 2048`.
+        let pair = one_output(net.infer_raw_many(&[&embedded, &bias])?)?;
+        let [lo, hi] = pair[..] else {
+            return Err(format!("the greedy id holds {} values, not 2", pair.len()));
+        };
+        let id = hi as u32 * 2048 + lo as u32;
+        if id >= madlad::VOCAB {
+            return Err(format!("the greedy id {id} is past the {}-entry vocabulary", madlad::VOCAB));
         }
-        let mut logits = Vec::with_capacity(madlad::VOCAB as usize);
-        for half in out.iter().take(madlad::HEAD_SPLITS) {
-            logits.extend_from_slice(half);
-        }
-        if logits.len() != madlad::VOCAB as usize {
-            return Err(format!("{} logits, not {}", logits.len(), madlad::VOCAB));
-        }
-        Ok(logits)
+        Ok(id)
     }
 }
 

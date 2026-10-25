@@ -165,10 +165,10 @@ pub(crate) const DECODER: usize = ENCODER_NORM + 1;
 pub(crate) const DECODER_NORM: usize = DECODER + DECODER_LAYERS * DECODER_LAYER_TENSORS;
 
 /// The encoder self-attention bias table: fp16 `[BUCKETS, HEADS]`, read on the host.
-pub(crate) const TABLE_ENC: usize = DECODER_NORM + 1;
+pub const TABLE_ENC: usize = DECODER_NORM + 1;
 
 /// The decoder self-attention bias table. Last.
-pub(crate) const TABLE_DEC: usize = TABLE_ENC + 1;
+pub const TABLE_DEC: usize = TABLE_ENC + 1;
 
 /// Tensors the `.maml` must hold, and the count `maml_convert.py` writes: 24 head +
 /// 640 encoder + 1 + 1056 decoder + 1 + 2 tables.
@@ -263,19 +263,51 @@ fn self_attention(b: &mut Builder, l: &mut Layers, residual: Id, x: Id, bias: Id
 /// One pre-norm cross-attention sublayer — no bias — plus its residual.
 ///
 /// Cross-attention never carries a relative term (`has_relative_attention_bias` is false for
-/// every `EncDecAttention`), so this is NLLB's shape with T5's (absent) scale.
-///
-/// `pub(crate)` for the decode step in `madlad_extra2`, which inlines the same sequence;
-/// kept here so the two attentions read as one vocabulary.
-pub(crate) fn cross_attention(b: &mut Builder, l: &mut Layers, residual: Id, queries: Id, keys: Id) -> Id {
+/// every `EncDecAttention`), so this is NLLB's shape with T5's (absent) scale. The key and value
+/// were projected once by [`Mode::Encode`] into `cross_k` and `cross_v`; the query is this step's.
+pub(crate) fn cross_attention(
+    b: &mut Builder,
+    l: &mut Layers,
+    residual: Id,
+    queries: Id,
+    cross_k: Id,
+    cross_v: Id,
+) -> Id {
     let q = point(b, l, queries, INNER, Act::None);
-    let k = point(b, l, keys, INNER, Act::None);
-    let v = point(b, l, keys, INNER, Act::None);
-    let scores = b.attn_scores_prescaled(q, k, HEADS);
+    // Past this layer's cross K and V projections, which the encode pass read.
+    l.next += 6;
+    let scores = b.attn_scores_prescaled(q, cross_k, HEADS);
     let probs = b.softmax(scores);
-    let mixed = b.attn_apply(probs, v, HEADS);
+    let mixed = b.attn_apply(probs, cross_v, HEADS);
     let projected = point(b, l, mixed, D_MODEL, Act::None);
     b.add(residual, projected)
+}
+
+/// Where a decoder layer's cross-attention K and V projections start within the layer: after the
+/// self-attention norm and four projections, the cross norm and the cross query.
+pub(crate) const CROSS_KV_WITHIN_LAYER: usize = 1 + 4 * 3 + 1 + 3;
+
+/// Decoder layer `layer`'s cross-attention K and V projections: two kernels, scales and biases.
+///
+/// [`Mode::Encode`] reads them and [`Mode::DecodeStep`] does not.
+pub(crate) fn cross_kv(layer: usize) -> std::ops::Range<usize> {
+    let start = DECODER + layer * DECODER_LAYER_TENSORS + CROSS_KV_WITHIN_LAYER;
+    start..start + 6
+}
+
+/// Every decoder layer's cross-attention K and V, `[INNER, 1, src_len]` each, held on the device.
+///
+/// Must be the first pinned tensors either pass declares: [`Builder::finish`] gives pinned tensors
+/// their arena offsets in declaration order, which is what puts these at the same place in both
+/// plans. See `nets::nllb` for the same constraint.
+pub(crate) fn declare_cross_caches(b: &mut Builder, src_len: u32) -> Vec<(Id, Id)> {
+    (0..DECODER_LAYERS)
+        .map(|_| {
+            let k = b.persistent(Shape::new(INNER, 1, src_len));
+            let v = b.persistent(Shape::new(INNER, 1, src_len));
+            (k, v)
+        })
+        .collect()
 }
 
 /// The pre-norm GEGLU feed-forward sublayer, plus its residual.
@@ -309,11 +341,14 @@ fn encode(weights: &dyn WeightSource, len: u32) -> Result<Plan, String> {
     let l = &mut Layers { next: ENCODER };
     let mut builder = Builder::new(weights);
     let b = &mut builder;
-    // The two heads, the whole decoder and the two bias tables belong elsewhere. The
-    // trailing encoder norm is part of this range, so it runs to `DECODER` rather than
-    // to `ENCODER_NORM`.
-    name_host_tensors(b, std::slice::from_ref(&(ENCODER..DECODER)));
+    // The two heads, the decoder and the two bias tables belong elsewhere, except the decoder's
+    // cross-attention K and V projections, which run here once per sentence. The trailing encoder
+    // norm is part of the first range, so it runs to `DECODER` rather than to `ENCODER_NORM`.
+    let mut read = vec![ENCODER..DECODER];
+    read.extend((0..DECODER_LAYERS).map(cross_kv));
+    name_host_tensors(b, &read);
 
+    let caches = declare_cross_caches(b, len);
     let x = b.input(Shape::new(D_MODEL, 1, len));
     let bias = b.input(Shape::new(HEADS, len, len));
     let mut x = x;
@@ -329,6 +364,15 @@ fn encode(weights: &dyn WeightSource, len: u32) -> Result<Plan, String> {
     if l.next != DECODER {
         return Err(format!("the encoder norm ends at {}, not {DECODER}", l.next));
     }
+    for (layer, &(cache_k, cache_v)) in caches.iter().enumerate() {
+        let kv = &mut Layers { next: cross_kv(layer).start };
+        let k = point(b, kv, out, INNER, Act::None);
+        let v = point(b, kv, out, INNER, Act::None);
+        b.copy_into(k, cache_k);
+        b.copy_into(v, cache_v);
+    }
+    // The encoder state stays the output, although the host no longer needs it: a pass must have
+    // one, and a persistent tensor cannot be one without being pinned twice.
     builder.finish(&[out])
 }
 
