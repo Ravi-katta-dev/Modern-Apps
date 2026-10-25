@@ -105,6 +105,7 @@ impl Net {
         let command_pool = unsafe { context.device.create_command_pool(&pool_info, None) }
             .map_err(|e| format!("create_command_pool {e:?}"))?;
 
+        let pinned_seen = !plan.pinned.is_empty();
         let mut net = Net {
             context,
             plan,
@@ -119,6 +120,9 @@ impl Net {
             window,
             command_pool,
             command_buffer: vk::CommandBuffer::null(),
+            recorded: Vec::new(),
+            spare: Vec::new(),
+            pinned_seen,
             fence: vk::Fence::null(),
             query_pool: vk::QueryPool::null(),
             query_count: 0,
@@ -225,16 +229,12 @@ impl Net {
         // Past here nothing fails until `record`, so the net cannot be left describing one shape
         // and recording another. Each old `Buffer` frees itself as it is replaced, after the wait
         // above.
+        // A recording bakes in the arena and staging handles and the descriptor sets, so a
+        // growth invalidates every kept one. So does a timestamp pool sized for another plan.
+        let keep_recordings = grown_arena.is_none() && grown_staging.is_none() && !timestamps_enabled();
         if let Some(arena) = grown_arena {
-            // Carry the old arena over first - unless it holds nothing worth keeping.
-            //
-            // A plan with no pinned tensors keeps nothing between submits: every activation is
-            // scratch, rewritten before it is read. Growing into a fresh arena then needs no
-            // copy at all, saving the submit round trip (~10 ms on NLLB's 2 MB).
-            //
-            // When the old plan DOES pin tensors (NLLB's cross/self caches), the copy stays:
-            // offsets are assigned per plan and the scratch above them is written before it is
-            // read - so the correct-by-construction thing is to preserve all of it.
+            // Carry the old arena over first - unless no plan so far pinned anything, in which
+            // case it holds only scratch that is rewritten before it is read.
             //
             // A wider plan needs a bigger arena, and a fresh `Buffer` holds undefined memory -
             // so swapping it in silently replaced every **persistent** tensor with rubbish. The
@@ -246,33 +246,64 @@ impl Net {
             //
             // Copying the whole old arena is more than the persistent tensors strictly need, but
             // offsets are assigned per plan and the scratch above them is written before it is
-            // read - so the correct-by-construction thing is to preserve all of it.
-            // SAFETY: both buffers are live and owned here, the copy is inside its own submit,
-            // and nothing else touches either until the fence is waited on.
-            //
-            // `self.plan` is still the OLD plan here (it is replaced below), so its pinned list
-            // is what decides: nothing pinned, nothing to carry.
-            if self.plan.pinned.is_empty() {
-                timing!("rebuild-copy skipped, the old plan pins nothing");
-            } else {
+            // read - so the correct-by-construction thing is to preserve all of it. Any earlier
+            // plan's pins count, not just the outgoing one's: a cache written two plans ago is
+            // still live.
+            if self.pinned_seen {
                 let staged = std::time::Instant::now();
+                // SAFETY: both buffers are live and owned here, the copy is inside its own
+                // submit, and nothing else touches either until the fence is waited on.
                 unsafe { self.copy_arena(&arena)? };
                 timing!("rebuild-copy {:.1} ms", staged.elapsed().as_secs_f64() * 1e3);
             }
-            let staged = std::time::Instant::now();
             self.pipelines.rebind_arena(&self.context.device, arena.buffer, arena.size);
-            timing!("rebuild-rebind {:.1} ms", staged.elapsed().as_secs_f64() * 1e3);
             self.arena = arena;
         }
         if let Some(staging) = grown_staging {
             self.staging = staging;
         }
+        if !keep_recordings {
+            self.spare.extend(self.recorded.drain(..).map(|(_, buffer)| buffer));
+        }
         self.input_scratch.resize(input_elems, 0);
         self.output_scratch.resize(output_elems, 0);
-        self.plan = plan;
-        let staged = std::time::Instant::now();
+        self.pinned_seen |= !plan.pinned.is_empty();
+        let old = std::mem::replace(&mut self.plan, plan);
+        if keep_recordings {
+            self.recorded.push((old, self.command_buffer));
+        } else {
+            self.spare.push(self.command_buffer);
+        }
+        let kept = self.recorded.iter().position(|(recorded, _)| *recorded == self.plan);
+        let reused = kept.is_some();
+        self.command_buffer = match kept {
+            Some(index) => self.recorded.remove(index).1,
+            None => match self.spare.pop() {
+                Some(buffer) => buffer,
+                None => match self.allocate_command_buffer() {
+                    Ok(buffer) => buffer,
+                    Err(e) => {
+                        self.poisoned = true;
+                        return Err(e);
+                    }
+                },
+            },
+        };
+        while self.recorded.len() > Self::RECORDINGS {
+            let (_, buffer) = self.recorded.remove(0);
+            self.spare.push(buffer);
+        }
+        while self.spare.len() > 1 {
+            if let Some(buffer) = self.spare.pop() {
+                // SAFETY: the device is idle (waited above) and spares hold no pending work.
+                unsafe { self.context.device.free_command_buffers(self.command_pool, &[buffer]) };
+            }
+        }
         self.reset_query_pool()?;
-        timing!("rebuild-query {:.1} ms", staged.elapsed().as_secs_f64() * 1e3);
+        if reused {
+            timing!("rebuild reused the recording for {} ops", self.plan.ops.len());
+            return Ok(());
+        }
 
         // A `record` that fails leaves the command buffer part-written, and submitting that is
         // not something a later caller may be allowed to do. There is no way back — both of its
@@ -306,6 +337,10 @@ impl Net {
     /// `pub(crate)` only so the parity fixture can assert its blob is bigger than one chunk. A
     /// fixture that fits in a single copy exercises none of the `dst_offset` arithmetic.
     pub(crate) const CHUNK_BYTES: u64 = 8 * 1024 * 1024;
+
+    /// Recordings [`Net::rebuild`] keeps besides the current one. Enough for an encoder and a
+    /// decoder at a couple of lengths, like `Reshaped`'s plan cache.
+    const RECORDINGS: usize = 4;
 
     /// Copy the weights blob to device-local memory through the staging buffer, in chunks.
     ///
@@ -478,6 +513,12 @@ impl Net {
     /// The `[lo, hi)` data-section bytes this net uploaded.
     pub fn weights_window(&self) -> (u64, u64) {
         self.window
+    }
+
+    /// Whether a recording of `plan` is kept for a later [`Net::rebuild`] to swap in.
+    #[cfg(test)]
+    pub(crate) fn keeps_recording(&self, plan: &Plan) -> bool {
+        self.recorded.iter().any(|(recorded, _)| recorded == plan)
     }
 
     fn allocate_command_buffer(&self) -> Result<vk::CommandBuffer, String> {
