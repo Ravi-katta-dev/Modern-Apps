@@ -1,8 +1,15 @@
 package com.vayunmathur.health.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
 import com.android.tools.screenshot.PreviewTest
+import com.vayunmathur.health.Route
 import com.vayunmathur.health.data.NutritionData
 import com.vayunmathur.health.util.MainPageMetrics
 import com.vayunmathur.health.util.MetricDetailsActions
@@ -12,6 +19,15 @@ import com.vayunmathur.health.util.NutritionUiState
 import com.vayunmathur.health.util.TodayActions
 import com.vayunmathur.health.util.TodayUiState
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.IconBodySystem
+import com.vayunmathur.library.ui.IconFavorite
+import com.vayunmathur.library.ui.IconFire
+import com.vayunmathur.library.ui.IconMedicalServices
+import com.vayunmathur.library.util.BottomBarItem
+import com.vayunmathur.library.util.BottomNavBar
+import com.vayunmathur.library.util.MainNavigation
+import com.vayunmathur.library.util.SiblingPage
+import com.vayunmathur.library.util.rememberNavBackStack
 import kotlinx.datetime.LocalDate
 
 /** Phone-shaped, roughly 1080x2340 at xxhdpi — comfortably above the F-Droid minimum. */
@@ -60,7 +76,7 @@ class MetadataPreviews {
     @Preview(name = "1-today", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Today() {
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(Route.Today) {
             TodayScreen(
                 state = TodayUiState(
                     steps = 8_432L,
@@ -87,7 +103,7 @@ class MetadataPreviews {
     @Preview(name = "2-nutrition", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Nutrition() {
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(Route.NutritionDetails) {
             NutritionScreen(
                 state = NutritionUiState(
                     totals = NutritionData(
@@ -122,7 +138,7 @@ class MetadataPreviews {
         val fullNames = listOf(
             "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
         )
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(Route.BarChartDetails(HealthMetricConfig.STEPS)) {
             BarChartDetailsScreen(
                 state = MetricDetailsUiState(
                     config = HealthMetricConfig.STEPS,
@@ -159,7 +175,7 @@ class MetadataPreviews {
             78.0, 74.0, 76.0, 80.0, 84.0, 79.0, 77.0, 88.0,
             112.0, 134.0, 141.0, 96.0, 82.0, 74.0, 66.0, 60.0,
         )
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(Route.BarChartDetails(HealthMetricConfig.HEART_RATE)) {
             BarChartDetailsScreen(
                 state = MetricDetailsUiState(
                     config = HealthMetricConfig.HEART_RATE,
@@ -198,7 +214,7 @@ class MetadataPreviews {
         val fullNames = listOf(
             "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
         )
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(Route.BarChartDetails(HealthMetricConfig.STEPS)) {
             BarChartDetailsScreen(
                 state = MetricDetailsUiState(
                     config = HealthMetricConfig.STEPS,
@@ -221,6 +237,47 @@ class MetadataPreviews {
                 ),
                 actions = MetricDetailsActions.Noop,
             )
+        }
+    }
+
+    /**
+     * The app's real tab chrome around preview screen content: the same four
+     * [BottomBarItem]s and unconditional [MainNavigation] host the activity
+     * declares, with a literal back stack for the shown route. Body and Medical
+     * need their ViewModels, so their entries show an empty page (never visible —
+     * the stack stays on the previewed route).
+     */
+    @Composable
+    private fun ChromePreview(route: Route, content: @Composable () -> Unit) {
+        DynamicTheme(darkTheme = true) {
+            CompositionLocalProvider(
+                LocalNavigationEventDispatcherOwner provides rememberNavigationEventDispatcherOwner(
+                    parent = null,
+                ),
+            ) {
+                val backStack = rememberNavBackStack(route)
+                MainNavigation(
+                    backStack = backStack,
+                    bottomBar = {
+                        BottomNavBar(
+                            backStack = backStack,
+                            pages = listOf(
+                                BottomBarItem("Today", Route.Today) { IconFavorite() },
+                                BottomBarItem("Nutrition", Route.NutritionDetails) { IconFire() },
+                                BottomBarItem("Body", Route.Body) { IconBodySystem() },
+                                BottomBarItem("Medical", Route.Medical) { IconMedicalServices() },
+                            ),
+                            currentPage = backStack.last(),
+                        )
+                    },
+                ) {
+                    entry<Route.Today>(metadata = SiblingPage()) { content() }
+                    entry<Route.NutritionDetails>(metadata = SiblingPage()) { content() }
+                    entry<Route.BarChartDetails>(metadata = SiblingPage()) { content() }
+                    entry<Route.Body>(metadata = SiblingPage()) { Box(Modifier.fillMaxSize()) }
+                    entry<Route.Medical>(metadata = SiblingPage()) { Box(Modifier.fillMaxSize()) }
+                }
+            }
         }
     }
 }
