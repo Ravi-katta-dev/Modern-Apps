@@ -2,20 +2,26 @@ package com.vayunmathur.office.ui
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
+import com.vayunmathur.library.ui.DrawerValue
 import com.vayunmathur.library.ui.DynamicTheme
 import com.vayunmathur.library.ui.IconDownload
 import com.vayunmathur.library.ui.IconHome
+import com.vayunmathur.library.ui.ModalNavigationDrawer
 import com.vayunmathur.library.ui.PagerTab
 import com.vayunmathur.library.ui.TabStyle
 import com.vayunmathur.library.ui.TabbedPagerScaffold
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.Surface
+import com.vayunmathur.library.ui.rememberDrawerState
 import com.vayunmathur.library.ui.odf.OdfCell
 import com.vayunmathur.library.ui.odf.OdfDocument
 import com.vayunmathur.library.ui.odf.OdfFrame
@@ -26,6 +32,8 @@ import com.vayunmathur.library.ui.odf.OdfSlide
 import com.vayunmathur.library.ui.odf.OdfSlideElement
 import com.vayunmathur.library.ui.odf.OdfSpan
 import com.vayunmathur.library.ui.odf.ParagraphStyle
+import com.vayunmathur.office.DocumentChrome
+import com.vayunmathur.office.DrawerOutline
 import com.vayunmathur.office.HomeScreen
 import com.vayunmathur.office.OfficeLightTheme
 
@@ -247,6 +255,48 @@ class MetadataPreviews {
                 outline = { TextDocumentView(doc = SampleTextDocument) },
                 document = { TextDocumentView(doc = SampleTextDocument) },
             )
+        }
+    }
+
+    @PreviewTest
+    @Preview(name = "6-outline-drawer", device = PHONE, group = "phone", showSystemUi = true)
+    @Composable
+    fun Preview6OutlineDrawer() {
+        Paper {
+            val drawerState = rememberDrawerState(DrawerValue.Open)
+            val listState = rememberLazyListState()
+            val scope = rememberCoroutineScope()
+            val chrome = remember(SampleTextDocument) {
+                DocumentChrome(
+                    isEditMode = false,
+                    hasUnsavedChanges = false,
+                    isOnline = false,
+                    onlineEnabled = false,
+                    isSaving = false,
+                    canUndo = false,
+                    canRedo = false,
+                    nightMode = false,
+                    documentDarkMode = false,
+                    isTextDoc = true,
+                    isSpreadsheet = false,
+                    isPresentation = false,
+                    canEdit = false,
+                    saveAsName = "sample1.odt",
+                    headings = extractHeadings(SampleTextDocument),
+                    wordCount = 0,
+                    charCount = 0,
+                    readingTime = 0,
+                    bookmarks = emptyList(),
+                )
+            }
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                gesturesEnabled = chrome.isTextDoc &&
+                    (chrome.headings.isNotEmpty() || chrome.bookmarks.isNotEmpty()),
+                drawerContent = { DrawerOutline(chrome, listState, drawerState, scope) },
+            ) {
+                TextDocumentView(doc = SampleTextDocument, listState = listState)
+            }
         }
     }
 }

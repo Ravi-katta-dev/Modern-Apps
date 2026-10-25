@@ -3,13 +3,23 @@ package com.vayunmathur.youpipe.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.IconHistory
+import com.vayunmathur.library.ui.IconHome
+import com.vayunmathur.library.ui.IconSave
+import com.vayunmathur.library.ui.IconSettings
+import com.vayunmathur.library.ui.IconSubscriptions
+import com.vayunmathur.library.ui.PagerTab
+import com.vayunmathur.library.ui.TabStyle
+import com.vayunmathur.library.ui.TabbedPagerScaffold
 import com.vayunmathur.youpipe.util.SearchActions
 import com.vayunmathur.youpipe.util.SearchUiState
 import com.vayunmathur.youpipe.util.SubscriptionFeedActions
@@ -50,53 +60,7 @@ class MetadataPreviews {
     @Preview(name = "1-home", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Home() {
-        DynamicTheme(darkTheme = true) {
-            SearchScreen(
-                state = SearchUiState(
-                    recommendations = listOf(
-                        VideoRowState(
-                            videoID = 1,
-                            title = "The Absurd Engineering Inside a Modern Camera Sensor",
-                            author = "Veritasium",
-                            stats = "4.1M views | 2 weeks ago",
-                            reason = "you watch a lot of optics",
-                            percentWatched = 0.42f,
-                        ),
-                        VideoRowState(
-                            videoID = 2,
-                            title = "I Rebuilt My Home Server Rack (Again)",
-                            author = "Linus Tech Tips",
-                            stats = "1.2M views | 3 days ago",
-                            reason = "from a channel you follow",
-                        ),
-                        VideoRowState(
-                            videoID = 3,
-                            title = "Why Bridges Don't Fall Down",
-                            author = "Practical Engineering",
-                            stats = "873K views | 1 month ago",
-                            reason = "similar to Structural Failures Explained",
-                            percentWatched = 1f,
-                        ),
-                        VideoRowState(
-                            videoID = 4,
-                            title = "Making Sourdough With No Starter",
-                            author = "Adam Ragusea",
-                            stats = "612K views | 5 days ago",
-                            reason = "new upload",
-                        ),
-                        VideoRowState(
-                            videoID = 5,
-                            title = "Every Rust Borrow Checker Error, Explained",
-                            author = "No Boilerplate",
-                            stats = "298K views | 2 months ago",
-                            reason = "you watch a lot of Rust",
-                            percentWatched = 0.15f,
-                        ),
-                    ),
-                ),
-                actions = SearchActions.Noop,
-            )
-        }
+        ChromePreview(selectedTab = 0)
     }
 
     @PreviewTest
@@ -131,8 +95,15 @@ class MetadataPreviews {
     @Composable
     fun Preview4Subscriptions() {
         DynamicTheme(darkTheme = true) {
-            SubscriptionVideosScreen(
-                state = SubscriptionFeedUiState(
+            SubscriptionFeedContent()
+        }
+    }
+
+    /** The Subscriptions tab body (Preview4), factored out so [ChromePreview] can reuse it. */
+    @Composable
+    private fun SubscriptionFeedContent() {
+        SubscriptionVideosScreen(
+            state = SubscriptionFeedUiState(
                     videos = listOf(
                         VideoRowState(
                             videoID = 11,
@@ -170,7 +141,6 @@ class MetadataPreviews {
                 ),
                 actions = SubscriptionFeedActions.Noop,
             )
-        }
     }
 
     @PreviewTest
@@ -267,6 +237,84 @@ class MetadataPreviews {
                     ),
                 ),
                 actions = SubscriptionFeedActions.Noop,
+            )
+        }
+    }
+
+    /** The Home tab body, factored out so [ChromePreview] can host it behind the real tabs. */
+    @Composable
+    private fun HomeContent() {
+        SearchScreen(
+            state = SearchUiState(
+                recommendations = listOf(
+                    VideoRowState(
+                        videoID = 1,
+                        title = "The Absurd Engineering Inside a Modern Camera Sensor",
+                        author = "Veritasium",
+                        stats = "4.1M views | 2 weeks ago",
+                        reason = "you watch a lot of optics",
+                        percentWatched = 0.42f,
+                    ),
+                    VideoRowState(
+                        videoID = 2,
+                        title = "I Rebuilt My Home Server Rack (Again)",
+                        author = "Linus Tech Tips",
+                        stats = "1.2M views | 3 days ago",
+                        reason = "from a channel you follow",
+                    ),
+                    VideoRowState(
+                        videoID = 3,
+                        title = "Why Bridges Don't Fall Down",
+                        author = "Practical Engineering",
+                        stats = "873K views | 1 month ago",
+                        reason = "similar to Structural Failures Explained",
+                        percentWatched = 1f,
+                    ),
+                    VideoRowState(
+                        videoID = 4,
+                        title = "Making Sourdough With No Starter",
+                        author = "Adam Ragusea",
+                        stats = "612K views | 5 days ago",
+                        reason = "new upload",
+                    ),
+                    VideoRowState(
+                        videoID = 5,
+                        title = "Every Rust Borrow Checker Error, Explained",
+                        author = "No Boilerplate",
+                        stats = "298K views | 2 months ago",
+                        reason = "you watch a lot of Rust",
+                        percentWatched = 0.15f,
+                    ),
+                ),
+            ),
+            actions = SearchActions.Noop,
+        )
+    }
+
+    /**
+     * The app's real tab chrome around the home content: the same five
+     * [PagerTab]s `YouPipeTabs` in MainActivity declares, in the same
+     * [TabbedPagerScaffold] with [TabStyle.BottomNav]. History/Saved/Settings
+     * take their ViewModels directly, so those entries show an empty page
+     * (never visible — the shot stays on the selected tab).
+     */
+    @Composable
+    private fun ChromePreview(selectedTab: Int) {
+        DynamicTheme(darkTheme = true) {
+            val tabs = listOf(
+                PagerTab("Home", { IconHome() }) { HomeContent() },
+                PagerTab("Subscriptions", { IconSubscriptions() }) { SubscriptionFeedContent() },
+                // ViewModel-coupled: empty placeholder, never visible.
+                PagerTab("History", { IconHistory() }) { Box(Modifier.fillMaxSize()) },
+                // ViewModel-coupled: empty placeholder, never visible.
+                PagerTab("Saved", { IconSave() }) { Box(Modifier.fillMaxSize()) },
+                // ViewModel-coupled: empty placeholder, never visible.
+                PagerTab("Settings", { IconSettings() }) { Box(Modifier.fillMaxSize()) },
+            )
+            TabbedPagerScaffold(
+                tabs = tabs,
+                pagerState = rememberPagerState(initialPage = selectedTab, pageCount = { tabs.size }),
+                tabStyle = TabStyle.BottomNav,
             )
         }
     }
