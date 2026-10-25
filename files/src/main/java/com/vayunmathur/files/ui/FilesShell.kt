@@ -194,7 +194,7 @@ fun FilesShell(
 
 /** The slide-out navigation drawer: jump to any page without going Home first. */
 @Composable
-private fun FilesDrawer(
+internal fun FilesDrawer(
     bookmarks: List<FileBrowserItem>,
     actions: FilesActions,
     closeDrawer: () -> Unit,

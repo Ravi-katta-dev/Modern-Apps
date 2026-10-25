@@ -8,8 +8,13 @@ import com.vayunmathur.files.platform.FilesActions
 import com.vayunmathur.files.platform.FilesUiState
 import com.vayunmathur.files.platform.TrashUiState
 import com.vayunmathur.files.ui.DirectoryScreen
+import com.vayunmathur.files.ui.FilesDrawer
 import com.vayunmathur.files.ui.TrashScreen
+import com.vayunmathur.library.ui.DrawerValue
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.ModalDrawerSheet
+import com.vayunmathur.library.ui.ModalNavigationDrawer
+import com.vayunmathur.library.ui.rememberDrawerState
 import java.io.File
 
 /** Phone-shaped, roughly 1080x2340 at xxhdpi — comfortably above the F-Droid minimum. */
@@ -66,31 +71,36 @@ class MetadataPreviews {
         key = "zip:$inner",
     )
 
+    @Composable
+    private fun BrowseContent() {
+        DirectoryScreen(
+            state = FilesUiState(
+                rootDirectory = File(ROOT),
+                rootDisplayName = "Pixel 9 Pro",
+                currentDirectory = File(ROOT),
+                directories = listOf(
+                    dir("$ROOT/DCIM"),
+                    dir("$ROOT/Documents"),
+                    dir("$ROOT/Download"),
+                    dir("$ROOT/Movies"),
+                    dir("$ROOT/Music"),
+                    dir("$ROOT/Pictures"),
+                ),
+                files = listOf(
+                    file("$ROOT/backup-2026-07.zip", 48_301_772),
+                    file("$ROOT/reading-list.md", 12_408),
+                ),
+            ),
+            actions = FilesActions.Noop,
+        )
+    }
+
     @PreviewTest
     @Preview(name = "1-browse", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Browse() {
         DynamicTheme(darkTheme = true) {
-            DirectoryScreen(
-                state = FilesUiState(
-                    rootDirectory = File(ROOT),
-                    rootDisplayName = "Pixel 9 Pro",
-                    currentDirectory = File(ROOT),
-                    directories = listOf(
-                        dir("$ROOT/DCIM"),
-                        dir("$ROOT/Documents"),
-                        dir("$ROOT/Download"),
-                        dir("$ROOT/Movies"),
-                        dir("$ROOT/Music"),
-                        dir("$ROOT/Pictures"),
-                    ),
-                    files = listOf(
-                        file("$ROOT/backup-2026-07.zip", 48_301_772),
-                        file("$ROOT/reading-list.md", 12_408),
-                    ),
-                ),
-                actions = FilesActions.Noop,
-            )
+            BrowseContent()
         }
     }
 
@@ -160,6 +170,31 @@ class MetadataPreviews {
                 ),
                 actions = FilesActions.Noop,
             )
+        }
+    }
+
+    @PreviewTest
+    @Preview(name = "5-drawer", device = PHONE, group = "phone", showSystemUi = true)
+    @Composable
+    fun Preview5Drawer() {
+        DynamicTheme(darkTheme = true) {
+            ModalNavigationDrawer(
+                drawerState = rememberDrawerState(DrawerValue.Open),
+                drawerContent = {
+                    ModalDrawerSheet {
+                        FilesDrawer(
+                            bookmarks = listOf(
+                                dir("$ROOT/Documents"),
+                                file("$ROOT/reading-list.md", 12_408),
+                            ),
+                            actions = FilesActions.Noop,
+                            closeDrawer = {},
+                        )
+                    }
+                },
+            ) {
+                BrowseContent()
+            }
         }
     }
 }
