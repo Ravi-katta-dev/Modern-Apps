@@ -7,9 +7,8 @@
 #   [2] cargo-build the host tools (road_graph, poi_extract, transit_shapes,
 #       mamaps_build, mamaps_dump, mamaps_pack)
 #   [3] build the road graph into a TEMP dir (never the final output)
-#   [4] derive the transit-routes layer from the world-transit feeds manifest
-#       (build_world_transit.sh --work DIR leaves feeds.manifest + gtfs/ there;
-#       -WorldTransit defaults to the manifest beside the pack)
+#   [4] derive the transit-routes layer from inputs/world.transit itself
+#       (transit_shapes --pack; the raw GTFS feeds are not needed)
 #   [5] run mamaps_build with pbf + coastline + temp graph + routes + dem into a
 #       TEMP tiles-only archive ($tmp/tiles.mamaps) -- NO sidecar footer yet
 #   [6] extract the POI sidecars from the pbf into a TEMP dir, then mamaps_pack
@@ -55,7 +54,7 @@
 #   inputs/california.osm.pbf -> inputs/caonly.mamaps (only with -Region caonly)
 #   inputs/north-america.osm.pbf -> inputs/naonly.mamaps (only with -Region naonly)
 #   plus inputs/coastline.shp, inputs/world.mdem.
-#   inputs/world.transit + world_transit_work/feeds.manifest are required
+#   inputs/world.transit is required
 #   unless -NoTransit is passed, which skips GTFS entirely (empty routes +
 #   no --transit sidecar, as if 0 feeds).
 #
@@ -206,11 +205,6 @@ $BuildRegion = if ($Region -eq "caonly" -or $Region -eq "naonly") { "world" } el
 $Coastline    = Join-Path $PSScriptRoot "inputs/coastline.shp"
 $WorldTransit = Join-Path $PSScriptRoot "inputs/world.transit"
 $Dem          = Join-Path $PSScriptRoot "inputs/world.mdem"
-# build_world_transit.sh leaves the feeds manifest + unzipped gtfs/ in its fixed
-# work dir (world_transit_work), not in inputs/. Step [3/7] re-runs transit_shapes
-# over those to build the transit-line geometry layer.
-$TransitManifest = Join-Path $PSScriptRoot "world_transit_work/feeds.manifest"
-
 function Find-Built([string] $crate, [string] $name) {
     # The tool crates are root-workspace members (no [workspace] table), so
     # `cargo build` links into the WORKSPACE target dir (repo root
@@ -260,11 +254,8 @@ $Dem        = (Resolve-Path $Dem).Path
 $Out        = [System.IO.Path]::GetFullPath($Out)
 if (-not $NoTransit) {
     $WorldTransit = (Resolve-Path $WorldTransit).Path
-    if (-not (Test-Path $TransitManifest)) { throw "transit manifest not found: $TransitManifest" }
-    $TransitManifest = (Resolve-Path $TransitManifest).Path
 } else {
     $WorldTransit = $null
-    $TransitManifest = $null
 }
 
 # Two things are on disk at once at the deepest zoom: one zoom's tile chunks
@@ -372,46 +363,18 @@ if (-not (Test-Path (Join-Path $graphDir "metadata.bin"))) {
 & $roadOverlay --graph $graphDir | Tee-Object -FilePath $graphLog -Append
 if ($LASTEXITCODE -ne 0) { throw "road_overlay failed with exit code $LASTEXITCODE" }
 
-# --- [3/7] transit routes from the world-transit feeds --------------------
+# --- [3/7] transit routes from the world transit pack ---------------------
 # -NoTransit skips every feed: an empty routes file, as if 0 feeds existed.
+# The lines come out of inputs/world.transit itself (every route's fitted shape,
+# colour and type), so the ~80 GB of raw feeds it was built from are not needed.
 $null = Switch-Phase "transit"
 $transitLog = Join-Path $tmp "transit.log"
 if ($NoTransit) {
     Write-Host "[3/7] NoTransit: skipping all GTFS feeds (empty transit-routes)"
     [System.IO.File]::WriteAllText($routes, "")
 } else {
-Write-Host "[3/7] Deriving transit routes from $TransitManifest"
-$manifestDir = Split-Path $TransitManifest -Parent
-# build_world_transit.sh runs under WSL and writes absolute /mnt/<drive>/... feed
-# paths. This is a Windows build, so translate those back to <drive>:\... . If the
-# stored path is gone, fall back to the feed's dir under the manifest's own gtfs/.
-function Resolve-FeedDir([string] $dir) {
-    if ($dir -match '^/mnt/([a-zA-Z])/(.*)$') {
-        $dir = "$($Matches[1].ToUpper()):\" + ($Matches[2] -replace '/', '\')
-    }
-    if (-not [System.IO.Path]::IsPathRooted($dir)) { $dir = Join-Path $manifestDir $dir }
-    if (-not (Test-Path (Join-Path $dir "stops.txt"))) {
-        $local = Join-Path (Join-Path $manifestDir "gtfs") (Split-Path $dir -Leaf)
-        if (Test-Path (Join-Path $local "stops.txt")) { return $local }
-    }
-    return $dir
-}
-$resolvedLines = foreach ($line in (Get-Content $TransitManifest)) {
-    if ($line -notmatch '\S') { continue }
-    $parts = $line -split '=', 3
-    if ($parts.Count -lt 2 -or -not $parts[0] -or -not $parts[1]) { throw "unparsable manifest line: $line" }
-    $dir = Resolve-FeedDir $parts[1]
-    if (-not (Test-Path (Join-Path $dir "stops.txt"))) {
-        throw "feed dir has no stops.txt (stale manifest?): $dir"
-    }
-    if ($parts.Count -ge 3 -and $parts[2]) { "$($parts[0])=$dir=$($parts[2])" } else { "$($parts[0])=$dir" }
-}
-if (-not $resolvedLines -or $resolvedLines.Count -eq 0) { throw "no usable feeds in $TransitManifest" }
-[System.IO.File]::WriteAllLines((Join-Path $tmp "feeds.resolved.manifest"), $resolvedLines)
-# PS1-side subphase: manifest resolution above is orchestration, not tool
-# work; the TIMING line below covers transit_shapes itself.
-Switch-Subphase "resolve-manifest" | Out-Null
-& $shapes $routes --manifest (Join-Path $tmp "feeds.resolved.manifest") | Tee-Object -FilePath $transitLog
+Write-Host "[3/7] Deriving transit routes from $WorldTransit"
+& $shapes $routes --pack $WorldTransit | Tee-Object -FilePath $transitLog
 if ($LASTEXITCODE -ne 0) { throw "transit_shapes failed with exit code $LASTEXITCODE" }
 }
 
@@ -585,7 +548,7 @@ foreach ($pair in @(@("graph", $graphLog), @("transit", $transitLog), @("tiles",
 }
 function Get-PhaseSubs([string] $phase) {
     # Merged view: Rust subphases in emission order, PS1-owned subphases
-    # (tools builds, transit resolve-manifest, verify steps) in capture order,
+    # (tools builds, verify steps) in capture order,
     # then the closing `other` bucket. Every row sums to the phase wall.
     $merged = [ordered]@{}
     if ($rustSubs.Contains($phase)) {

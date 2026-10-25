@@ -183,6 +183,7 @@ impl IndexBuilder {
             sec_stop_route_pos,
             profiles,
             shape_blobs,
+            rail_lines,
             stop_routes_total,
             route_count,
             trip_total,
@@ -404,10 +405,12 @@ impl IndexBuilder {
             "STOP_GTFS_ID",
             "ROUTE_TRIP_RECS",
             "ROUTE_TRIP_OFF",
+            "RAIL_LINES",
         ];
         // Close the CSR prefix: one past the last route's trips, i.e. the total. Done
         // here because it is only known once every feed's routes have been written.
         append_u32(&mut sec_route_trip_off, trip_total as u32);
+        let sec_rail_lines = rail_lines.into_section();
         let sections: [&[u8]; SECTION_COUNT] = [
             &pool.bytes,
             &sec_stops,
@@ -436,6 +439,7 @@ impl IndexBuilder {
             &sec_stop_gtfs_id,
             &sec_route_trip_recs,
             &sec_route_trip_off,
+            &sec_rail_lines,
         ];
 
         let dir_len = SECTION_COUNT * 16;

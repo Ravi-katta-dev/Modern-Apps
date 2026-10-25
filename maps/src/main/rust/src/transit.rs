@@ -42,8 +42,9 @@ use std::collections::HashMap;
 
 // --- Format constants (mirror scripts/maps/gtfs_ingest/src/index.rs) ---
 const MAGIC: u32 = 0x5452_4958; // "TRIX"
-/// Newest format this reader understands.
-const VERSION: u32 = 6;
+/// Newest format this reader understands. v7 only adds host-only RAIL_LINES after the
+/// sections read here, which the directory loop below ignores.
+const VERSION: u32 = 7;
 /// Oldest format still accepted. Reading both means an app update and a pack
 /// rebuild can land in either order without offline transit silently degrading
 /// to the online planner in between.

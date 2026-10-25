@@ -9,7 +9,7 @@
 //!
 //! Used by `index`'s tests and by `src/bin/transit_dump.rs`.
 
-use crate::index::{HEADER_LEN, MAGIC, NONE, SECTION_COUNT, VERSION, VERSION_MIN};
+use crate::index::{HEADER_LEN, MAGIC, NONE, SECTION_COUNT, SECTION_COUNT_V6, VERSION, VERSION_MIN};
 
 // Section slot numbers. Slot `i` must describe section `i`; the device reader
 // hardcodes the same numbers.
@@ -40,6 +40,7 @@ pub const SEC_FEED_MOTIS_PREFIX: usize = 23;
 pub const SEC_STOP_GTFS_ID: usize = 24;
 pub const SEC_ROUTE_TRIP_RECS: usize = 25;
 pub const SEC_ROUTE_TRIP_OFF: usize = 26;
+pub const SEC_RAIL_LINES: usize = 27;
 
 /// Bytes per v6 trip record: `u32 start_time, profile_id, service_idx, headsign_off`.
 pub const TRIP_REC_BYTES: usize = 16;
@@ -108,7 +109,7 @@ impl Reader {
             return Err(format!("version {version} outside {VERSION_MIN}..={VERSION}"));
         }
         let count = ru32(&buf, 8) as usize;
-        if count != SECTION_COUNT {
+        if count != SECTION_COUNT && count != SECTION_COUNT_V6 {
             return Err(format!("section_count {count}, expected {SECTION_COUNT}"));
         }
         if buf.len() < HEADER_LEN + count * 16 {

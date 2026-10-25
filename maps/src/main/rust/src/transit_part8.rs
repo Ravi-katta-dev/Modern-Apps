@@ -189,7 +189,7 @@
 
     #[test]
     fn a_feed_with_no_known_prefix_reports_no_motis_stop_id() {
-        // build_world_transit.sh mangles feed names, so its packs cannot name a
+        // build_world_transit.ps1 mangles feed names, so its packs cannot name a
         // Transitous source; those stops must simply have no id.
         let mut pack = one_route_pack();
         pack.feeds = vec![("sfmuni", "America/Los_Angeles", "")];

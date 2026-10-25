@@ -8,7 +8,7 @@ on-device planner that consumes the index is
 
 Merging many feeds into one pack is what makes a single global **`world.transit`**
 feasible — the app downloads it once on open (mirroring the single global road
-graph). See `scripts/maps/build_world_transit.sh` for the world pipeline.
+graph). See `scripts/maps/build_world_transit.ps1` for the world pipeline.
 
 ## Why Rust + directory input
 
@@ -283,14 +283,18 @@ whole point of merging feeds into one pack.
 
 ## Building the world pack
 
-`build_world_transit.sh` (repo root: `scripts/maps/`) builds the single global
-pack by mirroring Transitous' own published GTFS directory and merging every
-zip into one TRX2 pack:
+`scripts/maps/build_world_transit.ps1` builds the single global pack by mirroring
+Transitous' own published GTFS directory and merging every zip into one TRIX pack,
+then proves the pack's RAIL_LINES reproduce the feeds' transit layer before it
+replaces `inputs/world.transit`:
 
-```sh
-./build_world_transit.sh --region 'us-ca' --out /tmp/wt   # stage: California first
-./build_world_transit.sh --work /data/transit --publish  # whole world, then publish
+```powershell
+.\scripts\maps\build_world_transit.ps1               # mirror, unzip, merge, verify, install
+.\scripts\maps\build_world_transit.ps1 -SkipMirror   # reuse the zips already on disk
 ```
+
+`build_graph.ps1` reads only the pack, so the work dir this leaves behind
+(`scripts/maps/world_transit_work`, ~80 GB) can be deleted afterwards.
 
 It mirrors rather than resolving the Transitous registry feed-by-feed because
 the upstreams are third parties in every state of disrepair: 401s, 403s, 404s

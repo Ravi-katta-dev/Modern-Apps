@@ -5,10 +5,17 @@ use super::*;
 use rayon::prelude::*;
 use std::time::Instant;
 
+/// Where the lines come from: raw GTFS feeds, or the `world.transit` pack built from them.
+#[derive(Clone, Copy)]
+pub(crate) enum Inputs<'a> {
+    Feeds(&'a [FeedSpec]),
+    Pack(&'a Path),
+}
+
 /// Untimed entry, kept for the unit tests in `transit_shapes_extra`.
 #[cfg(test)]
 pub(crate) fn run(out_path: &Path, specs: &[FeedSpec]) -> Result<(), String> {
-    run_with_timer(out_path, specs, None)
+    run_with_timer(out_path, Inputs::Feeds(specs), None)
 }
 
 /// Timed pipeline entry: ticks `parse-feeds` over the feed loop below, the
@@ -17,7 +24,7 @@ pub(crate) fn run(out_path: &Path, specs: &[FeedSpec]) -> Result<(), String> {
 /// summary. `None` skips every tick, which is what the tests drive via [`run`].
 pub(crate) fn run_with_timer(
     out_path: &Path,
-    specs: &[FeedSpec],
+    inputs: Inputs<'_>,
     mut timer: Option<PhaseTimer>,
 ) -> Result<(), String> {
     let mut seen: HashSet<(u64, u32)> = HashSet::new();
@@ -59,27 +66,21 @@ pub(crate) fn run_with_timer(
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
     let chunk_size = threads.saturating_mul(2).max(1);
 
-    let total = specs.len();
+    let total = match inputs {
+        Inputs::Feeds(specs) => specs.len(),
+        Inputs::Pack(_) => 1,
+    };
+    let chunks: Vec<&[FeedSpec]> = match inputs {
+        Inputs::Feeds(specs) => specs.chunks(chunk_size).collect(),
+        // One pass over the whole pack: it is already one merged, ordered set.
+        Inputs::Pack(_) => vec![&[]],
+    };
     let mut processed = 0usize;
-    for chunk in specs.chunks(chunk_size) {
-        let next = AtomicUsize::new(0);
-        let parsed: Mutex<Vec<(usize, Result<FeedLines, String>)>> =
-            Mutex::new(Vec::with_capacity(chunk.len()));
-        std::thread::scope(|scope| {
-            for _ in 0..threads.min(chunk.len()) {
-                scope.spawn(|| loop {
-                    let i = next.fetch_add(1, Ordering::Relaxed);
-                    if i >= chunk.len() {
-                        break;
-                    }
-                    let read = read_feed(&chunk[i]);
-                    parsed.lock().expect("feed reader pool").push((i, read));
-                });
-            }
-        });
-        let mut parsed = parsed.into_inner().expect("feed reader pool");
-        // Back into spec order, so the fold below sees exactly the sequence it used to.
-        parsed.sort_unstable_by_key(|(i, _)| *i);
+    for chunk in chunks {
+        let parsed = match inputs {
+            Inputs::Pack(path) => vec![(0, super::pack::pack_lines(path))],
+            Inputs::Feeds(_) => parse_chunk(chunk, threads),
+        };
 
         // Feeds unwrapped in spec order and their lines gathered, so the dedup key of every
         // line can be computed wide before the sequential fold. Stats accumulate here so an
@@ -232,11 +233,34 @@ pub(crate) fn run_with_timer(
          {} line(s), {} intercity, {bundled} in a shared corridor, \
          {fell_back} on a per-mode fallback colour)",
         out_path.display(),
-        specs.len(),
+        total,
         lines.len(),
         lines.iter().filter(|l| l.intercity).count(),
     );
     Ok(())
+}
+
+/// Parse one chunk of feeds on `threads` workers, back in spec order, so the fold sees exactly
+/// the sequence a sequential read would give it.
+fn parse_chunk(chunk: &[FeedSpec], threads: usize) -> Vec<(usize, Result<FeedLines, String>)> {
+    let next = AtomicUsize::new(0);
+    let parsed: Mutex<Vec<(usize, Result<FeedLines, String>)>> =
+        Mutex::new(Vec::with_capacity(chunk.len()));
+    std::thread::scope(|scope| {
+        for _ in 0..threads.min(chunk.len()) {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, Ordering::Relaxed);
+                if i >= chunk.len() {
+                    break;
+                }
+                let read = read_feed(&chunk[i]);
+                parsed.lock().expect("feed reader pool").push((i, read));
+            });
+        }
+    });
+    let mut parsed = parsed.into_inner().expect("feed reader pool");
+    parsed.sort_unstable_by_key(|(i, _)| *i);
+    parsed
 }
 
 /// One stderr redraw of the feed-parse meter in the standard shape:

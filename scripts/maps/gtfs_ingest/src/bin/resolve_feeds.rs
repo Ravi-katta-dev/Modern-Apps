@@ -12,7 +12,7 @@
 //! and run offline.
 //!
 //! The plan is a TSV of `name<TAB>url<TAB>motis_prefix`, which
-//! `build_world_transit.sh` downloads and then turns into the three-field manifest
+//! `build_world_transit.ps1` downloads and then turns into the three-field manifest
 //! `manifest.rs::parse_feed_spec` reads.
 //!
 //! `--region` and `--max-feeds` are not conveniences. Resolving every `feeds/*.json`

@@ -18,6 +18,7 @@ pub mod index;
 pub mod json;
 pub mod manifest;
 pub mod par;
+pub mod rail;
 pub mod reader;
 pub mod reader_extra;
 pub mod registry;

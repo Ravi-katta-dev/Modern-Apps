@@ -52,8 +52,67 @@ fn read_file(path: &Path) -> Result<Vec<u8>, String> {
 struct Staged {
     kind: u8,
     path: PathBuf,
+    /// Bytes this payload occupies in the archive.
     len: u64,
     extra: u64,
+    /// The source file's own length, re-checked at copy time. Larger than `len` only for a
+    /// transit pack whose host-only tail is left out (see [`transit_without_host_sections`]).
+    file_len: u64,
+    /// Bytes written in place of the source's first `head.len()`: the transit pack's header and
+    /// directory with the host-only sections emptied. Empty for every other payload.
+    head: Vec<u8>,
+}
+
+impl Staged {
+    fn whole(kind: u8, path: PathBuf, len: u64) -> Staged {
+        Staged { kind, path, len, extra: 0, file_len: len, head: Vec::new() }
+    }
+}
+
+/// TRIX sections from this index on are host-only (v7 RAIL_LINES, the build's own copy of the
+/// rail shapes) and never ship: the device reads none of them.
+const TRANSIT_HOST_SECTIONS_FROM: usize = 27;
+const TRANSIT_HEADER_LEN: usize = 80;
+
+/// The transit pack as the archive carries it: its header and directory with every host-only
+/// section set to zero length at the cut, and the file truncated there. Host-only sections are
+/// written last, so everything the device reads sits before the cut. Returns `(head, len)`;
+/// `head` is empty and `len` the whole file when there is nothing to leave out.
+fn transit_without_host_sections(path: &Path, file_len: u64) -> Result<(Vec<u8>, u64), String> {
+    let mut f = std::fs::File::open(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let mut head = vec![0u8; TRANSIT_HEADER_LEN.min(file_len as usize)];
+    f.read_exact(&mut head).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    if head.len() < TRANSIT_HEADER_LEN {
+        return Err(format!("{} ends before its TRIX header", path.display()));
+    }
+    let count = u32::from_le_bytes([head[8], head[9], head[10], head[11]]) as usize;
+    if count <= TRANSIT_HOST_SECTIONS_FROM {
+        return Ok((Vec::new(), file_len));
+    }
+    let dir_end = TRANSIT_HEADER_LEN + count * 16;
+    if dir_end as u64 > file_len {
+        return Err(format!("{}'s section directory runs past the file", path.display()));
+    }
+    head.resize(dir_end, 0);
+    f.read_exact(&mut head[TRANSIT_HEADER_LEN..]).map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let entry = |head: &[u8], i: usize| {
+        let at = TRANSIT_HEADER_LEN + i * 16;
+        let u = |o: usize| u64::from_le_bytes(head[o..o + 8].try_into().expect("8 bytes"));
+        (u(at), u(at + 8))
+    };
+    let cut = (TRANSIT_HOST_SECTIONS_FROM..count).map(|i| entry(&head, i).0).min().unwrap_or(file_len);
+    for i in 0..TRANSIT_HOST_SECTIONS_FROM {
+        let (off, len) = entry(&head, i);
+        if off + len > cut {
+            return Err(format!("{}: section {i} runs past the host-only sections at {cut}", path.display()));
+        }
+    }
+    for i in TRANSIT_HOST_SECTIONS_FROM..count {
+        let at = TRANSIT_HEADER_LEN + i * 16;
+        head[at..at + 8].copy_from_slice(&cut.to_le_bytes());
+        head[at + 8..at + 16].copy_from_slice(&0u64.to_le_bytes());
+    }
+    Ok((head, cut))
 }
 
 /// The few sidecars small enough to hold: graph metadata, lane index, POI descriptors, and the
@@ -89,7 +148,7 @@ fn load_sidecars_impl(
         match std::fs::metadata(&path) {
             Ok(m) => {
                 if required || m.len() > 0 {
-                    staged.push(Staged { kind, path, len: m.len(), extra: 0 });
+                    staged.push(Staged::whole(kind, path, m.len()));
                 }
                 Ok(())
             }
@@ -118,23 +177,26 @@ fn load_sidecars_impl(
     timer.switch("read-transit");
     let mut transit_prefix = Vec::new();
     if let Some(t) = transit {
-        let len = std::fs::metadata(t)
+        let file_len = std::fs::metadata(t)
             .map_err(|e| format!("cannot stat {}: {e}", t.display()))?
             .len();
-        staged.push(Staged { kind: ARCHIVE_KIND_TRANSIT, path: t.to_path_buf(), len, extra: 0 });
-        // The build id hashes only the first 1 KiB (see `derive_build_id`).
+        let (head, len) = transit_without_host_sections(t, file_len)?;
+        // The build id hashes only the first 1 KiB (see `derive_build_id`), as shipped.
         let mut f = std::fs::File::open(t)
             .map_err(|e| format!("cannot read {}: {e}", t.display()))?;
         let mut buf = vec![0u8; (len.min(1024)) as usize];
         f.read_exact(&mut buf)
             .map_err(|e| format!("cannot read {}: {e}", t.display()))?;
+        let patched = head.len().min(buf.len());
+        buf[..patched].copy_from_slice(&head[..patched]);
         transit_prefix = buf;
+        staged.push(Staged { kind: ARCHIVE_KIND_TRANSIT, path: t.to_path_buf(), len, extra: 0, file_len, head });
     }
     // The highway overlay (`road_overlay`) is optional and sorts after transit.
     let overlay = graph.join("overlay.bin");
     match std::fs::metadata(&overlay) {
         Ok(m) if m.len() > 0 => {
-            staged.push(Staged { kind: ARCHIVE_KIND_GRAPH_OVERLAY, path: overlay, len: m.len(), extra: 0 })
+            staged.push(Staged::whole(ARCHIVE_KIND_GRAPH_OVERLAY, overlay, m.len()))
         }
         Ok(_) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -423,22 +485,26 @@ fn pack_streaming(
             .metadata()
             .map_err(|e| format!("cannot stat {}: {e}", s.path.display()))?
             .len();
-        if src_len != s.len {
+        if src_len != s.file_len {
             return Err(format!(
                 "{} changed under the pack (staged {} bytes, now {src_len})",
                 s.path.display(),
-                s.len,
+                s.file_len,
             ));
         }
-        copy_range(&mut src, 0, src_len, &mut writer, &s.path, &tmp)?;
+        writer
+            .write_all(&s.head)
+            .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+        let head = s.head.len() as u64;
+        copy_range(&mut src, head, s.len - head, &mut writer, &s.path, &tmp)?;
         entries.push(ArchiveEntry {
             kind: s.kind,
             flags: 0,
             offset: at,
-            len: src_len,
+            len: s.len,
             extra: s.extra,
         });
-        at += src_len;
+        at += s.len;
     }
     while at % ARCHIVE_ALIGN != 0 {
         writer
@@ -752,6 +818,50 @@ mod tests {
         out[4..8].copy_from_slice(&6u32.to_le_bytes());
         out[8..12].copy_from_slice(&20u32.to_le_bytes());
         out
+    }
+
+    /// A v7 pack: 27 one-byte device sections, then an 8-byte host-only RAIL_LINES at the end.
+    fn transit_pack_v7() -> Vec<u8> {
+        let dir_end = 80 + 28 * 16;
+        let mut out = vec![0u8; dir_end];
+        out[0..4].copy_from_slice(&0x5452_4958u32.to_le_bytes());
+        out[4..8].copy_from_slice(&7u32.to_le_bytes());
+        out[8..12].copy_from_slice(&28u32.to_le_bytes());
+        let mut at = dir_end as u64;
+        for i in 0..28 {
+            let len: u64 = if i == 27 { 8 } else { 1 };
+            let e = 80 + i * 16;
+            out[e..e + 8].copy_from_slice(&at.to_le_bytes());
+            out[e + 8..e + 16].copy_from_slice(&len.to_le_bytes());
+            at += len;
+        }
+        out.extend((0..27).map(|i| i as u8 + 1));
+        out.extend_from_slice(b"RAILRAIL");
+        out
+    }
+
+    #[test]
+    fn the_host_only_rail_lines_stay_out_of_the_archive() {
+        let (dir, poi) = overlay_fixture("hostonly");
+        let transit_path = dir.join("world.transit");
+        let source = transit_pack_v7();
+        std::fs::write(&transit_path, &source).expect("fixture transit");
+        let validated = load_sidecars(&dir, &poi, Some(&transit_path)).expect("stage fixtures");
+        let out = dir.join("packed.mamaps");
+        pack_streaming(&dir.join("tiles.mamaps"), &validated, 0xBEEF, &out).expect("pack");
+        let packed = std::fs::read(&out).expect("read packed");
+        let header = Header::parse(&packed).expect("packed header");
+        let view = ArchiveView::parse(&packed, &header).expect("the archive validates");
+        let entry = view.entries.iter().find(|e| e.kind == ARCHIVE_KIND_TRANSIT).expect("a transit entry");
+        let shipped = &packed[entry.offset as usize..(entry.offset + entry.len) as usize];
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(shipped.len(), source.len() - 8, "everything but RAIL_LINES");
+        assert!(!shipped.windows(4).any(|w| w == b"RAIL"));
+        let (rail_entry, data) = (80 + 27 * 16, 80 + 28 * 16);
+        assert_eq!(&shipped[..rail_entry], &source[..rail_entry], "header and device entries unchanged");
+        assert_eq!(&shipped[rail_entry..rail_entry + 8], &(shipped.len() as u64).to_le_bytes(), "at the cut");
+        assert_eq!(&shipped[rail_entry + 8..data], &[0u8; 8], "and empty");
+        assert_eq!(&shipped[data..], &source[data..source.len() - 8], "device sections byte-identical");
     }
 
     #[test]

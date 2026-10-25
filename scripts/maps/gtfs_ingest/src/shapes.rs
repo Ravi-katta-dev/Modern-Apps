@@ -6,14 +6,15 @@
 //! a polyline plus one vertex index per pattern stop, and those indices must be
 //! non-decreasing or the slice is meaningless.
 //!
-//! Three things make that work:
+//! Two things make that work:
 //!   * each stop's projection onto the shape is **inserted as a vertex**, so a
 //!     boarded span begins and ends exactly at its stop rather than at whichever
 //!     shape point happened to be nearest;
-//!   * simplification runs on the spans *between* those pinned vertices, so it
-//!     can never move or drop one;
 //!   * the shape is trimmed to `[first stop, last stop]`, dropping the deadhead
 //!     prologue/epilogue no ride leg can reach.
+//!
+//! Every `shapes.txt` point in between is kept: the pack is the build's source of
+//! truth for transit geometry, so it is stored at full resolution.
 //!
 //! `shape_dist_traveled` is used only to *order* — to pick which segment a stop
 //! belongs to, which is what disambiguates a loop route that passes a stop
@@ -22,8 +23,7 @@
 
 use crate::gtfs::Shape;
 
-/// Douglas-Peucker tolerance. The lever on pack size: shapes dominate a v4 pack.
-const SIMPLIFY_TOLERANCE_M: f64 = 2.5;
+/// How far a stop may sit
 /// How far a stop may sit from the shape before the fit is rejected. A genuine
 /// mismatch (shape belonging to another pattern, swapped lat/lon) blows past
 /// this; ordinary stop-to-kerb offsets do not.
@@ -103,31 +103,6 @@ pub fn resample(points: &[(i32, i32)], step_m: f64) -> Vec<(i32, i32)> {
         out.push(last);
     }
     out
-}
-
-/// Douglas-Peucker over `pts[lo..=hi]`, pushing the *interior* indices to keep.
-/// Iterative: a world feed's shapes are long enough that recursion is a risk.
-fn simplify_span(pts: &[(i32, i32)], lo: usize, hi: usize, keep: &mut Vec<usize>) {
-    let mut stack = vec![(lo, hi)];
-    while let Some((a, b)) = stack.pop() {
-        if b <= a + 1 {
-            continue;
-        }
-        let mut worst = 0.0;
-        let mut worst_i = a;
-        for i in (a + 1)..b {
-            let (_, d) = project(pts[i], pts[a], pts[b], 0.0);
-            if d > worst {
-                worst = d;
-                worst_i = i;
-            }
-        }
-        if worst > SIMPLIFY_TOLERANCE_M {
-            keep.push(worst_i);
-            stack.push((a, worst_i));
-            stack.push((worst_i, b));
-        }
-    }
 }
 
 fn non_decreasing(v: &[f64]) -> bool {
@@ -222,17 +197,13 @@ pub fn fit(shape: &Shape, stops: &[(i32, i32)], stop_dists: Option<&[f64]>) -> O
         return None;
     }
 
-    // Simplify only between pinned vertices, and trim to the boarded extent.
+    // Trim to the boarded extent, keeping every point between pinned vertices.
     let mut keep: Vec<usize> = vec![pinned[0]];
     let mut stop_vertices: Vec<u32> = vec![0];
     for w in pinned.windows(2) {
         let (a, b) = (w[0], w[1]);
         if b > a {
-            let mut interior = Vec::new();
-            simplify_span(&pts, a, b, &mut interior);
-            interior.sort_unstable();
-            keep.extend(interior);
-            keep.push(b);
+            keep.extend(a + 1..=b);
         }
         stop_vertices.push((keep.len() - 1) as u32);
     }
@@ -351,7 +322,7 @@ mod tests {
         for (k, &v) in f.stop_vertices.iter().enumerate() {
             assert_eq!(f.points[v as usize], stops[k]);
         }
-        // The detour survives simplification.
+        // The detour is kept.
         assert!(f.points.iter().any(|&(_, lon)| lon > -1_223_950_000));
     }
 
@@ -401,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn simplification_drops_collinear_points_but_keeps_stops() {
+    fn every_shape_point_between_the_stops_is_kept() {
         let mut pts = Vec::new();
         for i in 0..101 {
             pts.push((37.700 + i as f64 * 0.0001, -122.400));
@@ -409,8 +380,8 @@ mod tests {
         let s = shape(&pts, None);
         let stops = [e7(37.700, -122.400), e7(37.7100, -122.400)];
         let f = fit(&s, &stops, None).expect("fits");
-        assert_eq!(f.points.len(), 2, "a straight run collapses to its endpoints");
-        assert_eq!(f.stop_vertices, vec![0, 1]);
+        assert_eq!(f.points.len(), 101, "full resolution: even a straight run keeps its points");
+        assert_eq!(f.stop_vertices, vec![0, 100]);
     }
 
     #[test]

@@ -28,7 +28,7 @@
 //! GTFS feeds are sourced from the Transitous feed registry
 //! (github.com/public-transport/transitous, `feeds/*.json`), which points at
 //! each agency's official GTFS `.zip` — the same open data behind the P10
-//! online boards. See `scripts/maps/build_world_transit.sh`.
+//! online boards. See `scripts/maps/build_world_transit.ps1`.
 
 use gtfs_ingest::gtfs;
 use gtfs_ingest::index;

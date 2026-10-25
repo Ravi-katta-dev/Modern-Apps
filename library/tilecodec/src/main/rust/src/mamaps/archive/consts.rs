@@ -52,8 +52,8 @@ pub const GRAPH_VERSION_MIN: u32 = 6;
 pub const GRAPH_META_LEN: u64 = 40;
 /// `transit` (`TRIX`) magic, little-endian `u32`.
 pub const TRANSIT_MAGIC: u32 = 0x5452_4958;
-/// Newest transit version accepted.
-pub const TRANSIT_VERSION: u32 = 6;
+/// Newest transit version accepted. v7 adds a host-only section the app never reads.
+pub const TRANSIT_VERSION: u32 = 7;
 /// Oldest transit version accepted.
 pub const TRANSIT_VERSION_MIN: u32 = 3;
 /// POI index record stride.

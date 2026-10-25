@@ -42,7 +42,7 @@
 //!     one pack without id collisions (ids are namespaced per feed at build).
 //!
 //! Header (80 bytes; all u32/i32 little-endian):
-//!   u32 magic (MAGIC), u32 version (VERSION=6), u32 section_count,
+//!   u32 magic (MAGIC), u32 version (VERSION=7), u32 section_count,
 //!   u32 stop_count, u32 route_count, u32 trip_count, u32 service_count,
 //!   u32 profile_count, u32 feed_count, u32 grid_cell_count, u32 feed_name_off,
 //!   i32 min_lat_e7, i32 min_lon_e7, i32 max_lat_e7, i32 max_lon_e7,
@@ -135,6 +135,11 @@
 //!                        ROUTE_TRIP_RECS[off[i]..off[i+1]]. Disagreeing with
 //!                        RouteRec.n_trips makes the reader fall back to the
 //!                        varint stream rather than index past the table.
+//!  27  RAIL_LINES      v7. Host-only: every whole, unsimplified rail shape the
+//!                        basemap's transit layer is drawn from, so `transit_shapes`
+//!                        can rebuild it from the pack alone. Written last and
+//!                        dropped from the app archive by `mamaps_pack`. See
+//!                        [`RailLines`].
 
 use crate::gtfs;
 use crate::gtfs::{parse_gtfs_date, Csv, Shape};
@@ -144,12 +149,14 @@ use std::io::Write;
 use std::path::Path;
 
 pub const MAGIC: u32 = 0x5452_4958; // "TRIX"
-pub const VERSION: u32 = 6;
+pub const VERSION: u32 = 7;
 /// Oldest version the device reader still accepts, mirrored from
 /// `maps/src/main/rust/src/transit.rs` so the host reader agrees on the range.
 pub const VERSION_MIN: u32 = 3;
 pub const NONE: u32 = 0xFFFF_FFFF;
-pub const SECTION_COUNT: usize = 27;
+pub const SECTION_COUNT: usize = 28;
+/// Sections in a v6 pack, which has no RAIL_LINES. The host reader still opens one.
+pub const SECTION_COUNT_V6: usize = 27;
 pub const HEADER_LEN: usize = 80;
 
 const MAX_TRANSFER_M: f64 = 400.0;
@@ -443,3 +450,4 @@ include!("index_part3.rs");
 include!("index_part4.rs");
 include!("index_part5.rs");
 include!("index_part6.rs");
+include!("index_part7.rs");

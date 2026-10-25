@@ -8,7 +8,7 @@
 //!
 //! `<feed>` is `feed_name=gtfs_dir[=motis_prefix]` or a bare `gtfs_dir`, exactly
 //! as `gtfs_ingest` takes them, so the same `feeds.manifest`
-//! `build_world_transit.sh` writes drives every tool in this crate.
+//! `build_world_transit.ps1` writes drives every tool in this crate.
 //!
 //! # Why GTFS rather than OSM route relations
 //!
@@ -20,13 +20,13 @@
 //! when it did not. `routes.txt` carries the agency's official `route_color` and
 //! `shapes.txt` carries the vehicle's real path with no platforms in it at all.
 //!
-//! # Why not read the `.transit` pack
+//! # Reading the `.transit` pack instead (`--pack`)
 //!
-//! `reader.rs` already decodes a built pack host-side, but the pack's geometry is
-//! fitted to a stop pattern, simplified at `shapes::SIMPLIFY_TOLERANCE_M` and
-//! trimmed to `[first stop, last stop]`. That is right for drawing a journey leg
-//! and wrong for a basemap line, which wants the untrimmed, unsimplified
-//! alignment. So this reads the raw feeds.
+//! The pack's ride geometry is fitted to a stop pattern and trimmed to
+//! `[first stop, last stop]`: right for a journey leg, wrong for a basemap line,
+//! which wants the whole alignment. So a v7 pack also carries RAIL_LINES, the
+//! exact shapes this tool reads from each feed, and `--pack` derives the same
+//! layer from it without the raw feeds.
 //!
 //! Like the rest of the crate: no serde, the JSON lines are hand-written.
 
@@ -36,12 +36,16 @@ mod extra2;
 #[path = "transit_shapes_intercity.rs"]
 mod intercity;
 
+#[path = "transit_shapes_pack.rs"]
+mod pack;
+
 #[path = "transit_shapes_extra.rs"]
 #[cfg(test)]
 mod extra;
 
 use gtfs_ingest::bundle;
 use gtfs_ingest::gtfs::{self, Csv};
+use gtfs_ingest::rail::{fallback_color, mode_of, rail_routes, shape_ids_by_route};
 use gtfs_ingest::manifest::{parse_feed_spec, read_manifest, FeedSpec};
 use gtfs_ingest::timing::PhaseTimer;
 
@@ -72,7 +76,7 @@ const MAX_SERVICES_PER_TRACK: usize = 4;
 /// under this — the branch is the point of it — while a re-publication with a couple of extra
 /// stops is well over.
 const MOSTLY_DRAWN: f64 = 0.95;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -93,6 +97,21 @@ fn main() -> ExitCode {
 
     let mut timer = PhaseTimer::start("transit");
     timer.switch("manifest-resolve");
+
+    // A built pack stands in for the raw feeds it was made from.
+    if args[2] == "--pack" {
+        let Some(file) = args.get(3) else {
+            eprintln!("ERROR: transit_shapes: --pack requires a world.transit path");
+            return ExitCode::from(2);
+        };
+        return match extra2::run_with_timer(&out, extra2::Inputs::Pack(Path::new(file)), Some(timer)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("ERROR: transit_shapes: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
 
     let specs: Vec<FeedSpec> = if args[2] == "--manifest" {
         let Some(file) = args.get(3) else {
@@ -116,7 +135,7 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     }
 
-    match extra2::run_with_timer(&out, &specs, Some(timer)) {
+    match extra2::run_with_timer(&out, extra2::Inputs::Feeds(&specs), Some(timer)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("ERROR: transit_shapes: {e}");
@@ -128,6 +147,7 @@ fn main() -> ExitCode {
 fn usage() {
     eprintln!("usage: transit_shapes <out.geojsonseq> <feed>...");
     eprintln!("       transit_shapes <out.geojsonseq> --manifest FILE");
+    eprintln!("       transit_shapes <out.geojsonseq> --pack world.transit");
     eprintln!("  <feed> = feed_name=gtfs_dir[=motis_prefix]  |  gtfs_dir");
 }
 
@@ -166,66 +186,6 @@ struct FeedLines {
     routes_without_shape: usize,
     /// Distinct usable `shape_id`s seen.
     shapes_read: usize,
-}
-
-/// GTFS `route_type` → the basemap's mode vocabulary, or `None` for a mode this
-/// layer does not carry (bus, ferry, trolleybus, aerial lift, ...).
-///
-/// The extended ranges are here because European feeds use them almost
-/// exclusively: a feed publishing its metro as 402 rather than 1 would otherwise
-/// contribute nothing at all.
-fn mode_of(route_type: u32) -> Option<&'static str> {
-    Some(match route_type {
-        // GTFS 0 is "tram, streetcar, light rail" in one value. `light_rail`
-        // rather than `tram` because that is what North American agencies put
-        // there — Muni Metro, MAX, Link — and its zoom floor is the shallower of
-        // the two, so a street tram filed under 0 surfaces one zoom early rather
-        // than a light rail line vanishing until z13.
-        0 => "light_rail",
-        1 => "subway",
-        2 => "train",
-        // Cable tram and funicular: short, street-level, and the tram zoom floor.
-        5 | 7 => "tram",
-        12 => "monorail",
-        100..=117 => "train",
-        400..=404 => "subway",
-        405 => "monorail",
-        900..=906 => "tram",
-        _ => return None,
-    })
-}
-
-/// The fallback line colour per mode, as `0xRRGGBB`, for a route naming none.
-///
-/// **A matched pair with `mamaps_build`'s `schema::transit::MODES`**: the five
-/// names above and the five colours here are that table, duplicated because this
-/// crate is deliberately detached from the Android workspace and has no
-/// dependencies, so the two cannot share code. A change to either is a change to
-/// both.
-fn fallback_color(mode: &str) -> u32 {
-    match mode {
-        "subway" => 0xE4002B,
-        "light_rail" => 0x00985F,
-        "tram" => 0xFFD200,
-        "train" => 0x0057A8,
-        "monorail" => 0x9D9D9D,
-        _ => 0x666666,
-    }
-}
-
-/// A `route_color` cell as `0xRRGGBB`, or `None` to fall back per mode.
-///
-/// GTFS spells it as bare `RRGGBB`; a leading `#` is accepted because feeds put
-/// one there anyway. Zero is refused rather than emitted: it means "no colour" on
-/// the wire, so a route that really is black takes its mode's colour instead.
-fn route_color(raw: &str) -> Option<u32> {
-    let hex = raw.trim();
-    let hex = hex.strip_prefix('#').unwrap_or(hex);
-    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
-    let value = u32::from_str_radix(hex, 16).ok()?;
-    (value != 0).then_some(value)
 }
 
 /// A content hash of one polyline, for dedup.
@@ -285,7 +245,7 @@ fn read_feed(spec: &FeedSpec) -> Result<FeedLines, String> {
 
     let mut out = FeedLines { routes_kept: rail.len(), ..FeedLines::default() };
     for (route_id, shape_ids) in &by_route {
-        let (mode, color, fallback, route, long_type) = &rail[route_id.as_str()];
+        let (mode, color, fallback, route, route_type) = &rail[route_id.as_str()];
         let before = out.lines.len();
         // Every distinct shape, whole. What a route publishes is one alignment per
         // direction plus a short-turn or a branch variant or two, all of them overlapping,
@@ -301,7 +261,7 @@ fn read_feed(spec: &FeedSpec) -> Result<FeedLines, String> {
             let points: Vec<(i32, i32)> =
                 shape.lat_e7.iter().zip(&shape.lon_e7).map(|(&lat, &lon)| (lat, lon)).collect();
             out.lines.push(Line {
-                intercity: intercity::is_intercity(*long_type, &points),
+                intercity: intercity::is_intercity(intercity::is_long_distance_type(*route_type), &points),
                 points,
                 color: *color,
                 mode,
@@ -320,58 +280,6 @@ fn read_feed(spec: &FeedSpec) -> Result<FeedLines, String> {
     // A rail route no trip references at all never reaches the loop above.
     out.routes_without_shape += rail.len() - by_route.len();
     Ok(out)
-}
-
-/// `route_id` → `(mode, colour, is a fallback colour, display name, is long-distance by type)`
-/// for every rail route in the feed. Everything else, bus included, is dropped here.
-fn rail_routes(routes: &Csv) -> HashMap<String, (&'static str, u32, bool, String, bool)> {
-    let mut out = HashMap::new();
-    for row in &routes.rows {
-        let id = routes.get(row, "route_id");
-        if id.is_empty() {
-            continue;
-        }
-        let Ok(route_type) = routes.get(row, "route_type").trim().parse::<u32>() else { continue };
-        let Some(mode) = mode_of(route_type) else { continue };
-        let (color, fallback) = match route_color(routes.get(row, "route_color")) {
-            Some(color) => (color, false),
-            None => (fallback_color(mode), true),
-        };
-        let short = routes.get(row, "route_short_name").trim();
-        let long = routes.get(row, "route_long_name").trim();
-        let name = if short.is_empty() { long } else { short };
-        out.insert(
-            id.to_string(),
-            (mode, color, fallback, name.to_string(), intercity::is_long_distance_type(route_type)),
-        );
-    }
-    out
-}
-
-/// The distinct `shape_id`s each rail route's trips reference.
-///
-/// One line per **distinct polyline**, not per trip and not per RAPTOR route
-/// group: a route's trips reference many shapes (one per direction, one per
-/// short-turn variant) and every trip carrying its own line would draw the same
-/// alignment hundreds of times. `BTreeMap`/`BTreeSet` rather than the hashed
-/// pair, because the output has to be byte-identical between runs.
-fn shape_ids_by_route(
-    trips: &Csv,
-    rail: &HashMap<String, (&'static str, u32, bool, String, bool)>,
-) -> BTreeMap<String, BTreeSet<String>> {
-    let mut out: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for row in &trips.rows {
-        let route_id = trips.get(row, "route_id");
-        if !rail.contains_key(route_id) {
-            continue;
-        }
-        let shape_id = trips.get(row, "shape_id").trim();
-        if shape_id.is_empty() {
-            continue;
-        }
-        out.entry(route_id.to_string()).or_default().insert(shape_id.to_string());
-    }
-    out
 }
 
 /// Cut every line at its corridor boundaries and give each piece its lane, so one line in

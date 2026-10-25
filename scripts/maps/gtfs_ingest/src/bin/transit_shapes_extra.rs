@@ -5,6 +5,7 @@
 use super::extra2::run;
 use super::*;
 use gtfs_ingest::gtfs::parse_csv;
+use gtfs_ingest::rail::route_color;
 use gtfs_ingest::manifest::FeedSpec;
 use std::path::PathBuf;
 

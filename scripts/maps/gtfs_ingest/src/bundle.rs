@@ -82,9 +82,8 @@ use std::sync::Mutex;
 /// Two polylines closer than this everywhere are the same line, and two tracks closer than
 /// this are one corridor.
 ///
-/// Inside the band `shapes.rs` already establishes: well above `SIMPLIFY_TOLERANCE_M`
-/// (2.5 m), which is below the disagreement between two agencies' surveys of one track, and
-/// well below `MAX_STOP_OFFSET_M` (150 m), which is a shape belonging to another pattern.
+/// Well above the few metres two agencies' surveys of one track disagree by, and well below
+/// `shapes.rs`' `MAX_STOP_OFFSET_M` (150 m), which is a shape belonging to another pattern.
 pub const CORRIDOR_M: f64 = 30.0;
 
 /// How close a member's own survey has to come to the reference before it stops drawing its

@@ -35,6 +35,7 @@ impl IndexBuilder {
             sec_stop_route_pos: Vec::new(),
             profiles: ProfileTable::new(),
             shape_blobs: ShapeBlobs::new(),
+            rail_lines: RailLines::new(),
             stop_routes_total: 0,
             route_count: 0,
             trip_total: 0,
@@ -372,6 +373,7 @@ impl IndexBuilder {
         }
 
         self.finalize_feed(&raptor_routes, &built_trips, &shapes, feed_stop_start)?;
+        self.rail_lines.add_feed(feed_idx, feed)?;
 
         // A feed's services are allocated contiguously while it is being added,
         // and its exceptions only ever reference them, so sorting this feed's

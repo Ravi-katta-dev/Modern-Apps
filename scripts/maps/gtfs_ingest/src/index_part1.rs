@@ -184,6 +184,7 @@ pub struct IndexBuilder {
     sec_stop_route_pos: Vec<u8>,
     profiles: ProfileTable,
     shape_blobs: ShapeBlobs,
+    rail_lines: RailLines,
     /// Running STOP_ROUTES entry count, i.e. the next STOP_ROUTES_IDX value.
     stop_routes_total: u32,
 

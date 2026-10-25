@@ -15,7 +15,7 @@ pub type FeedSpec = (String, PathBuf, String);
 ///
 /// The third field is the feed's Transitous id namespace, which composes into a
 /// MOTIS stop id (`<prefix>_<gtfs stop_id>`). Two-field specs stay valid, so
-/// `build_world_transit.sh` is unaffected and its packs simply carry no ids.
+/// `build_world_transit.ps1` is unaffected and its packs simply carry no ids.
 /// Fields split on `=`, so neither the directory nor the prefix may contain one.
 pub fn parse_feed_spec(s: &str) -> FeedSpec {
     let mut parts = s.splitn(3, '=');
@@ -57,7 +57,7 @@ mod tests {
 
     #[test]
     fn a_two_field_spec_carries_no_motis_prefix() {
-        // build_world_transit.sh emits these; its packs must keep building.
+        // build_world_transit.ps1 emits these; its packs must keep building.
         let (name, dir, prefix) = parse_feed_spec("sfmuni=/tmp/gtfs/sfmuni");
         assert_eq!(name, "sfmuni");
         assert_eq!(dir, PathBuf::from("/tmp/gtfs/sfmuni"));

@@ -407,10 +407,10 @@ mod tests {
                 "vertex {v} at {vlat},{vlon} is not stop {stop} at {slat},{slon}"
             );
         }
-        // The detour survives simplification, so the drawn ride is not straight.
+        // The detour is kept, so the drawn ride is not straight.
         assert!(
             pts.iter().any(|&(_, lon)| lon > -1_223_950_000),
-            "the eastward detour was simplified away: {pts:?}"
+            "the eastward detour was dropped: {pts:?}"
         );
     }
 
