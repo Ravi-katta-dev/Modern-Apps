@@ -214,3 +214,68 @@ void tiled_spatial() {
         }
     }
 }
+
+// Eight output columns' taps for a depthwise row: stride 1 reads 8 contiguous elements,
+// stride 2 reads 16 and keeps the even ones; edges and other strides gather masked scalars.
+void depthwise_columns(uint row, int ix, bool interior, out vec4 lo, out vec4 hi) {
+    if (interior && p.stride_w == 1u) {
+        eight_at(row + uint(ix), lo, hi);
+        return;
+    }
+    if (interior && p.stride_w == 2u) {
+        vec4 a, b, c, d;
+        eight_at(row + uint(ix), a, b);
+        eight_at(row + uint(ix) + 8u, c, d);
+        lo = vec4(a.xz, b.xz);
+        hi = vec4(c.xz, d.xz);
+        return;
+    }
+    columns_at(row, ix, false, lo, hi);
+}
+
+/// A depthwise convolution (`group == in_c == out_c`): one channel by [`BLOCK_X`] columns
+/// of one output row per invocation, so each weight is read once per eight outputs.
+void tiled_depthwise() {
+    uint x_blocks = (p.out_w + BLOCK_X - 1u) / BLOCK_X;
+    uint invocation = global_index();
+    if (invocation >= p.out_c * p.out_h * x_blocks) {
+        return;
+    }
+    uint ox0 = (invocation % x_blocks) * BLOCK_X;
+    uint rest = invocation / x_blocks;
+    uint oy = rest % p.out_h;
+    uint channel = rest / p.out_h;
+
+    vec4 lo = vec4(float(weights[p.bias + channel]));
+    vec4 hi = lo;
+    int ix0 = int(ox0 * p.stride_w) - int(p.pad_l);
+    bool interior = ix0 >= 0
+        && ix0 + int(BLOCK_X * p.stride_w - 1u + (p.kw - 1u) * p.dil_w) < int(p.in_w);
+    uint plane = p.in0 + channel * p.in_h * p.in_w;
+    uint kernel_at = p.weight + channel * p.kh * p.kw;
+    for (uint ky = 0u; ky < p.kh; ky++) {
+        int iy = int(oy * p.stride_h + ky * p.dil_h) - int(p.pad_t);
+        if (iy < 0 || iy >= int(p.in_h)) {
+            continue;
+        }
+        uint row = plane + uint(iy) * p.in_w;
+        uint tap = kernel_at + ky * p.kw;
+        for (uint kx = 0u; kx < p.kw; kx++) {
+            vec4 xl, xh;
+            depthwise_columns(row, ix0 + int(kx * p.dil_w), interior, xl, xh);
+            float w = float(weights[tap + kx]);
+            lo += w * xl;
+            hi += w * xh;
+        }
+    }
+
+    uint positions = p.out_h * p.out_w;
+    for (uint j = 0u; j < BLOCK_X; j++) {
+        if (ox0 + j >= p.out_w) {
+            continue;
+        }
+        uint index = channel * positions + oy * p.out_w + ox0 + j;
+        float value = j < 4u ? lo[j] : hi[j - 4u];
+        arena[p.out_at + index] = float16_t(fused_store(value, p.act, channel, index));
+    }
+}

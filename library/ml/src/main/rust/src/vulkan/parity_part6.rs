@@ -304,3 +304,67 @@ fn blocked_convs_at_every_window_alignment_agree_with_the_reference() {
         },
     );
 }
+
+/// Count the plan's `Kind::Conv` dispatches by `in1` selector (untiled, dense, depthwise).
+fn conv_selectors(plan: &crate::nets::Plan) -> [usize; 3] {
+    let mut seen = [0; 3];
+    for op in &plan.ops {
+        if let crate::nets::Op::Dispatch { kind: crate::nets::Kind::Conv, push, .. } = op {
+            seen[push.in1 as usize] += 1;
+        }
+    }
+    seen
+}
+
+/// Depthwise convolutions on the blocked path (`in1` = 2): MobileFaceNet/SCRFD shapes at
+/// stride 1 and 2 over 56 columns (interior quad reads), then 45-wide rows (ragged column
+/// block, every alignment), a dilated 3x3, a 5x5 and a fused residual.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn blocked_depthwise_convs_agree_with_the_reference() {
+    let wide = spread(24 * 56 * 56, 0.7);
+    let source = Invented::new(4);
+    let plan = build(&source, &[Shape::new(24, 56, 56)], |b, ids| {
+        b.spatial_tiling();
+        let x = b.conv(ids[0], 0, 24, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 24, Act::Relu);
+        b.conv(x, 2, 24, (3, 3), (2, 2), (1, 1), (1, 1, 1, 1), 24, Act::None)
+    });
+    assert_eq!(conv_selectors(&plan), [0, 0, 2], "depthwise convs missed the blocked path");
+    compare("blocked depthwise 3x3s over 56 columns", plan, source.into_data(), &[&wide]);
+
+    let ragged = spread(10 * 23 * 45, -1.1);
+    let source = Invented::new(10);
+    let plan = build(&source, &[Shape::new(10, 23, 45)], |b, ids| {
+        b.spatial_tiling();
+        let x = b.conv(ids[0], 0, 10, (3, 3), (2, 2), (1, 1), (0, 0, 1, 1), 10, Act::HardSwish);
+        let x = b.conv(x, 2, 10, (3, 3), (1, 1), (2, 2), (2, 2, 2, 2), 10, Act::Relu);
+        let x = b.conv(x, 4, 10, (5, 5), (1, 1), (1, 1), (2, 2, 2, 2), 10, Act::None);
+        let y = b.conv(x, 6, 10, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 10, Act::None);
+        let y = b.add(x, y);
+        b.conv(y, 8, 10, (3, 3), (2, 2), (1, 1), (1, 1, 1, 1), 10, Act::Relu)
+    });
+    assert_eq!(conv_selectors(&plan), [0, 0, 5], "depthwise convs missed the blocked path");
+    compare("blocked depthwise convs over 45 columns", plan, source.into_data(), &[&ragged]);
+}
+
+/// Edge padding (`pad_edge` 2: clamp columns to `in_w - 2`) stays on the untiled path even
+/// with spatial tiling on, and still agrees with the reference.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn an_edge_padded_conv_stays_untiled_under_spatial_tiling() {
+    let input = spread(6 * 9 * 30, 0.2);
+    let source = Invented::new(4);
+    let mut plan = build(&source, &[Shape::new(6, 9, 30)], |b, ids| {
+        b.spatial_tiling();
+        b.edge_padding();
+        let x = b.conv(ids[0], 0, 6, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 6, Act::None);
+        b.conv(x, 2, 8, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 1, Act::Relu)
+    });
+    assert_eq!(conv_selectors(&plan), [2, 0, 0], "an edge-padded conv took a blocked path");
+    for op in &mut plan.ops {
+        if let crate::nets::Op::Dispatch { kind: crate::nets::Kind::Conv, push, .. } = op {
+            push.pad_edge = 2;
+        }
+    }
+    compare("edge-padded convs under spatial tiling", plan, source.into_data(), &[&input]);
+}

@@ -193,17 +193,19 @@ impl<'a> Builder<'a> {
                 // the untiled path below; `in1` = 1 selects the path in `conv.comp` and
                 // there is one invocation per 4-channel x 8-column block of a row.
                 // Transposed convolutions (different weight layout), edge padding
-                // (Supertonic only) and grouped convolutions stay untiled.
-                if self.spatial_tiled && !*transpose && !*pad_edge && *group == 1 {
-                    let blocks = so.c.div_ceil(SPATIAL_BLOCK_OC)
-                        * so.h
-                        * so.w.div_ceil(SPATIAL_BLOCK_X);
+                // (Supertonic only) and grouped convolutions stay untiled. A depthwise
+                // convolution takes `in1` = 2: one invocation per channel x 8-column block.
+                let depthwise = *group > 1 && *group == si.c && *group == so.c;
+                if self.spatial_tiled && !*transpose && !*pad_edge && (*group == 1 || depthwise) {
+                    let channel_blocks =
+                        if depthwise { so.c } else { so.c.div_ceil(SPATIAL_BLOCK_OC) };
+                    let blocks = channel_blocks * so.h * so.w.div_ceil(SPATIAL_BLOCK_X);
                     ops.push(Op::Dispatch {
                         kind: Kind::Conv,
                         push: Push {
                             in0: at(*input)?,
                             // The tiled selector. See `Push::in1`.
-                            in1: 1,
+                            in1: if depthwise { 2 } else { 1 },
                             out: at(*out)?,
                             weight: *weight,
                             bias: *bias,

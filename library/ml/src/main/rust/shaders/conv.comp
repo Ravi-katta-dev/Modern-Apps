@@ -35,6 +35,10 @@ void main() {
         tiled_spatial();
         return;
     }
+    if (p.in1 == 2u) {
+        tiled_depthwise();
+        return;
+    }
     uint index = global_index();
     if (index >= p.count) {
         return;
