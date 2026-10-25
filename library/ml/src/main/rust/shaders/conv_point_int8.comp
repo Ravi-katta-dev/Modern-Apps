@@ -49,9 +49,11 @@
 
 /// The arena again, four fp16 elements per entry, for the wide activation loads.
 ///
-/// The same binding as `arena`; reads only, and only of ranges no op in this dispatch writes, so
-/// the alias is never a hazard. Indexing needs the element offset divisible by four, which the
-/// arena's 16-byte allocation alignment and a position count divisible by four together give.
+/// The same binding as `arena`; reads only. The aligned path reads only the input tensor; the
+/// ragged path's quads can overhang it by up to three elements each side, which only ever land in
+/// lanes that are shifted out or belong to dead columns, so a concurrent write there is harmless.
+/// Indexing needs the element offset divisible by four, which the arena's 16-byte allocation
+/// alignment and a position count divisible by four together give on the aligned path.
 layout(std430, binding = 0) readonly buffer ArenaQuad {
     f16vec4 arena_quad[];
 };
@@ -123,21 +125,27 @@ void main() {
                 }
             }
         } else {
-            // Ragged width: scalar activation reads. Dead columns re-read the last live position
-            // (no branch, never out of the tensor) and are never stored.
-            uint cols[BLOCK];
-            for (uint j = 0u; j < BLOCK; j++) {
-                cols[j] = p.in0 + min(position_base + j, positions - 1u);
-            }
+            // Ragged width: a row's four positions straddle two quads. Load both and shift; the
+            // shift is the same for every invocation. The second quad is clamped to the tensor's
+            // last one, which only ever substitutes for dead columns, never stored.
+            uint first = p.in0 + position_base;
+            uint last_quad = (p.in0 + p.in_c * positions - 1u) >> 2u;
             for (uint k = 0u; k < p.in_c; k += 16u) {
                 uvec4 w[BLOCK];
                 for (uint i = 0u; i < BLOCK; i++) {
                     w[i] = weights128[rows16[i] + (k >> 4u)];
                 }
                 for (uint t = 0u; t < 16u; t++) {
-                    uint at = (k + t) * positions;
-                    vec4 x = vec4(float(arena[at + cols[0]]), float(arena[at + cols[1]]),
-                        float(arena[at + cols[2]]), float(arena[at + cols[3]]));
+                    uint at = first + (k + t) * positions;
+                    uint q = at >> 2u;
+                    uint s = at & 3u;
+                    f16vec4 a = arena_quad[q];
+                    f16vec4 b = arena_quad[min(q + 1u, last_quad)];
+                    f16vec4 h = s == 0u ? a
+                        : s == 1u ? f16vec4(a.yzw, b.x)
+                        : s == 2u ? f16vec4(a.zw, b.xy)
+                        : f16vec4(a.w, b.xyz);
+                    vec4 x = vec4(h);
                     for (uint i = 0u; i < BLOCK; i++) {
                         float tap = float(bitfieldExtract(int(w[i][t >> 2u]), int((t & 3u) << 3u), 8));
                         sum[i] += tap * x;
