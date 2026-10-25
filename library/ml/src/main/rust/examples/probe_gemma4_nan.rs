@@ -49,6 +49,11 @@ fn rotary_row(
 }
 
 fn main() {
+    // Reads gemma4_embed.maml whole (3.6 GB of host RAM): an OOM kernel panic on a Pixel 8.
+    if cfg!(target_os = "android") {
+        println!("probe_gemma4_nan is host-only: it reads the 3.6 GB embed file whole");
+        return;
+    }
     let mut args = std::env::args().skip(1);
     let (Some(text), Some(embed)) = (args.next().map(PathBuf::from), args.next().map(PathBuf::from))
     else {

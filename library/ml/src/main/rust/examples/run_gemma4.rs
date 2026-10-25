@@ -41,6 +41,12 @@ fn tier() -> u32 {
 }
 
 fn main() {
+    // Reads both files whole (1.09 + 3.6 GB of host RAM) and builds nets over
+    // EMBED: an OOM kernel panic on a Pixel 8. Use check_gemma4_parity there.
+    if cfg!(target_os = "android") {
+        println!("run_gemma4 is host-only: it holds 4.7 GB of weights; use check_gemma4_parity --head");
+        return;
+    }
     let mut args = std::env::args().skip(1);
     let (Some(text), Some(embed), Some(tokenizer), Some(prompt)) =
         (args.next(), args.next(), args.next(), args.next())

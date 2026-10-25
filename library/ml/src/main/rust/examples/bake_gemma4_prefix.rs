@@ -54,6 +54,11 @@ const MARKERS: [&str; 11] = [
 ];
 
 fn main() {
+    // Reads gemma4_embed.maml whole (3.6 GB of host RAM): an OOM kernel panic on a Pixel 8.
+    if cfg!(target_os = "android") {
+        println!("bake_gemma4_prefix is host-only: it reads the 3.6 GB embed file whole");
+        return;
+    }
     let mut args = std::env::args().skip(1);
     let (Some(text), Some(embed), Some(tokenizer), Some(prefix), Some(out)) =
         (args.next(), args.next(), args.next(), args.next(), args.next())

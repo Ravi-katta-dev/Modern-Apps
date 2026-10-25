@@ -24,6 +24,11 @@ use modelrunner::weights::{graph, Blob, Weights};
 /// The cache these examples record against: the top tier, so a long prompt fits.
 const TIER: u32 = gemma4::MAX_CONTEXT;
 fn main() {
+    // Reads gemma4_embed.maml whole (3.6 GB of host RAM): an OOM kernel panic on a Pixel 8.
+    if cfg!(target_os = "android") {
+        println!("probe_gemma4 is host-only: it reads the 3.6 GB embed file whole");
+        return;
+    }
     let Some(path) = std::env::args().nth(1).map(PathBuf::from) else {
         println!("usage: probe_gemma4 <gemma4_text.maml> [gemma4_embed.maml]");
         return;

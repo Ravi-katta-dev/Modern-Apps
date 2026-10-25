@@ -31,8 +31,9 @@ use modelrunner::vulkan::reshape::Reshaped;
 use modelrunner::vulkan::run::StepParams;
 use modelrunner::weights::{Streamed, graph};
 
-/// The cache these examples record against: the top tier, so a long prompt fits.
-const TIER: u32 = gemma4::MAX_CONTEXT;
+/// The app's starting cache tier (1024 positions, 19 MB): the 16K tier adds 280 MB of KV, which
+/// the Pixel 8 cannot spare beside TEXT and the head.
+const TIER: u32 = gemma4::CONTEXT_TIERS[0];
 
 /// Open both `.maml` files as [`Streamed`] instead of `std::fs::read` + [`Weights::parse`].
 ///
@@ -52,12 +53,70 @@ fn open_streamed(path: &PathBuf, expect_graph: u32) -> Result<Streamed, String> 
     Streamed::open(file, 0, len, expect_graph)
 }
 
+/// Every GPU net this example builds goes through here.
+///
+/// `Reshaped::streamed` uploads the whole file it is given, so a net over
+/// gemma4_embed.maml is a 3.6 GB upload on top of TEXT: the Pixel 8 OOM
+/// kernel panic. EMBED is read on the host only, a row at a time.
+fn streamed_net<S: Copy + PartialEq>(
+    context: &Arc<context::Context>,
+    weights: &Streamed,
+    shape: S,
+    plan: fn(&modelrunner::weights::Offsets, S) -> Result<modelrunner::nets::Plan, String>,
+) -> Result<Reshaped<S>, String> {
+    if weights.graph_id == graph::GEMMA4_EMBED {
+        return Err("refusing to upload gemma4_embed.maml to the GPU (3.6 GB); pass --head".into());
+    }
+    Reshaped::streamed(Arc::clone(context), weights.offsets(), weights, shape, plan)
+}
+
+fn gemma4_plan(offsets: &modelrunner::weights::Offsets, pass: gemma4::Pass) -> Result<modelrunner::nets::Plan, String> {
+    gemma4::build(offsets, pass)
+}
+
+fn head_plan(offsets: &modelrunner::weights::Offsets, greedy: bool) -> Result<modelrunner::nets::Plan, String> {
+    modelrunner::nets::gemma4_head::build_plan_standalone(offsets, greedy)
+}
+
+struct Args {
+    positional: Vec<String>,
+    head: Option<PathBuf>,
+    time: Option<usize>,
+    prefill: Option<u32>,
+    sample: bool,
+}
+
+/// `--head <path>`, `--time <repeats>`, `--prefill <tokens>`, `--sample`; the
+/// rest are positional: text embed golden [trace] [tail] [head].
+fn parse_args() -> Args {
+    let mut args = Args { positional: Vec::new(), head: None, time: None, prefill: None, sample: false };
+    let mut it = std::env::args().skip(1);
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--head" => args.head = it.next().map(PathBuf::from),
+            "--time" => args.time = it.next().and_then(|n| n.parse().ok()),
+            "--prefill" => args.prefill = it.next().and_then(|n| n.parse().ok()),
+            "--sample" => args.sample = true,
+            _ => args.positional.push(arg),
+        }
+    }
+    if args.head.is_none() {
+        args.head = args.positional.get(5).map(PathBuf::from);
+    }
+    args
+}
+
 fn main() {
-    let mut args = std::env::args().skip(1);
-    let (Some(text), Some(embed), Some(golden)) =
-        (args.next().map(PathBuf::from), args.next().map(PathBuf::from), args.next())
-    else {
-        println!("usage: check_gemma4_parity <text.maml> <embed.maml> <golden.json> [head.maml]");
+    let args = parse_args();
+    let (Some(text), Some(embed), Some(golden)) = (
+        args.positional.first().map(PathBuf::from),
+        args.positional.get(1).map(PathBuf::from),
+        args.positional.get(2),
+    ) else {
+        println!(
+            "usage: check_gemma4_parity <text.maml> <embed.maml> <golden.json> [trace] [tail] \
+             [--head head.maml] [--time N [--sample]] [--prefill N]"
+        );
         return;
     };
     let weights = match open_streamed(&text, graph::GEMMA4_TEXT) {
@@ -68,11 +127,7 @@ fn main() {
         Ok(w) => w,
         Err(why) => return println!("the embedding does not stream: {why}"),
     };
-    // Optional standalone head file (4th arg): the 48 int8 triples alone
-    // (~402 MB upload instead of the whole EMBED file). Absent on old flows
-    // — the EMBED-resident chunks (or host head) cover those.
-    let head_path: Option<PathBuf> = std::env::args().nth(6).map(PathBuf::from);
-    let head_weights: Option<Streamed> = match &head_path {
+    let head_weights: Option<Streamed> = match &args.head {
         Some(path) => match open_streamed(path, graph::GEMMA4_HEAD) {
             Ok(w) => Some(w),
             Err(why) => return println!("the head file does not stream: {why}"),
@@ -93,30 +148,24 @@ fn main() {
         Ok(context) => context,
         Err(why) => return println!("no Vulkan device: {why}"),
     };
-    // `--time <repeats>`: decode-speed mode (no parity report). Runs the same
-    // streaming decode loop repeatedly over the golden's tokens and prints
-    // per-step ms: warmup vs steady-state separates upload-one-time from
-    // per-token cost. Crash-safe by construction: identical streaming I/O to
-    // the parity path (no whole-file reads), ~1.5 GB peak upload with the
-    // head file (TEXT 1.1 + head 0.4) or the 2.4 GB legacy flow — never the
-    // 4.7 GB TEXT+whole-EMBED upload that OOM-rebooted the P8 twice.
-    if let Some(repeats) = std::env::args()
-        .position(|a| a == "--time")
-        .and_then(|i| std::env::args().nth(i + 1))
-        .and_then(|n| n.parse::<usize>().ok())
-    {
-        return time_decode(&context, &weights, &embed_weights, head_weights.as_ref(), &tokens, repeats);
+    if let Some(repeats) = args.time {
+        time_decode(&context, &weights, &embed_weights, head_weights.as_ref(), &tokens, repeats, args.sample);
+        return print_memory();
+    }
+    if let Some(width) = args.prefill {
+        time_prefill(&context, &weights, &embed_weights, head_weights.as_ref(), &tokens, width);
+        return print_memory();
     }
     match run(&context, &weights, &embed_weights, head_weights.as_ref(), &tokens) {
         Ok(logits) => report(&logits, &want_ids, &want_logits),
         Err(why) => println!("the decode failed: {why}"),
     }
+    print_memory();
 
     // Bisect: where do the two first disagree? Only useful when the logits already failed, but
     // cheap enough to always print.
-    let trace_path = std::env::args().nth(4);
-    let Some(trace_path) = trace_path else { return };
-    let Ok(trace) = std::fs::read_to_string(&trace_path) else {
+    let Some(trace_path) = args.positional.get(3) else { return };
+    let Ok(trace) = std::fs::read_to_string(trace_path) else {
         return println!("cannot read {trace_path}");
     };
     println!();
@@ -138,9 +187,8 @@ fn main() {
     // L0 tail bisect: the four branch vectors against the numpy-fp oracle, in
     // tail order. The first label where the device drops below 0.99 while numpy
     // holds is the divergence point (see `Mode::TraceTail`).
-    let tail_arg = std::env::args().nth(5);
-    let Some(tail_path) = tail_arg else { return };
-    let Ok(tail) = std::fs::read_to_string(&tail_path) else {
+    let Some(tail_path) = args.positional.get(4) else { return };
+    let Ok(tail) = std::fs::read_to_string(tail_path) else {
         return println!("cannot read {tail_path}");
     };
     println!();
@@ -191,13 +239,7 @@ fn trace_run(
     layers: usize,
 ) -> Result<(Vec<f32>, Vec<f32>), String> {
     let mode = gemma4::Mode::Trace { layers }.at(TIER);
-    let mut net = Reshaped::streamed(
-        Arc::clone(context),
-        weights.offsets(),
-        weights,
-        mode,
-        |offsets, mode| gemma4::build(offsets, mode),
-    )?;
+    let mut net = streamed_net(context, weights, mode, gemma4_plan)?;
     let reader = embed.reader();
     let rotary = weights.reader();
     let mut last = (Vec::new(), Vec::new());
@@ -231,13 +273,7 @@ fn tail_run(
     tokens: &[u32],
 ) -> Result<[Vec<f32>; 4], String> {
     let mode = gemma4::Mode::TraceTail.at(TIER);
-    let mut net = Reshaped::streamed(
-        Arc::clone(context),
-        weights.offsets(),
-        weights,
-        mode,
-        |offsets, mode| gemma4::build(offsets, mode),
-    )?;
+    let mut net = streamed_net(context, weights, mode, gemma4_plan)?;
     let reader = embed.reader();
     let rotary = weights.reader();
     let mut last = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
@@ -267,174 +303,292 @@ fn tail_run(
     Ok(last)
 }
 
-/// Decode-speed probe: repeat the streaming decode loop and print per-step ms.
-///
-/// Builds the `DecodeStep` net ONCE (upload-one-time), then runs the loop
-/// `repeats` times over `tokens`, timing every step: the first pass includes
-/// upload + graph setup, later passes are pure steady-state decode. Prints
-/// per-step ms per pass plus the steady-state mean (everything after pass 0)
-/// as ms/token and tokens/s. Never computes logits — no head upload, no
-/// readback — so this isolates transformer decode from head cost.
+/// One decode step's host and device split, in ms.
+#[derive(Default)]
+struct StepTimes {
+    rows: f64,
+    combine: f64,
+    infer: f64,
+    head: f64,
+}
+
+/// One token through the app's decode path: host rows + combine, the
+/// transformer submit, then the head submit. Returns the next token (device
+/// argmax, or the host argmax over softcapped logits with `sample`).
+#[allow(clippy::too_many_arguments)]
+fn decode_one(
+    net: &mut Reshaped<gemma4::Pass>,
+    head: Option<&mut Reshaped<bool>>,
+    embed: &modelrunner::weights::Reader<'_>,
+    rotary: &modelrunner::weights::Reader<'_>,
+    token: u32,
+    position: u32,
+    sample: bool,
+    times: &mut StepTimes,
+) -> Result<Option<u32>, String> {
+    use std::time::Instant;
+    let (hidden_in, per_layer, gtimes) = gemma4::gather_timed(embed, token)?;
+    let rows_tick = Instant::now();
+    let angles_local = rotary_row(rotary, gemma4::ROTARY_LOCAL, gemma4::HEAD_DIM, position)?;
+    let angles_global = rotary_row(rotary, gemma4::ROTARY_GLOBAL, gemma4::GLOBAL_HEAD_DIM, position)?;
+    times.rows += gtimes.rows_ms + gtimes.bulk_ms + rows_tick.elapsed().as_secs_f64() * 1000.0;
+    times.combine += gtimes.matmul_ms;
+    let tick = Instant::now();
+    let at = net.at(gemma4::Mode::DecodeStep.at(TIER))?;
+    at.set_params(StepParams {
+        prefix: position,
+        window_start: position.saturating_sub(gemma4::WINDOW - 1),
+    })?;
+    let out = at.infer_raw_many(&[&hidden_in, &per_layer, &angles_local, &angles_global])?;
+    times.infer += tick.elapsed().as_secs_f64() * 1000.0;
+    let Some(head) = head else { return Ok(None) };
+    let hidden = out.into_iter().next().ok_or("the step returned nothing")?;
+    let tick = Instant::now();
+    let out = head.at(!sample)?.infer_raw_many(&[&hidden])?;
+    let id = if sample {
+        let logits = softcapped(&out)?;
+        let mut best = (f32::NEG_INFINITY, 0u32);
+        for (i, &v) in logits.iter().enumerate() {
+            if v > best.0 {
+                best = (v, i as u32);
+            }
+        }
+        best.1
+    } else {
+        let id = out.last().ok_or("the greedy head returned nothing")?;
+        if id.len() != 2 {
+            return Err(format!("greedy id holds {} values, not 2", id.len()));
+        }
+        id[1] as u32 * 2048 + id[0] as u32
+    };
+    times.head += tick.elapsed().as_secs_f64() * 1000.0;
+    Ok(Some(id))
+}
+
+fn build_head(context: &Arc<context::Context>, head: Option<&Streamed>, greedy: bool) -> Result<Option<Reshaped<bool>>, String> {
+    match head {
+        Some(file) => streamed_net(context, file, greedy, head_plan).map(Some),
+        None => {
+            println!("no --head: timings exclude the head");
+            Ok(None)
+        }
+    }
+}
+
+/// Decode-speed probe: the app's per-token loop repeated `repeats` times over
+/// the golden's tokens. Pass 0 is warmup; the rest are steady state. With a
+/// head file each step includes the head: the device-greedy plan, or with
+/// `--sample` the full-logits readback + softcap the sampling path pays.
+#[allow(clippy::too_many_arguments)]
 fn time_decode(
     context: &Arc<context::Context>,
     weights: &Streamed,
     embed: &Streamed,
-    _head: Option<&Streamed>,
+    head: Option<&Streamed>,
     tokens: &[u32],
     repeats: usize,
+    sample: bool,
 ) {
     use std::time::Instant;
-    let mut net = match Reshaped::streamed(
-        Arc::clone(context),
-        weights.offsets(),
-        weights,
-        gemma4::Mode::DecodeStep.at(TIER),
-        |offsets, mode| gemma4::build(offsets, mode),
-    ) {
+    let mut net = match streamed_net(context, weights, gemma4::Mode::DecodeStep.at(TIER), gemma4_plan) {
         Ok(net) => net,
         Err(why) => return println!("the net does not build: {why}"),
     };
+    let mut head_net = match build_head(context, head, !sample) {
+        Ok(net) => net,
+        Err(why) => return println!("the head does not build: {why}"),
+    };
     let reader = embed.reader();
     let rotary = weights.reader();
-    let repeats = repeats.max(1);
-    // Per-op device times, read once from the last step's submit when the
-    // timestamps knob is set. Hoisted: a property lookup per step would be
-    // noise in what is being timed.
     let stamps = modelrunner::knobs::is_set("timestamps");
-    let mut op_report: Option<Vec<(String, f64, f64)>> = None;
+    let repeats = repeats.max(1);
     let mut steady: Vec<f64> = Vec::new();
-    // Host-side split, accumulated over steady-state passes only, reported once:
-    // the gather's row reads / bulk projection reads / matmul (from `gather_timed`)
-    // plus this loop's own rotary reads, vs device infer per step. Phase 3a′
-    // step 1: this decides how steps 2–3 divide the ~240 ms host slice.
-    let mut rows_ms = 0.0;
-    let mut bulk_ms = 0.0;
-    let mut matmul_ms = 0.0;
-    let mut rotary_ms = 0.0;
-    let mut infer_ms = 0.0;
-    let mut host_steps = 0usize;
+    let mut split = StepTimes::default();
+    let mut ids = Vec::new();
     for pass in 0..repeats {
         let mut step_ms: Vec<f64> = Vec::with_capacity(tokens.len());
+        ids.clear();
         for (step, &token) in tokens.iter().enumerate() {
             let tick = Instant::now();
-            let position = match u32::try_from(step) {
-                Ok(p) => p,
-                Err(_) => return println!("a step past u32"),
-            };
-            let Ok((hidden_in, per_layer, gtimes)) = gemma4::gather_timed(&reader, token) else {
-                return println!("gather failed at step {step}");
-            };
-            let rotary_tick = Instant::now();
-            let Ok(angles_local) =
-                rotary_row(&rotary, gemma4::ROTARY_LOCAL, gemma4::HEAD_DIM, position)
-            else {
-                return println!("rotary local failed at step {step}");
-            };
-            let Ok(angles_global) =
-                rotary_row(&rotary, gemma4::ROTARY_GLOBAL, gemma4::GLOBAL_HEAD_DIM, position)
-            else {
-                return println!("rotary global failed at step {step}");
-            };
-            let rotary_done = rotary_tick.elapsed().as_secs_f64() * 1000.0;
-            let at = match net.at(gemma4::Mode::DecodeStep.at(TIER)) {
-                Ok(at) => at,
-                Err(why) => return println!("the net does not bind at step {step}: {why}"),
-            };
-            if at
-                .set_params(StepParams {
-                    prefix: position,
-                    window_start: position.saturating_sub(gemma4::WINDOW - 1),
-                })
-                .is_err()
-            {
-                return println!("params failed at step {step}");
-            }
-            let infer_tick = Instant::now();
-            match at.infer_raw_many(&[&hidden_in, &per_layer, &angles_local, &angles_global]) {
-                Ok(_) => {}
+            let mut times = StepTimes::default();
+            match decode_one(&mut net, head_net.as_mut(), &reader, &rotary, token, step as u32, sample, &mut times) {
+                Ok(id) => ids.extend(id),
                 Err(why) => return println!("step {step} failed: {why}"),
             }
-            if pass > 0 {
-                rows_ms += gtimes.rows_ms;
-                bulk_ms += gtimes.bulk_ms;
-                matmul_ms += gtimes.matmul_ms;
-                rotary_ms += rotary_done;
-                infer_ms += infer_tick.elapsed().as_secs_f64() * 1000.0;
-                host_steps += 1;
-            }
-            // The query pool holds this submit's timestamps once the fence
-            // waited above returns; the last step's is the steady-state plan.
-            if stamps && pass + 1 == repeats && step + 1 == tokens.len() {
-                match at.op_times() {
-                    Ok(report) => op_report = Some(report),
-                    Err(why) => println!("timestamps unreadable: {why}"),
-                }
-            }
             step_ms.push(tick.elapsed().as_secs_f64() * 1000.0);
+            if pass > 0 {
+                split.rows += times.rows;
+                split.combine += times.combine;
+                split.infer += times.infer;
+                split.head += times.head;
+            }
         }
         let mean = step_ms.iter().sum::<f64>() / step_ms.len().max(1) as f64;
         println!("pass {pass}: {} steps, mean {mean:.1} ms/step", step_ms.len());
-        for (i, ms) in step_ms.iter().enumerate() {
-            println!("  step {i}: {ms:.1} ms");
-        }
         if pass > 0 {
             steady.extend(step_ms);
         }
     }
+    println!("next-token ids {ids:?}");
     if !steady.is_empty() {
-        let mean = steady.iter().sum::<f64>() / steady.len() as f64;
-        println!("steady-state: {mean:.1} ms/token = {:.2} tok/s", 1000.0 / mean.max(1e-9));
-    }
-    if host_steps > 0 {
-        let steps = host_steps as f64;
+        let n = steady.len() as f64;
+        let mean = steady.iter().sum::<f64>() / n;
         println!(
-            "host split per step: rows {:.1} ms, int8_all {:.1} ms, matmul {:.1} ms, rotary {:.1} ms, infer {:.1} ms ({} steps)",
-            rows_ms / steps,
-            bulk_ms / steps,
-            matmul_ms / steps,
-            rotary_ms / steps,
-            infer_ms / steps,
-            host_steps
+            "steady-state ({}): {mean:.1} ms/token = {:.2} tok/s",
+            if head_net.is_none() { "no head" } else if sample { "sampled head" } else { "greedy head" },
+            1000.0 / mean.max(1e-9)
+        );
+        println!(
+            "per step: rows {:.1} ms, combine {:.1} ms, infer {:.1} ms, head {:.1} ms ({} steps)",
+            split.rows / n,
+            split.combine / n,
+            split.infer / n,
+            split.head / n,
+            steady.len()
         );
     }
-    // Per-op device times, hottest first, then aggregated by Kind. The table
-    // that splits a step into kernel execution: it answers whether GEMV ALU,
-    // occupancy-shaped small dispatches, or barriers own the 574 ms.
-    if let Some(report) = op_report {
-        println!();
-        println!("{:>6} {:>10} {:>10}  {}", "step", "us", "gap-us", "kind");
-        let mut per_kind: Vec<(String, usize, f64, f64)> = Vec::new();
-        let mut total = 0.0;
-        let mut gaps = 0.0;
-        for (label, us, gap) in &report {
-            println!("{label:>6} {us:>10.1} {gap:>10.1}");
-            total += us;
-            gaps += gap;
-            let kind = label.split(':').nth(1).unwrap_or("?").trim().to_string();
-            match per_kind.iter_mut().find(|(k, _, _, _)| *k == kind) {
-                Some((_, n, t, g)) => {
-                    *n += 1;
-                    *t += us;
-                    *g += gap;
-                }
-                None => per_kind.push((kind, 1, *us, *gap)),
+    if stamps {
+        match net.at(gemma4::Mode::DecodeStep.at(TIER)).and_then(|at| at.op_times()) {
+            Ok(report) => print_kinds("decode step", &report),
+            Err(why) => println!("timestamps unreadable: {why}"),
+        }
+        if let Some(head) = head_net.as_mut() {
+            match head.at(!sample).and_then(|at| at.op_times()) {
+                Ok(report) => print_kinds("head", &report),
+                Err(why) => println!("head timestamps unreadable: {why}"),
             }
         }
-        per_kind.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
-        println!();
-        println!("{:>6} {:>10} {:>10} {:>10}  {}", "count", "total-ms", "mean-us", "gap-ms", "kind");
-        for (kind, n, us, gap) in &per_kind {
-            println!(
-                "{n:>6} {:>10.1} {:>10.1} {:>10.1}  {kind}",
-                us / 1000.0,
-                us / *n as f64,
-                gap / 1000.0
-            );
+    }
+}
+
+/// Write one position's `values` into column `column` of a `[C, 1, width]` block.
+fn place(into: &mut [f32], values: &[f32], column: u32, width: u32) {
+    for (channel, &value) in values.iter().enumerate() {
+        into[channel * width as usize + column as usize] = value;
+    }
+}
+
+/// Prefill + TTFT probe: a `width`-token prompt (the golden's tokens cycled)
+/// in one `Prefill` submit, as `bridge_part6::prefill` does it, then the first
+/// decode step with the greedy head. Run twice: cold (records the plan) and warm.
+fn time_prefill(
+    context: &Arc<context::Context>,
+    weights: &Streamed,
+    embed: &Streamed,
+    head: Option<&Streamed>,
+    tokens: &[u32],
+    width: u32,
+) {
+    use std::time::Instant;
+    let mut net = match streamed_net(context, weights, gemma4::Mode::DecodeStep.at(TIER), gemma4_plan) {
+        Ok(net) => net,
+        Err(why) => return println!("the net does not build: {why}"),
+    };
+    let mut head_net = match build_head(context, head, true) {
+        Ok(net) => net,
+        Err(why) => return println!("the head does not build: {why}"),
+    };
+    let reader = embed.reader();
+    let rotary = weights.reader();
+    if width >= TIER {
+        return println!("a {width}-token prompt does not fit the {TIER}-position cache");
+    }
+    let prompt: Vec<u32> = tokens.iter().copied().cycle().take(width as usize).collect();
+    let next = tokens[width as usize % tokens.len()];
+    let mode = gemma4::Mode::Prefill { tokens: width }.at(TIER);
+    let stamps = modelrunner::knobs::is_set("timestamps");
+    let mut prefill_report = None;
+    for run in 0..2 {
+        let start = Instant::now();
+        let mut hidden = vec![0f32; (gemma4::D_MODEL * width) as usize];
+        let mut per_layer = vec![0f32; (gemma4::PER_LAYER * gemma4::LAYERS as u32 * width) as usize];
+        let mut local = vec![0f32; (gemma4::HEAD_DIM * width) as usize];
+        let mut global = vec![0f32; (gemma4::GLOBAL_HEAD_DIM * width) as usize];
+        for (column, &token) in prompt.iter().enumerate() {
+            let column = column as u32;
+            let gathered = gemma4::gather(&reader, token)
+                .and_then(|(h, p)| Ok((h, p, rotary_row(&rotary, gemma4::ROTARY_LOCAL, gemma4::HEAD_DIM, column)?)))
+                .and_then(|(h, p, l)| Ok((h, p, l, rotary_row(&rotary, gemma4::ROTARY_GLOBAL, gemma4::GLOBAL_HEAD_DIM, column)?)));
+            let Ok((h, p, l, g)) = gathered else { return println!("gather failed at {column}") };
+            place(&mut hidden, &h, column, width);
+            place(&mut per_layer, &p, column, width);
+            place(&mut local, &l, column, width);
+            place(&mut global, &g, column, width);
         }
-        println!();
-        println!("timestamped device total: {:.1} ms against the step mean above", total / 1000.0);
-        println!("barrier/bind gaps total: {:.1} ms", gaps / 1000.0);
-        println!("(copies and host work are not timestamped)");
+        let gather_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let tick = Instant::now();
+        let at = match net.at(mode) {
+            Ok(at) => at,
+            Err(why) => return println!("the prefill plan does not build: {why}"),
+        };
+        let record_ms = tick.elapsed().as_secs_f64() * 1000.0;
+        let tick = Instant::now();
+        let ran = at
+            .set_params(StepParams { prefix: 0, window_start: 0 })
+            .and_then(|()| at.infer_raw_many(&[&hidden, &per_layer, &local, &global]));
+        if let Err(why) = ran {
+            return println!("the prefill failed: {why}");
+        }
+        let gpu_ms = tick.elapsed().as_secs_f64() * 1000.0;
+        let prefill_ms = start.elapsed().as_secs_f64() * 1000.0;
+        if stamps && run == 1 {
+            prefill_report = at.op_times().ok();
+        }
+        let tick = Instant::now();
+        let mut times = StepTimes::default();
+        let id = match decode_one(&mut net, head_net.as_mut(), &reader, &rotary, next, width, false, &mut times) {
+            Ok(id) => id,
+            Err(why) => return println!("the first decode step failed: {why}"),
+        };
+        let first_ms = tick.elapsed().as_secs_f64() * 1000.0;
+        println!(
+            "{} prefill {width} tokens: gather {gather_ms:.0} ms, record {record_ms:.0} ms, gpu {gpu_ms:.0} ms \
+             = {prefill_ms:.0} ms ({:.1} tok/s); first token {first_ms:.0} ms (id {id:?}); TTFT {:.0} ms",
+            if run == 0 { "cold" } else { "warm" },
+            f64::from(width) * 1000.0 / prefill_ms,
+            prefill_ms + first_ms,
+        );
+    }
+    if let Some(report) = prefill_report {
+        print_kinds("prefill", &report);
+    }
+}
+
+/// Per-kind GPU table for one submit, plus its ten hottest dispatches.
+fn print_kinds(title: &str, report: &[(String, f64, f64)]) {
+    let mut per_kind: Vec<(String, usize, f64)> = Vec::new();
+    let (mut total, mut gaps) = (0.0, 0.0);
+    for (label, us, gap) in report {
+        total += us;
+        gaps += gap;
+        let kind = label.split(':').nth(1).unwrap_or("?").trim().to_string();
+        match per_kind.iter_mut().find(|(k, _, _)| *k == kind) {
+            Some((_, n, t)) => {
+                *n += 1;
+                *t += us;
+            }
+            None => per_kind.push((kind, 1, *us)),
+        }
+    }
+    per_kind.sort_by(|a, b| b.2.total_cmp(&a.2));
+    println!();
+    println!("{title}: {} dispatches, {:.1} ms timestamped, {:.1} ms gaps", report.len(), total / 1000.0, gaps / 1000.0);
+    println!("{:>6} {:>10} {:>10}  kind", "count", "total-ms", "mean-us");
+    for (kind, n, us) in &per_kind {
+        println!("{n:>6} {:>10.1} {:>10.1}  {kind}", us / 1000.0, us / *n as f64);
+    }
+    let mut hottest: Vec<&(String, f64, f64)> = report.iter().collect();
+    hottest.sort_by(|a, b| b.1.total_cmp(&a.1));
+    for (label, us, _) in hottest.into_iter().take(10) {
+        println!("  {us:>9.1} us  {label}");
+    }
+}
+
+/// Host RSS high-water mark and current RSS (Linux/Android only).
+fn print_memory() {
+    let Ok(status) = std::fs::read_to_string("/proc/self/status") else { return };
+    for line in status.lines().filter(|l| l.starts_with("VmHWM") || l.starts_with("VmRSS")) {
+        println!("{line}");
     }
 }
 
@@ -452,13 +606,7 @@ fn run(
     head: Option<&Streamed>,
     tokens: &[u32],
 ) -> Result<Vec<f32>, String> {
-    let mut net = Reshaped::streamed(
-        Arc::clone(context),
-        weights.offsets(),
-        weights,
-        gemma4::Mode::DecodeStep.at(TIER),
-        |offsets, mode| gemma4::build(offsets, mode),
-    )?;
+    let mut net = streamed_net(context, weights, gemma4::Mode::DecodeStep.at(TIER), gemma4_plan)?;
     let reader = embed.reader();
     let rotary = weights.reader();
     let mut hidden = Vec::new();
@@ -490,95 +638,33 @@ fn run(
     if hidden.len() != gemma4::D_MODEL as usize {
         return Err(format!("hidden state of {} values, not {}", hidden.len(), gemma4::D_MODEL));
     }
-    Ok(gpu_or_host_logits(context, embed, head, &reader, &hidden)?)
+    gpu_logits(context, head, &hidden)
 }
 
-/// Logits for `hidden`: the standalone head file first, then the GPU head
-/// in EMBED, then the host tied head.
+/// Logits for `hidden` from the standalone head file (~402 MB upload).
 ///
-/// The standalone head file (4th CLI arg, ~402 MB upload instead of the
-/// whole EMBED file) is preferred whenever present — same numerics as the
-/// EMBED-resident int8 chunks, one-ninth the upload bytes. Falls back to the
-/// EMBED-resident chunks (`hidden @ chunks`), then the host tied head
-/// (`hidden @ HEAD_TABLE^T` in `HEAD_SPLITS` quarters) on files without
-/// chunks, so this example keeps working against pre-head-split converts.
-/// All paths must agree: the parity gate below compares against the golden
-/// either way.
-fn gpu_or_host_logits(
+/// There is no fallback: the EMBED-resident chunks would mean a net over the
+/// 3.6 GB EMBED file, and the host tied head holds a ~400 MB fp32 quarter.
+fn gpu_logits(
     context: &Arc<context::Context>,
-    embed: &Streamed,
     head: Option<&Streamed>,
-    reader: &modelrunner::weights::Reader<'_>,
     hidden: &[f32],
 ) -> Result<Vec<f32>, String> {
+    let head = head.ok_or("no head file: pass --head gemma4_head.maml")?;
+    let mut net = streamed_net(context, head, false, head_plan)?;
+    softcapped(&net.at(false)?.infer_raw_many(&[hidden])?)
+}
+
+/// The 16 head splits concatenated and softcapped, as the bridge does it.
+fn softcapped(out: &[Vec<f32>]) -> Result<Vec<f32>, String> {
     use modelrunner::nets::gemma4_head;
-    if let Some(head_file) = head {
-        if head_file.offsets().len() == gemma4_head::HEAD_FILE_TENSORS {
-            let mut net = Reshaped::streamed(
-                Arc::clone(context),
-                head_file.offsets(),
-                head_file,
-                (),
-                |offsets, ()| gemma4_head::build_plan_standalone(offsets, false),
-            )?;
-            let at = net.at(())?;
-            let out = at.infer_raw_many(&[hidden])?;
-            if out.len() == gemma4_head::HEAD_CHUNKS
-                && out.iter().all(|s| s.len() == gemma4_head::CLASSES_PER_CHUNK as usize)
-            {
-                let mut logits = Vec::with_capacity(gemma4::VOCAB as usize);
-                for split in &out {
-                    for &value in split {
-                        logits.push(gemma4::LOGIT_CAP * (value / gemma4::LOGIT_CAP).tanh());
-                    }
-                }
-                return Ok(logits);
-            }
-            // Wrong shape: fall through to the EMBED-resident chunks.
-        }
-    }
-    if embed.offsets().len() >= gemma4_head::TENSORS_WITH_HEAD {
-        let mut head = Reshaped::streamed(
-            Arc::clone(context),
-            embed.offsets(),
-            embed,
-            (),
-            |offsets, ()| gemma4_head::build_plan(offsets),
-        )?;
-        let at = head.at(())?;
-        let out = at.infer_raw_many(&[hidden])?;
-        if out.len() == gemma4_head::HEAD_CHUNKS
-            && out.iter().all(|s| s.len() == gemma4_head::CLASSES_PER_CHUNK as usize)
-        {
-            let mut logits = Vec::with_capacity(gemma4::VOCAB as usize);
-            for split in &out {
-                for &value in split {
-                    logits.push(gemma4::LOGIT_CAP * (value / gemma4::LOGIT_CAP).tanh());
-                }
-            }
-            return Ok(logits);
-        }
-        // Wrong shape: fall through to the host head rather than failing.
-    }
-    // Tied head on the host, in vocabulary splits (see `gemma4::HEAD_SPLITS`).
-    // Reads the raw-scale head table (`gemma4::embed::HEAD_TABLE`), not the
-    // working table - no gain division (see `gemma4::EMBED_GAIN`).
+    let splits = out.get(..gemma4_head::HEAD_CHUNKS).ok_or("the head returned too few splits")?;
     let mut logits = Vec::with_capacity(gemma4::VOCAB as usize);
-    for split in 0..gemma4::HEAD_SPLITS {
-        let start = (split as u32) * gemma4::CLASSES_PER_SPLIT;
-        let block = reader.fp16_rows(
-            gemma4::embed::HEAD_TABLE,
-            &[gemma4::VOCAB, gemma4::D_MODEL],
-            start,
-            gemma4::CLASSES_PER_SPLIT,
-        )?;
-        for row in block.chunks_exact(gemma4::D_MODEL as usize) {
-            let dot: f32 = row.iter().zip(hidden.iter()).map(|(a, b)| a * b).sum();
-            logits.push(gemma4::LOGIT_CAP * (dot / gemma4::LOGIT_CAP).tanh());
+    for split in splits {
+        if split.len() != gemma4_head::CLASSES_PER_CHUNK as usize {
+            return Err(format!("a head split of {} values", split.len()));
         }
-    }
-    if logits.len() != gemma4::VOCAB as usize {
-        return Err(format!("{} logits, not {}", logits.len(), gemma4::VOCAB));
+        logits.extend(split.iter().map(|&v| gemma4::LOGIT_CAP * (v / gemma4::LOGIT_CAP).tanh()));
     }
     Ok(logits)
 }
