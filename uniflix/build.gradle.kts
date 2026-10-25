@@ -1,11 +1,19 @@
 plugins {
     id("common-conventions-app")
+    // androidx.tv: the TV entry is built on a design system that knows what a D-pad is.
+    id("common-conventions-tv")
     id("common-conventions-preview-metadata")
     alias(libs.plugins.ksp)
 }
 
 launcherIcon {
     symbol = "movie"
+}
+
+// Google TV hardware runs a 32-bit userspace: an arm64-only APK is rejected at install.
+// Uniflix ships the QuickJS native runtime, so it needs the 32-bit slice too.
+nativeAbis {
+    armv7 = true
 }
 
 android {
@@ -15,6 +23,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":library:tv"))
     implementation(project(":library:network"))
     implementation(project(":library:image"))
     implementRoom(libs)
