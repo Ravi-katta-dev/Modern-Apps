@@ -172,4 +172,61 @@ class PoiArchiveTest {
         f.writeBytes(bytes)
         assertFalse(PoiIndex.reloadArchive(f), "build id mismatch must refuse")
     }
+
+    /**
+     * A paired index+names override replaces the base pair: the queries
+     * answer from the override's records, validated by the same validators.
+     */
+    @Test
+    fun `paired override replaces the base pair`() {
+        val f = writeArchive(
+            listOf(
+                indexPayload(),
+                Triple(PoiArchive.KIND_NAMES, namesBytes(), 0L),
+            ),
+        )
+        // Override dir beside the archive: overlays/sections/<kind>.section.
+        val sections = File(File(f.parentFile, "overlays"), "sections")
+        sections.mkdirs()
+        // One-record override: Diner@0.
+        val index = ByteBuffer.allocate(14).order(ByteOrder.LITTLE_ENDIAN)
+        index.putInt(377_749_050)
+        index.putInt(-1_224_194_000)
+        index.putInt(0)
+        index.putShort(2.toShort())
+        File(sections, "${PoiArchive.KIND_INDEX}.section").writeBytes(index.array())
+        File(sections, "${PoiArchive.KIND_NAMES}.section")
+            .writeBytes("Diner\u0000".toByteArray(Charsets.UTF_8))
+        assertTrue(PoiIndex.reloadArchive(f), "paired override must map")
+        assertEquals(1, PoiIndex.recordCount)
+        val hits = PoiIndex.nearest(37.7749050, -122.4194000)
+        assertEquals(1, hits.size)
+        assertEquals("Diner", hits[0].name)
+    }
+
+    /**
+     * A half-paired override (index without names) falls back to the base
+     * pair: mixed vintages must never join.
+     */
+    @Test
+    fun `half paired override falls back to base`() {
+        val f = writeArchive(
+            listOf(
+                indexPayload(),
+                Triple(PoiArchive.KIND_NAMES, namesBytes(), 0L),
+            ),
+        )
+        val sections = File(File(f.parentFile, "overlays"), "sections")
+        sections.mkdirs()
+        val index = ByteBuffer.allocate(14).order(ByteOrder.LITTLE_ENDIAN)
+        index.putInt(377_749_050)
+        index.putInt(-1_224_194_000)
+        index.putInt(0)
+        index.putShort(2.toShort())
+        File(sections, "${PoiArchive.KIND_INDEX}.section").writeBytes(index.array())
+        assertTrue(PoiIndex.reloadArchive(f), "half pair must still map (from base)")
+        assertEquals(2, PoiIndex.recordCount)
+        val hits = PoiIndex.nearest(37.7749050, -122.4194000)
+        assertEquals("Cafe", hits[0].name)
+    }
 }

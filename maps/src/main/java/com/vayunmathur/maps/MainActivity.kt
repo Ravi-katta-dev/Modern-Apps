@@ -33,6 +33,7 @@ import com.vayunmathur.maps.ui.settings.MapSettingsPage
 import com.vayunmathur.maps.data.MapPreferences
 import com.vayunmathur.maps.data.ThemeMode
 import com.vayunmathur.maps.util.MapTileCache
+import com.vayunmathur.maps.util.MapOverlayWorker
 import com.vayunmathur.maps.util.MapsSearchViewModel
 import com.vayunmathur.maps.util.NavigationService
 import com.vayunmathur.maps.util.NavigationSessionManager
@@ -76,12 +77,23 @@ class MainActivity : MaActivity() {
         // FIRST_PARTY: data.maproj.org tiles + amenities + api.maproj.org -> ISRG+GTS
         NetworkClient.init(this, TrustBundle.FIRST_PARTY)
         intentLauncher = IntentLauncher(this)
+        // Daily overlay check chain (UNMETERED): KEEP leaves an existing chain
+        // alone; the toggle gates inside syncAutoUpdateSchedule.
+        syncOverlaySchedule()
         // Reclaim the ~44 MB bundled basemap copied into filesDir by older
         // builds; the basemap now streams live and is cached on demand.
         File(filesDir, "world_z0-6.pmtiles").delete()
 
         // Deep link that launched us cold (geo:/google.navigation:/maps URL).
         handleIntent(intent)
+    }
+
+    /** Enqueue the daily overlay check when the auto-update toggle is on. */
+    private fun syncOverlaySchedule() {
+        val ds = DataStoreUtils.getInstance(this)
+        if (ds.getBoolean(MapPreferences.KEY_MAP_AUTO_UPDATE, MapPreferences.DEFAULT_MAP_AUTO_UPDATE)) {
+            MapOverlayWorker.scheduleAuto(this)
+        }
     }
 
     @Composable

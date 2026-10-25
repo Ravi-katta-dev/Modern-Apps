@@ -117,4 +117,23 @@ class MapOverlayTest {
         assertEquals(0x1234L, MapOverlay.parseBuildId("0x0000000000001234"))
         assertEquals(0L, MapOverlay.parseBuildId("garbage"))
     }
+
+    @Test
+    fun rebase_recovery_drops_completed_backup() {
+        val dir = root()
+        File(dir, "base.mamaps").writeBytes(ByteArray(4))
+        File(dir, "base.mamaps.prev").writeBytes(ByteArray(4))
+        MapOverlay.recoverRebaseCrash(dir, "base.mamaps")
+        assertTrue(File(dir, "base.mamaps").isFile)
+        assertFalse(File(dir, "base.mamaps.prev").exists())
+    }
+
+    @Test
+    fun rebase_recovery_restores_interrupted_swap() {
+        val dir = root()
+        File(dir, "base.mamaps.prev").writeBytes(ByteArray(4))
+        MapOverlay.recoverRebaseCrash(dir, "base.mamaps")
+        assertTrue(File(dir, "base.mamaps").isFile)
+        assertFalse(File(dir, "base.mamaps.prev").exists())
+    }
 }

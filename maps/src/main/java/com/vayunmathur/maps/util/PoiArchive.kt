@@ -73,11 +73,28 @@ object PoiArchive {
      * index section. Optional sections absent from the directory degrade
      * exactly as absent files do: no attributes, Morton fallback, scan
      * fallback.
+     *
+     * Section overrides (incremental updates): when the applied overlay pins
+     * chunked sidecar sections, `<root>/overlays/sections/<kind>.section`
+     * files replace the base slices for those kinds. Validators run
+     * unchanged — an override that fails validation degrades exactly as an
+     * absent section does, never as corrupt base bytes.
      */
     internal fun openArchive(file: File): PoiIndex.Mapped? {
         if (!file.isFile) return null
-        return runCatching { buildMapped(PoiIndex.mapReadOnly(file)) }
+        return runCatching { buildMapped(PoiIndex.mapReadOnly(file), overrideDir(file)) }
             .getOrElse { archiveFailure(it) }
+    }
+
+    /**
+     * The section-override dir for [baseFile] (`overlays/sections/` beside
+     * it), or null when no applied overlay pins sections. Files are named
+     * `<kind>.section` (e.g. `13.section` for transit).
+     */
+    private fun overrideDir(baseFile: File): File? {
+        val root = baseFile.parentFile ?: return null
+        val dir = File(File(root, MapOverlay.OVERLAY_ROOT), "sections")
+        return dir.takeIf { it.isDirectory }
     }
 
     /** Log a mapping failure and yield null (the archive path degrades to side files). */
@@ -97,14 +114,32 @@ object PoiArchive {
         }
     }
 
-    private fun buildMapped(whole: MappedByteBuffer): PoiIndex.Mapped? {
+    private fun buildMapped(whole: MappedByteBuffer, overrides: File?): PoiIndex.Mapped? {
         whole.order(ByteOrder.LITTLE_ENDIAN)
         val sections = parseSections(whole) ?: return null
-        val indexBuf = slice(whole, sections, KIND_INDEX) ?: run {
+        // Overrides validate through the same validators as base slices; a
+        // failed override degrades to the base slice, never to corrupt bytes.
+        // Index + names override as a pair (ordinal join): one without the
+        // other falls back to the base pair, never a mixed vintage.
+        val overrideIndex = overrides?.let { validatedOverride(it, KIND_INDEX) }
+        val overrideNames = overrides?.let { validatedOverride(it, KIND_NAMES) }
+        val paired = (overrideIndex == null) == (overrideNames == null)
+        if (!paired) {
+            Log.status(TAG, "half-paired POI override; using base index+names")
+        }
+        val indexBuf = if (paired) {
+            overrideIndex ?: slice(whole, sections, KIND_INDEX)
+        } else {
+            slice(whole, sections, KIND_INDEX)
+        } ?: run {
             Log.status(TAG, "archive carries no POI index section")
             return null
         }
-        val namesBuf = slice(whole, sections, KIND_NAMES) ?: run {
+        val namesBuf = if (paired) {
+            overrideNames ?: slice(whole, sections, KIND_NAMES)
+        } else {
+            slice(whole, sections, KIND_NAMES)
+        } ?: run {
             Log.status(TAG, "archive carries a POI index but no POI names")
             return null
         }
@@ -112,7 +147,26 @@ object PoiArchive {
             Log.status(TAG, "archive POI index or names section is empty")
             return null
         }
-        return mappedFromSections(whole, sections, indexBuf, namesBuf)
+        return mappedFromSections(whole, sections, indexBuf, namesBuf, overrides)
+    }
+
+    /**
+     * The override file for [kind] as a validated buffer, or null when absent
+     * or invalid (caller falls back to base). The returned duplicate shares
+     * the file mapping and pins it exactly like a base slice: once stored in
+     * [PoiIndex.Mapped] fields it lives as long as they do, so no separate
+     * holder is needed.
+     */
+    private fun validatedOverride(dir: File, kind: Int): MappedByteBuffer? {
+        val file = File(dir, "$kind.section")
+        if (!file.isFile || file.length() == 0L || file.length() > Int.MAX_VALUE) return null
+        return runCatching {
+            val mapped = PoiIndex.mapReadOnly(file)
+            // Minimal shape check now; the per-kind validators in
+            // mappedFromSections run the full agreement (magic/count).
+            if (mapped.capacity() == 0) return null
+            (mapped.duplicate() as MappedByteBuffer).also { it.order(ByteOrder.LITTLE_ENDIAN) }
+        }.getOrNull()
     }
 
     private fun mappedFromSections(
@@ -120,11 +174,15 @@ object PoiArchive {
         sections: Map<Int, Section>,
         indexBuf: MappedByteBuffer,
         namesBuf: MappedByteBuffer,
+        overrides: File?,
     ): PoiIndex.Mapped {
         val count = indexBuf.capacity() / INDEX_RECORD_BYTES
-        val attrs = sections[KIND_ATTRS]?.let { PoiIndex.attrsFromBuffer(sliceRaw(whole, it), count) }
-        val grid = sections[KIND_SPATIAL]?.let { PoiIndex.spatialFromBuffer(sliceRaw(whole, it), count) }
-        val words = sections[KIND_WORDS]?.let { PoiIndex.nameIndexFromBuffer(sliceRaw(whole, it), count) }
+        val attrs = overrideOrBase(overrides, KIND_ATTRS, sections, whole)
+            ?.let { PoiIndex.attrsFromBuffer(it, count) }
+        val grid = overrideOrBase(overrides, KIND_SPATIAL, sections, whole)
+            ?.let { PoiIndex.spatialFromBuffer(it, count) }
+        val words = overrideOrBase(overrides, KIND_WORDS, sections, whole)
+            ?.let { PoiIndex.nameIndexFromBuffer(it, count) }
         return PoiIndex.Mapped(
             index = indexBuf,
             names = namesBuf,
@@ -153,6 +211,24 @@ object PoiArchive {
     private fun slice(whole: MappedByteBuffer, sections: Map<Int, Section>, kind: Int): MappedByteBuffer? {
         val s = sections[kind] ?: return null
         return sliceRaw(whole, s)
+    }
+
+    /**
+     * The override buffer for [kind], or the base slice when no valid
+     * override exists. Override validators are the same functions the base
+     * path runs ([PoiIndex.attrsFromBuffer] and siblings) — only the mapping
+     * step differs, so the checks cannot drift apart.
+     */
+    private fun overrideOrBase(
+        overrides: File?,
+        kind: Int,
+        sections: Map<Int, Section>,
+        whole: MappedByteBuffer,
+    ): MappedByteBuffer? {
+        if (overrides != null) {
+            validatedOverride(overrides, kind)?.let { return it }
+        }
+        return slice(whole, sections, kind)
     }
 
     /**

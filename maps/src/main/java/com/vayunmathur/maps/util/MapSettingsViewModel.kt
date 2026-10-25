@@ -89,7 +89,20 @@ class MapSettingsViewModel(application: Application) : AndroidViewModel(applicat
         )
 
     fun setMapAutoUpdate(enabled: Boolean) =
-        launch { ds.setBoolean(MapPreferences.KEY_MAP_AUTO_UPDATE, enabled) }
+        launch {
+            ds.setBoolean(MapPreferences.KEY_MAP_AUTO_UPDATE, enabled)
+            val context = getApplication<Application>().applicationContext
+            if (enabled) MapOverlayWorker.scheduleAuto(context)
+            else MapOverlayWorker.cancelAuto(context)
+        }
+
+    /** Ensure the periodic chain matches the persisted toggle (call on start). */
+    fun syncAutoUpdateSchedule() {
+        val context = getApplication<Application>().applicationContext
+        if (ds.getBoolean(MapPreferences.KEY_MAP_AUTO_UPDATE, MapPreferences.DEFAULT_MAP_AUTO_UPDATE)) {
+            MapOverlayWorker.scheduleAuto(context)
+        }
+    }
 
     // --- Layers sheet ------------------------------------------------------
 

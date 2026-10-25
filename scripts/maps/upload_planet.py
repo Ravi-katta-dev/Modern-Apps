@@ -49,9 +49,12 @@ MIN_CLIENT_COMPAT = 1
 def main() -> int:
     if len(sys.argv) >= 2 and sys.argv[1] == "--manifest":
         return publish_manifest(sys.argv[2:])
+    if len(sys.argv) >= 2 and sys.argv[1] == "--rebase":
+        return publish_rebase(sys.argv[2:])
     if len(sys.argv) != 2:
         print(f"usage: {os.path.basename(sys.argv[0])} <local-file>", flush=True)
         print(f"   or: {os.path.basename(sys.argv[0])} --manifest <overlay-dir> --overlay-seq N --base-build-id HEX [--base-len N]", flush=True)
+        print(f"   or: {os.path.basename(sys.argv[0])} --rebase --overlay-seq N --base-build-id HEX --base-len N", flush=True)
         return 2
     missing = [v for v in ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
                if not os.environ.get(v)]
@@ -208,6 +211,60 @@ def sha256_file(path: str) -> str:
                 break
             h.update(chunk)
     return h.hexdigest()
+
+
+def publish_rebase(argv: list) -> int:
+    """Publish a consolidation: a fresh full base becomes the world, and the
+    overlay stack resets to empty.
+
+    Run quarterly, or when the stacked overlays exceed ~20% of the base or
+    the sequence depth passes 3. The new base uploads exactly like a normal
+    planet publish (same KEY, new bytes, new build_id); the manifest then
+    pins it with zero segments, so clients do one background full download
+    and drop their old segments. No client-side rewrite pass exists by
+    design (the no-2x guarantee stays trivially true).
+
+    Args: --overlay-seq N --base-build-id HEX --base-len N
+    (N continues the sequence; segments/tombstones/sections are empty.)
+    """
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--overlay-seq", type=int, required=True)
+    ap.add_argument("--base-build-id", required=True)
+    ap.add_argument("--base-len", type=int, required=True)
+    args = ap.parse_args(argv)
+    missing = [v for v in ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY")
+               if not os.environ.get(v)]
+    if missing:
+        print(f"missing env: {', '.join(missing)} (see module docstring)", flush=True)
+        return 2
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=os.environ["R2_ENDPOINT"],
+        aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+        region_name="auto",
+    )
+    manifest = {
+        "version": MANIFEST_VERSION,
+        "base": {
+            "url": f"{CDN}/{KEY}",
+            "build_id": args.base_build_id,
+            "len": args.base_len,
+        },
+        "overlay_seq": args.overlay_seq,
+        "overlay_build_id": "0x0",
+        "segments": [],
+        "sections": [],
+        "tombstones": [],
+        "min_client": MIN_CLIENT_COMPAT,
+    }
+    body = json.dumps(manifest, indent=1).encode()
+    s3.put_object(Bucket=BUCKET, Key=MANIFEST_KEY, Body=body,
+                  ContentType="application/json")
+    print(f"wrote s3://{BUCKET}/{MANIFEST_KEY} rebase seq={args.overlay_seq} "
+          f"(empty overlay; clients refresh the base once)", flush=True)
+    return 0
 
 
 if __name__ == "__main__":

@@ -186,4 +186,22 @@ object MapOverlay {
         dir.mkdirs()
         File(dir, MANIFEST_FILE).writeText(text)
     }
+
+    /**
+     * Crash recovery for the rebase two-rename swap (`current` <- `.next`
+     * via `.prev`). States:
+     * - `.prev` + current: swap completed before cleanup → drop `.prev`.
+     * - `.prev`, no current: crashed between renames → restore `.prev`.
+     * - `.next` alone: crashed before any rename → leave for resume.
+     */
+    fun recoverRebaseCrash(root: File, baseName: String) {
+        val current = File(root, baseName)
+        val prev = File(root, "$baseName.prev")
+        if (!prev.exists()) return
+        if (current.exists()) {
+            prev.delete()
+        } else {
+            prev.renameTo(current)
+        }
+    }
 }

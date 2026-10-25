@@ -4,18 +4,21 @@ import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.vayunmathur.library.downloadservice.ModelDownloadItem
 import com.vayunmathur.library.downloadservice.downloadModels
 import com.vayunmathur.library.log.Log
+import com.vayunmathur.library.network.NetworkClient
+import com.vayunmathur.library.network.TrustBundle
 import com.vayunmathur.library.util.DataStoreUtils
 import java.io.File
-import java.net.URL
 import java.util.concurrent.TimeUnit
 
 /**
@@ -40,8 +43,12 @@ class MapOverlayWorker(context: Context, params: WorkerParameters) :
 
     override suspend fun doWork(): Result {
         val manifestUrl = inputData.getString(KEY_MANIFEST_URL) ?: MapOverlay.MANIFEST_URL
+        // WorkManager can cold-start the process without MainActivity's TLS
+        // init; without it the pinned manifest fetch below has no trust store.
+        NetworkClient.init(applicationContext, TrustBundle.FIRST_PARTY)
         val ds = DataStoreUtils.getInstance(applicationContext)
         val root = applicationContext.getExternalFilesDir(null) ?: return Result.failure()
+        recoverRebaseCrash(root)
         // No base, no overlay: the startup gate owns the full download.
         if (!File(root, MapTileCache.BASEMAP_ARCHIVE_FILE).exists()) {
             Log.status(TAG, "no base archive; skipping overlay check")
@@ -60,8 +67,15 @@ class MapOverlayWorker(context: Context, params: WorkerParameters) :
             Log.status(TAG, "overlay seq ${manifest.overlaySeq} already applied")
             return Result.success()
         }
-        // Base mismatch refuses: an overlay for another build must never apply.
+        // Base mismatch: either a foreign overlay (refuse) or a server
+        // rebase (refresh the base once, then drop the old stack). An empty
+        // segment list with a newer seq is the rebase signal.
         if (!baseMatches(root, manifest)) {
+            if (manifest.segments.isEmpty() &&
+                (pinned == null || manifest.overlaySeq > pinned.overlaySeq)
+            ) {
+                return refreshBase(root, ds, manifest, text)
+            }
             Log.status(TAG, "overlay seq ${manifest.overlaySeq} is for another base; skipping")
             return Result.success()
         }
@@ -102,6 +116,13 @@ class MapOverlayWorker(context: Context, params: WorkerParameters) :
         return Result.success()
     }
 
+    private fun recoverRebaseCrash(root: File) {
+        val before = File(root, MapTileCache.BASEMAP_ARCHIVE_FILE).exists()
+        MapOverlay.recoverRebaseCrash(root, MapTileCache.BASEMAP_ARCHIVE_FILE)
+        val after = File(root, MapTileCache.BASEMAP_ARCHIVE_FILE).exists()
+        if (before != after) Log.status(TAG, "rebase crash recovery restored the base")
+    }
+
     /**
      * Whether the local base is the build [manifest] was made for. The base
      * header's `build_id` lives at bytes 16..24 (little-endian u64); the
@@ -121,6 +142,60 @@ class MapOverlayWorker(context: Context, params: WorkerParameters) :
             return false
         }
         return true
+    }
+
+    /**
+     * Server rebase: the manifest pins a NEW base with an empty overlay.
+     * Download the base once (the documented quarterly exception to no-2x:
+     * old + `.next` coexist transiently), swap it in, and drop the old
+     * overlay stack + segments. Readers mmap by path and reopen per surface,
+     * so the rename-then-reload is the same atomicity as the initial
+     * download; a crash mid-download resumes via `.part`, a crash
+     * mid-swap keeps the old base (rename is atomic).
+     */
+    private suspend fun refreshBase(
+        root: File,
+        ds: DataStoreUtils,
+        manifest: MapOverlay.Manifest,
+        text: String,
+    ): Result {
+        Log.status(TAG, "rebase to seq ${manifest.overlaySeq}: refreshing base")
+        ds.setLong(KEY_PENDING_BYTES, manifest.baseLen)
+        val item = ModelDownloadItem(
+            url = manifest.baseUrl,
+            fileName = "${MapTileCache.BASEMAP_ARCHIVE_FILE}.next",
+            description = "Map data consolidation",
+            sha256 = null,
+        )
+        if (!downloadModels(applicationContext, ds, listOf(item))) return Result.retry()
+        val next = File(root, "${MapTileCache.BASEMAP_ARCHIVE_FILE}.next")
+        if (!next.isFile || (manifest.baseLen > 0 && next.length() != manifest.baseLen)) {
+            Log.status(TAG, "rebased base failed verification")
+            return Result.retry()
+        }
+        if (readBaseBuildId(next) != manifest.baseBuildId) {
+            Log.status(TAG, "rebased base build mismatch; refusing swap")
+            next.delete()
+            return Result.success()
+        }
+        val current = File(root, MapTileCache.BASEMAP_ARCHIVE_FILE)
+        val backup = File(root, "${MapTileCache.BASEMAP_ARCHIVE_FILE}.prev")
+        if (backup.exists()) backup.delete()
+        // Two renames, crash-safe either way: a leftover `.prev` with no
+        // `.next` work means the swap completed (drop it); a leftover
+        // `.next` means it did not (resume it next run).
+        if (!current.renameTo(backup)) return Result.retry()
+        if (!next.renameTo(current)) {
+            backup.renameTo(current)
+            return Result.retry()
+        }
+        backup.delete()
+        File(root, MapOverlay.OVERLAY_ROOT).deleteRecursively()
+        MapOverlay.pin(root, text)
+        ds.setLong(KEY_APPLIED_SEQ, manifest.overlaySeq)
+        ds.setLong(KEY_PENDING_BYTES, 0L)
+        Log.status(TAG, "rebase seq ${manifest.overlaySeq} complete")
+        return Result.success()
     }
 
     companion object {
@@ -144,6 +219,35 @@ class MapOverlayWorker(context: Context, params: WorkerParameters) :
         fun checkManual(context: Context) =
             enqueue(context, MapOverlay.MANIFEST_URL, requireUnmetered = false)
 
+        /**
+         * Daily auto-check chain (UNMETERED + battery-not-low). KEEP leaves an
+         * already-scheduled chain alone. The worker self-skips when applied
+         * (one small manifest GET), so the periodic slot costs nothing idle.
+         * Call on app start when the auto-update toggle is on; [cancelAuto]
+         * when it is off.
+         */
+        fun scheduleAuto(context: Context) {
+            val request = PeriodicWorkRequestBuilder<MapOverlayWorker>(24, TimeUnit.HOURS)
+                .setConstraints(
+                    Constraints.Builder()
+                        .setRequiredNetworkType(NetworkType.UNMETERED)
+                        .setRequiresBatteryNotLow(true)
+                        .build(),
+                )
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
+                .build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                UNIQUE_PERIODIC,
+                ExistingPeriodicWorkPolicy.KEEP,
+                request,
+            )
+        }
+
+        /** Drop the periodic chain (auto-update toggled off). */
+        fun cancelAuto(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_PERIODIC)
+        }
+
         private fun enqueue(context: Context, manifestUrl: String, requireUnmetered: Boolean) {
             val request = OneTimeWorkRequestBuilder<MapOverlayWorker>()
                 .setInputData(workDataOf(KEY_MANIFEST_URL to manifestUrl))
@@ -165,28 +269,23 @@ class MapOverlayWorker(context: Context, params: WorkerParameters) :
 
         private const val UNIQUE_AUTO = "map_overlay_auto"
         private const val UNIQUE_MANUAL = "map_overlay_manual"
+        private const val UNIQUE_PERIODIC = "map_overlay_periodic"
 
         /** Attempt count guard lives in doWork's caller: WorkManager retries. */
         fun maxAttempts(): Int = MAX_RUN_ATTEMPTS
     }
 }
 
-/** GET [url] as text, or null on any failure (caller retries). */
+/**
+ * GET [url] as text over the pinned FIRST_PARTY bundle, or null on any
+ * failure (caller retries). Pinned, not plain HTTPS: the manifest names
+ * segment URLs + SHA-256, so a MITM-swapped manifest must not verify —
+ * and with pinning it cannot even be served.
+ */
 private suspend fun fetchText(url: String): String? = runCatching {
-    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-        (URL(url).openConnection() as java.net.HttpURLConnection).run {
-            connectTimeout = 30_000
-            readTimeout = 30_000
-            requestMethod = "GET"
-            try {
-                connect()
-                if (responseCode != java.net.HttpURLConnection.HTTP_OK) return@run null
-                inputStream.bufferedReader().use { it.readText() }
-            } finally {
-                disconnect()
-            }
-        }
-    }
+    val (status, body) = NetworkClient.performRequestBytes(url)
+    if (status != 200) return null
+    body.toString(Charsets.UTF_8)
 }.getOrNull()
 
 /** The base archive's header `build_id` (bytes 16..24 LE), or null. */
