@@ -3,13 +3,21 @@ package com.vayunmathur.email
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
+import com.vayunmathur.email.data.EmailAccount
+import com.vayunmathur.email.data.EmailFolder
 import com.vayunmathur.email.data.EmailMessage
 import com.vayunmathur.email.data.EmailPreview
 import com.vayunmathur.email.ui.AddAccountScreen
+import com.vayunmathur.email.ui.EmailDrawerContent
+import com.vayunmathur.email.ui.MessageListScreen
+import com.vayunmathur.email.ui.MessageThreadScreen
 import com.vayunmathur.email.platform.MessageListActions
 import com.vayunmathur.email.platform.MessageListUiState
 import com.vayunmathur.email.platform.MessageThreadActions
+import com.vayunmathur.library.ui.DrawerValue
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.ModalNavigationDrawer
+import com.vayunmathur.library.ui.rememberDrawerState
 
 /** Phone-shaped, roughly 1080x2340 at xxhdpi — comfortably above the F-Droid minimum. */
 private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
@@ -108,6 +116,44 @@ class MetadataPreviews {
                 actions = MessageThreadActions.Noop,
                 threadId = "thread-review",
             )
+        }
+    }
+
+    @PreviewTest
+    @Preview(name = "6-drawer", device = PHONE, group = "phone", showSystemUi = true)
+    @Composable
+    fun Preview6Drawer() {
+        DynamicTheme(darkTheme = true) {
+            ModalNavigationDrawer(
+                drawerState = rememberDrawerState(DrawerValue.Open),
+                drawerContent = {
+                    EmailDrawerContent(
+                        accounts = listOf(
+                            EmailAccount(email = ME),
+                            EmailAccount(email = WORK),
+                        ),
+                        selectedAccountEmail = WORK,
+                        folders = listOf(
+                            EmailFolder(accountEmail = WORK, fullName = "INBOX", name = "INBOX"),
+                            EmailFolder(accountEmail = WORK, fullName = "Sent", name = "Sent"),
+                            EmailFolder(accountEmail = WORK, fullName = "Drafts", name = "Drafts"),
+                        ),
+                        selectedFolderName = "INBOX",
+                        outboxCount = 2,
+                        onSelectAccount = {},
+                        onSelectFolder = {},
+                        onOpenOutbox = {},
+                        onOpenSystem = {},
+                        onLogout = {},
+                        onAddAccount = {},
+                    )
+                },
+            ) {
+                MessageListScreen(
+                    state = MessageListUiState(messages = INBOX),
+                    actions = MessageListActions.Noop,
+                )
+            }
         }
     }
 }
