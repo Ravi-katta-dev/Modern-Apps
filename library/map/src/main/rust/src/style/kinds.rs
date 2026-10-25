@@ -34,6 +34,9 @@ pub enum Toggle {
     /// nothing; the per-segment colours arrive separately as a pushed id→ARGB table
     /// (see [`crate::vulkan::renderer::Renderer::set_traffic_speeds`]).
     Traffic,
+    /// Road furniture (`LAYER_SAFETY`): speed cameras, ALPR, surveillance, stop signs and
+    /// traffic signals, drawn as icons when the host's safety overlay is on.
+    Safety,
 }
 
 /// Which optional layers are on. All off by default.
@@ -42,6 +45,7 @@ pub struct LayerToggles {
     pub poi: bool,
     pub transit: bool,
     pub traffic: bool,
+    pub safety: bool,
 }
 
 impl LayerToggles {
@@ -55,6 +59,7 @@ impl LayerToggles {
             Some(Toggle::Poi) => self.poi,
             Some(Toggle::Transit) => self.transit,
             Some(Toggle::Traffic) => self.traffic,
+            Some(Toggle::Safety) => self.safety,
         }
     }
 }

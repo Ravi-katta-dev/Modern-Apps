@@ -38,7 +38,8 @@ fn kind_ids_are_positions_in_a_constant_table() {
     assert_eq!(d.layer_name(LAYER_TRANSIT), Some("transit"), "v2 reserves transit");
     assert_eq!(d.layer_name(LAYER_TRAFFIC), Some("traffic"), "v4's live traffic layer");
     assert_eq!(d.layer_name(LAYER_JUNCTION), Some("junction"), "v7's lane connectors");
-    assert_eq!(d.layer_name(9), None, "past the table");
+    assert_eq!(d.layer_name(LAYER_SAFETY), Some("safety"), "the safety overlay");
+    assert_eq!(d.layer_name(10), None, "past the table");
 }
 
 /// A duplicate would give one value two ids, so half the features carrying it would filter
@@ -77,15 +78,17 @@ fn an_archive_whose_tables_differ_is_refused() {
     let mut renamed_layer = Dictionary::schema();
     renamed_layer.layers[0] = "ground".to_string();
     assert!(renamed_layer.check_matches_schema().is_err());
-    // A shorter table is refused too, even when it is a prefix: the dict is frozen and an
-    // archive built from anything but this tree is a different contract, not an older one.
-    // (No backward-compat requirement: rebuild the archive instead.)
-    let mut short = Dictionary::schema();
-    short.layers.truncate(4);
-    assert!(short.check_matches_schema().is_err(), "a 4-layer table opened");
-    let mut short_details = Dictionary::schema();
-    short_details.details.truncate(40);
-    assert!(short_details.check_matches_schema().is_err(), "a 40-detail table opened");
+    // A shorter table that is a prefix opens: an archive built before an append still means
+    // the same thing for every id it carries.
+    let mut pre_safety = Dictionary::schema();
+    pre_safety.layers.truncate(LAYER_SAFETY as usize);
+    pre_safety.kinds.truncate(pre_safety.kinds.len() - 5);
+    assert!(pre_safety.check_matches_schema().is_ok(), "a pre-safety archive was refused");
+    // A shorter table that differs inside the prefix is still refused.
+    let mut short_renamed = Dictionary::schema();
+    short_renamed.layers.truncate(4);
+    short_renamed.layers[1] = "streets".to_string();
+    assert!(short_renamed.check_matches_schema().is_err());
     // And a table *longer* than the schema is refused: those ids mean nothing here.
     let mut long = Dictionary::schema();
     long.kinds.push("future_kind".to_string());

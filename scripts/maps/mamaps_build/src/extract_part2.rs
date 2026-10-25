@@ -199,11 +199,13 @@ fn build_resolved_table(
         if !select.matches(|k| node.tags.get_str(k)) {
             return None;
         }
-        let class = schema::classify(&node.tags, false, layers)?;
-        if !is_label(class.layer) {
-            return None;
-        }
-        if class.layer == tilecodec::mamaps::dict::LAYER_POI
+        // A node no label claimed may still be road furniture. Safety is asked only here, in the
+        // node pass, so a way or relation can never land in the point-only `safety` layer.
+        let class = schema::classify(&node.tags, false, layers)
+            .filter(|c| is_label(c.layer))
+            .or_else(|| schema::safety::classify(&node.tags))?;
+        let safety = class.layer == tilecodec::mamaps::dict::LAYER_SAFETY;
+        if (safety || class.layer == tilecodec::mamaps::dict::LAYER_POI)
             && !osm_ingest::bbox::keep_e7(region, node.lat_e7, node.lon_e7)
         {
             return None;
@@ -214,7 +216,7 @@ fn build_resolved_table(
             node.lon_e7 as f64 * 1e-7,
             node.lat_e7 as f64 * 1e-7,
             name,
-            tagged_id(node.id, ELEMENT_NODE),
+            if safety { tilecodec::mamaps::body::ID_NONE } else { tagged_id(node.id, ELEMENT_NODE) },
         ))
     };
     let drain = |hits: Vec<(Class, f64, f64, Option<String>, u64)>| -> Result<()> {

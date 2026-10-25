@@ -52,11 +52,10 @@ impl Dictionary {
     /// that id 17 means `national_park` in every archive ever written, so an archive that
     /// disagrees anywhere would render some layer in the wrong colour with no other symptom.
     ///
-    /// Strict by deliberate scope decision (no backward-compat requirement: nobody is using the
-    /// app): the dict is frozen, every archive is built from this tree, and an archive built
-    /// from anything else is refused rather than reinterpreted. An older archive — including
-    /// prod planet.mamaps with its v1 dict — does NOT open under this reader; rebuild it from
-    /// the frozen tree instead.
+    /// An archive whose tables are a strict **prefix** of the schema still opens: the tables are
+    /// append-only, so every id it uses means the same thing here, and a layer it predates simply
+    /// has no features. That lets a reader that knows `safety` keep drawing the archive built
+    /// before it. A table that is longer than the schema, or differs anywhere, is refused.
     pub fn check_matches_schema(&self) -> Result<()> {
         let schema = Dictionary::schema();
         for (what, ours, theirs) in [
@@ -64,7 +63,7 @@ impl Dictionary {
             ("kind", &schema.kinds, &self.kinds),
             ("kind_detail", &schema.details, &self.details),
         ] {
-            if ours == theirs {
+            if theirs.len() <= ours.len() && ours[..theirs.len()] == theirs[..] {
                 continue;
             }
             let first = ours

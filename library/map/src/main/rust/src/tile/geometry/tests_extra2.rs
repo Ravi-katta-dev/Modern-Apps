@@ -383,6 +383,7 @@ fn transit_lines_of_one_colour_split_again_on_their_corridor_ordinal() {
         poi: false,
         transit: true,
         traffic: false,
+        safety: false,
     };
     let mesh = build_toggled(&body, only, 14, 0, 0, false, on, &KindFilter::all(), 0);
     assert_eq!(
@@ -427,4 +428,45 @@ fn a_layer_whose_features_carry_no_colour_still_emits_one_mesh() {
         1,
         "one mesh per layer where no feature carries a colour"
     );
+}
+
+/// An unnamed safety point draws as a bare icon with the safety toggle on, and costs nothing
+/// (no label, but still recorded in the gated summary) with it off.
+#[test]
+fn a_safety_point_is_an_icon_only_label_gated_by_its_toggle() {
+    use tilecodec::mamaps::body::GEOM_POINT;
+    let mut body = Body::new(4096);
+    let mut source = BodyLayer::new(dict::LAYER_SAFETY);
+    source.parts.push(Part { coord_start: 0, point_count: 1, winding: WINDING_OUTER });
+    source.coords.push((2048, 2048));
+    source.features.push(Feature {
+        kind: crate::style::kind_id_for_test("stop_sign"),
+        kind_detail: 0,
+        geom_type: GEOM_POINT,
+        flags: 0,
+        name_idx: NAME_NONE,
+        parts_offset: 0,
+        part_count: 1,
+        transit_color: 0,
+        transit_ordinal: 0,
+        transit_lanes: 0,
+        transit_taper: 0,
+        lane_count: 0,
+    });
+    body.layers.push(source);
+    let all = style::layers();
+    let at = all.iter().position(|l| l.id == "safety-points").expect("the safety layer");
+    let only = &all[at..=at];
+    let off = LayerToggles::default();
+    let on = LayerToggles { safety: true, ..off };
+
+    let shown = build_toggled(&body, only, 16, 0, 0, false, on, &KindFilter::all(), 0);
+    assert_eq!(shown.labels.len(), 1, "one icon for one stop sign");
+    assert!(shown.labels[0].lines.is_empty(), "no text: the point has no name");
+    assert!(shown.labels[0].sprite.is_some(), "the stop_sign sprite resolved");
+    assert!(shown.toggle_stamp.gated.has_safety);
+
+    let hidden = build_toggled(&body, only, 16, 0, 0, false, off, &KindFilter::all(), 0);
+    assert!(hidden.labels.is_empty(), "safety off draws nothing");
+    assert!(hidden.toggle_stamp.gated.has_safety, "but the tile knows it holds safety");
 }

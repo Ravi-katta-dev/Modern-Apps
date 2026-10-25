@@ -190,6 +190,8 @@ internal object MapNative {
      * call keeps its shape for the five consumers that never draw traffic.
      */
     external fun setTrafficEnabled(handle: Long, enabled: Boolean)
+    /** Turn the safety overlay (cameras, stop signs, signals) on or off. Gated like [setTrafficEnabled]. */
+    external fun setSafetyEnabled(handle: Long, enabled: Boolean)
 
     /**
      * Push the live-traffic colour table. [ids] holds each drawn segment's `component_id` and

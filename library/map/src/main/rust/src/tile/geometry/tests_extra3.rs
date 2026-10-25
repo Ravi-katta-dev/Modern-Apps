@@ -74,6 +74,7 @@ fn traffic_on() -> LayerToggles {
         poi: false,
         transit: false,
         traffic: true,
+        safety: false,
     }
 }
 

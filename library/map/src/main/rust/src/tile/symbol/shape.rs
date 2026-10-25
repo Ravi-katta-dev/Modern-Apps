@@ -31,8 +31,14 @@ pub fn shape_label(
     };
     // `text_max_width` is zero on every place layer, which is the single-line path and
     // therefore byte-identical to what `shape` alone used to produce.
-    let lines = text::shape_wrapped(atlas, weight, name, layer.uppercase, layer.text_max_width);
-    if lines.is_empty() {
+    let lines = if name.is_empty() {
+        Vec::new()
+    } else {
+        text::shape_wrapped(atlas, weight, name, layer.uppercase, layer.text_max_width)
+    };
+    let sprite = if layer.icon { sprite_for(feature.kind) } else { None };
+    // An unnamed point is drawable only as an icon (safety furniture); otherwise no text, no label.
+    if lines.is_empty() && !(name.is_empty() && sprite.is_some()) {
         return None;
     }
     let total_advance = lines
@@ -52,11 +58,7 @@ pub fn shape_label(
         // Only the POI layers ask for an icon, and a kind the sheet has no picture for
         // (`townhall`) simply draws label-only — which is what MapLibre does with a
         // missing `icon-image`.
-        sprite: if layer.icon {
-            sprite_for(feature.kind)
-        } else {
-            None
-        },
+        sprite,
         // Places carry the tiler's 0–3 population rank as a NUMERIC detail
         // (see schema/places.rs); anything else is unranked.
         pop: if feature.flags & tilecodec::mamaps::body::FLAG_DETAIL_NUMERIC != 0 {
@@ -189,9 +191,8 @@ pub(crate) fn rank_for_layer(id: &str) -> u8 {
         // merely because its colour was authored later in the file. Without this they fall
         // through to `u8::MAX` and lose every collision to every place label — which at
         // z17, where places are sparse, would look almost right and be wrong.
-        "poi-outdoor" | "poi-transport" | "poi-civic" | "poi-shop" | "poi-food" | "poi-culture" => {
-            4
-        }
+        "poi-outdoor" | "poi-transport" | "poi-civic" | "poi-shop" | "poi-food" | "poi-culture"
+        | "safety-points" => 4,
         // Line labels below the point labels: a road or river name yields to a place or POI at a
         // collision, matching MapLibre's default `symbol-z-order`. Major roads above minor above
         // rivers, so a highway name wins over a side street and both over the waterway they cross.

@@ -1,4 +1,4 @@
-//! Optional layers: POI, transit, traffic.
+//! Optional layers: POI, transit, traffic, safety.
 //!
 //! Pure move out of `bridge.rs`; no logic changes.
 use super::handle::handle_mut;
@@ -47,12 +47,12 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setLayers<'l>(
                 .collect(),
         );
         if let Some(map) = handle_mut(handle) {
-            // Traffic is carried through its own setter, so preserve whatever it was set to.
-            let traffic = map.toggles.get().0.traffic;
+            // Traffic and safety ride their own setters, so preserve whatever they were set to.
+            let current = map.toggles.get().0;
             let wanted = LayerToggles {
                 poi,
                 transit,
-                traffic,
+                ..current
             };
             if map.toggles.set(wanted, filter) {
                 log_info(&format!(
@@ -99,6 +99,30 @@ pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setTrafficEnab
         };
         if map.toggles.set(wanted, kinds) {
             log_info(&format!("traffic layer {}", if on { "on" } else { "off" }));
+        }
+    }
+}
+
+/// Turn the safety overlay (stop signs, signals, cameras) on or off.
+///
+/// Gated at tessellation exactly like [`setTrafficEnabled`]: the current POI/transit/traffic/kinds
+/// snapshot is kept and only `safety` flips, sharing the one generation counter. An archive built
+/// before the `safety` layer simply has nothing behind the gate.
+#[no_mangle]
+pub extern "system" fn Java_com_vayunmathur_library_map_MapNative_setSafetyEnabled<'l>(
+    _env: EnvUnowned<'l>,
+    _class: JClass<'l>,
+    handle: jlong,
+    enabled: bool,
+) {
+    if let Some(map) = handle_mut(handle) {
+        let (current, kinds, _) = map.toggles.get();
+        let wanted = LayerToggles {
+            safety: enabled,
+            ..current
+        };
+        if map.toggles.set(wanted, kinds) {
+            log_info(&format!("safety layer {}", if enabled { "on" } else { "off" }));
         }
     }
 }

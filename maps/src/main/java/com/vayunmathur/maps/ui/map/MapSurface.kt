@@ -90,7 +90,7 @@ fun MapSurface(
     // VulkanMapSurface keys a LaunchedEffect on this by equality and a fresh instance every
     // recomposition would churn it.
     val selectedCategory = chrome.selectedCategory
-    val mapOptions = remember(transitEnabled, selectedCategory, trafficEnabled) {
+    val mapOptions = remember(transitEnabled, selectedCategory, trafficEnabled, safetyEnabled) {
         MapOptions(
             layerOptions = LayerOptions(
                 poi = true,
@@ -99,6 +99,7 @@ fun MapSurface(
                 // Gates the baked traffic layer's geometry (renderer layer 10). The colours
                 // ride in separately via [trafficColors] below.
                 traffic = trafficEnabled,
+                safety = safetyEnabled,
             ),
             // maps is the one app that pushes a `.mamaps` archive to external files, so it
             // reads tiles from the file; every other app streams from the server (the default).
@@ -341,7 +342,6 @@ fun MapSurface(
     ) {
         MapLayers(
             satelliteEnabled = satelliteEnabled,
-            safetyEnabled = safetyEnabled,
             transitEnabled = transitEnabled,
         )
     }

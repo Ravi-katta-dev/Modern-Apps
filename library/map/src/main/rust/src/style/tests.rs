@@ -47,6 +47,7 @@ fn setting_the_same_filter_twice_does_not_bump_the_generation() {
         poi: true,
         transit: false,
         traffic: false,
+        safety: false,
     };
     assert!(shared.set(on, KindFilter::new(vec![cafe, bar])));
     let (toggles, kinds, second) = shared.get();

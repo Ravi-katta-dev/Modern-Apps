@@ -388,6 +388,7 @@ class SurfaceMapRenderer(
         // the layers the host asked for instead of being built and then invalidated.
         MapNative.setLayers(handle, layers.poi, layers.transit, layers.poiKinds.joinToString(","))
         MapNative.setTrafficEnabled(handle, layers.traffic)
+        MapNative.setSafetyEnabled(handle, layers.safety)
         applyUserPuck()
         applyRoute()
         applyRailLines()
@@ -664,6 +665,7 @@ class SurfaceMapRenderer(
         if (handle != 0L) {
             MapNative.setLayers(handle, options.poi, options.transit, options.poiKinds.joinToString(","))
             MapNative.setTrafficEnabled(handle, options.traffic)
+            MapNative.setSafetyEnabled(handle, options.safety)
         }
         invalidate()
     }

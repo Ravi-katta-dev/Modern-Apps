@@ -853,6 +853,22 @@
       "halo_width": 1
     },
     {
+      "id": "safety-points",
+      "authored": "safety",
+      "source": "safety",
+      "type": "symbol",
+      "kinds": ["speed_camera", "alpr", "surveillance", "stop_sign", "traffic_signals"],
+      "toggle": "safety",
+      "icon": true,
+      "minzoom": 16,
+      "light": "#5c5c5c",
+      "dark": "#d0d0d0",
+      "text_size": 10,
+      "halo_light": "#ffffff",
+      "halo_dark": "#0d1b2a",
+      "halo_width": 1
+    },
+    {
       "id": "roads-label-major",
       "authored": "roads_labels_major",
       "source": "roads",

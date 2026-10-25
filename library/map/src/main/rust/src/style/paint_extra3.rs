@@ -30,7 +30,8 @@ fn the_vendored_flat_style_parses() {
     // (country/region/locality/subplace) plus the 3 curved line labels WS-E added
     // (roads-label-major, roads-label-minor, waterway-label).
     //
-    // Optional: 1 transit line, and 6 POI symbols — one per colour group of the
+    // Optional: 1 transit line, 6 POI symbols and the app-only `safety-points` symbol. The six
+    // POI layers are one per colour group of the
     // reference `pois` layer's `text-color` `case` on `kind`. Six and not seven: the
     // `case` has a `#e2dfda` default arm, but the same layer's `filter` admits exactly
     // the 36 kinds the six groups list between them, so the default is unreachable.
@@ -64,7 +65,7 @@ fn the_vendored_flat_style_parses() {
             count(LayerKind::Line, true),
             count(LayerKind::Symbol, true)
         ),
-        (0, 1, 6),
+        (0, 1, 7),
         "the optional layer set",
     );
     assert_eq!(style.background, (0xFF80DEEA, 0xFF0D1B2A));

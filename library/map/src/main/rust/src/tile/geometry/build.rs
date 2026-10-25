@@ -139,6 +139,7 @@ pub fn build_toggled(
                 // from `traffic_meshes`, probed below) — but if one ever does, its
                 // matched features are traffic-gated content all the same.
                 Some(Toggle::Traffic) => gated.has_traffic = true,
+                Some(Toggle::Safety) => gated.has_safety = true,
                 None => {}
             }
         }
@@ -335,10 +336,11 @@ pub fn build_toggled(
                     // shapes a curved label laid along its centreline. Both shape here,
                     // zoom-independently — the renderer emits quads per frame at the frame's
                     // text size, straight from the anchor or along the polyline.
-                    let Some(name) = tile.name(feature.name_idx) else {
-                        continue;
-                    };
-                    if name.is_empty() {
+                    // Safety furniture carries no name and draws as a bare icon.
+                    let icon_only =
+                        layer.toggle == Some(Toggle::Safety) && feature.geom_type == GEOM_POINT;
+                    let name = tile.name(feature.name_idx).unwrap_or("");
+                    if name.is_empty() && !icon_only {
                         continue;
                     }
                     match feature.geom_type {

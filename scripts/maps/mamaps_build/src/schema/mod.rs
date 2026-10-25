@@ -32,6 +32,7 @@ pub mod places;
 pub mod poi;
 pub mod roads;
 pub mod roads_extra;
+pub mod safety;
 pub mod traffic;
 pub mod traffic_extra;
 pub mod transit;
@@ -162,7 +163,7 @@ pub fn detail(name: &str) -> u16 {
 /// z14 traffic was the layer's dominant cost. Every other layer tiles to the archive
 /// max (14). Enforced in the spill lane filter beside `min_zoom`, so no spill format
 /// change: a per-layer table, not a per-feature field.
-pub const MAX_ZOOM_PER_LAYER: [u8; 9] = [
+pub const MAX_ZOOM_PER_LAYER: [u8; 10] = [
     14, // landtype
     14, // roads
     12, // boundaries (overzoomed at z13+)
@@ -172,6 +173,7 @@ pub const MAX_ZOOM_PER_LAYER: [u8; 9] = [
     14, // transit
     13, // traffic (overzoomed at z14; ids unaffected)
     14, // junction
+    14, // safety
 ];
 
 /// The cap for `layer`, or 14 (no cap) for an id outside the table.
@@ -299,6 +301,7 @@ pub fn filters() -> Vec<&'static str> {
     out.extend_from_slice(boundaries::FILTERS);
     out.extend_from_slice(places::FILTERS);
     out.extend_from_slice(poi::FILTERS);
+    out.extend_from_slice(safety::FILTERS);
     // No `transit` entry: the layer's geometry comes from a GTFS export rather than the `.osm.pbf`,
     // and the one tag it still reads — `station`, for a station POI's `kind_detail` — is screened by
     // `poi::FILTERS`.
@@ -320,6 +323,7 @@ mod tests {
             .chain(boundaries::KINDS)
             .chain(places::KINDS)
             .chain(poi::KINDS)
+            .chain(safety::KINDS)
         {
             assert!(
                 dict::KINDS.contains(name),
@@ -384,7 +388,7 @@ mod tests {
         for key in [
             "natural", "waterway", "landuse", "water", "building", "highway", "railway",
             "boundary", "place", "leisure", "amenity", "shop", "tourism", "aeroway", "man_made",
-            "public_transport", "name", "route", "station",
+            "public_transport", "name", "route", "station", "enforcement",
         ] {
             assert!(all.contains(&key), "the screen omits `{key}`");
         }
@@ -411,6 +415,7 @@ mod tests {
             dict::LAYER_POI,
             dict::LAYER_TRANSIT,
             dict::LAYER_JUNCTION,
+            dict::LAYER_SAFETY,
         ] {
             assert_eq!(max_zoom_for_layer(layer), 14, "layer {layer} is street detail");
         }

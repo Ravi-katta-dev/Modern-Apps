@@ -77,6 +77,7 @@ fn build_toggled_stamps_the_snapshot_and_gated_summary() {
         poi: true,
         transit: false,
         traffic: false,
+        safety: false,
     };
     let mesh = build_toggled(&body, layers, 14, 0, 0, false, toggles, &KindFilter::all(), 9);
     assert_eq!(mesh.generation, 9, "the generation fast path is unchanged");

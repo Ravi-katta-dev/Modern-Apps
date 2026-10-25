@@ -100,6 +100,8 @@ pub struct GatedSummary {
     pub has_transit: bool,
     /// The tile carries live-traffic segments (see `tile::geometry::traffic`).
     pub has_traffic: bool,
+    /// A safety-toggle layer admits at least one source feature.
+    pub has_safety: bool,
 }
 
 impl GatedSummary {
@@ -151,6 +153,9 @@ impl ToggleStamp {
             return true;
         }
         if built.traffic != toggles.traffic && self.gated.has_traffic {
+            return true;
+        }
+        if built.safety != toggles.safety && self.gated.has_safety {
             return true;
         }
         if built.poi != toggles.poi {
@@ -265,12 +270,14 @@ mod stamp_tests {
                 poi,
                 transit,
                 traffic,
+                safety: false,
             },
             kinds: filter,
             gated: GatedSummary {
                 poi_kinds,
                 has_transit,
                 has_traffic,
+                has_safety: false,
             },
         }
     }
@@ -292,6 +299,7 @@ mod stamp_tests {
             poi: true,
             transit: false,
             traffic: false,
+            safety: false,
         };
         // No POI features at all: any chip change is fresh.
         let bare = stamp(true, false, false, KindFilter::all(), vec![], false, false);
@@ -339,6 +347,7 @@ mod stamp_tests {
             poi: false,
             transit: false,
             traffic: false,
+            safety: false,
         };
         let stamp = stamp(false, false, false, KindFilter::all(), vec![cafe], false, false);
         assert!(!stamp.stale_under(&off, &kinds(&["cafe"])));
@@ -353,11 +362,13 @@ mod stamp_tests {
             poi: true,
             transit: false,
             traffic: false,
+            safety: false,
         };
         let off = LayerToggles {
             poi: false,
             transit: false,
             traffic: false,
+            safety: false,
         };
         // Built with POI on, showing a cafe: turning off removes it.
         let showing = stamp(true, false, false, KindFilter::all(), vec![cafe], false, false);
@@ -388,6 +399,7 @@ mod stamp_tests {
             poi: false,
             transit: false,
             traffic: false,
+            safety: false,
         };
         let transit_on = LayerToggles {
             transit: true,
@@ -408,6 +420,20 @@ mod stamp_tests {
         assert!(!traffic_tile.stale_under(&transit_on, &KindFilter::all()));
     }
 
+    /// A safety flip rebuilds only tiles whose source carries safety features.
+    #[test]
+    fn a_safety_flip_skips_tiles_without_the_layer() {
+        let off = LayerToggles::default();
+        let on = LayerToggles { safety: true, ..off };
+        let bare = stamp(false, false, false, KindFilter::all(), vec![], false, false);
+        assert!(!bare.stale_under(&on, &KindFilter::all()));
+        let mut with_safety = bare.clone();
+        with_safety.gated.has_safety = true;
+        assert!(with_safety.stale_under(&on, &KindFilter::all()));
+        let built_on = ToggleStamp { toggles: on, ..with_safety };
+        assert!(built_on.stale_under(&off, &KindFilter::all()));
+    }
+
     /// Identical snapshots are never stale, and `admitted` honours the empty-means-all rule.
     #[test]
     fn an_unchanged_snapshot_is_fresh_and_admitted_matches_admits() {
@@ -416,6 +442,7 @@ mod stamp_tests {
             poi: true,
             transit: true,
             traffic: true,
+            safety: false,
         };
         let filter = kinds(&["cafe"]);
         let stamp = stamp(true, true, true, filter.clone(), vec![cafe, bar], true, true);

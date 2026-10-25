@@ -436,6 +436,7 @@ fn transit_lines_split_into_one_mesh_per_colour() {
         poi: false,
         transit: true,
         traffic: false,
+        safety: false,
     };
     let mesh = build_toggled(&body, only, 14, 0, 0, false, on, &KindFilter::all(), 7);
     assert_eq!(

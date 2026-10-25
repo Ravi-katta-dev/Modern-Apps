@@ -70,6 +70,12 @@ data class LayerOptions(
      * colour draws nothing, so the basemap road shows through as the no-data look.
      */
     val traffic: Boolean = false,
+    /**
+     * Road furniture: speed and red-light cameras, licence-plate readers, surveillance
+     * cameras, stop signs and traffic signals, drawn as icons from z16. Gated at tessellation
+     * like the others. An archive built before the `safety` layer simply draws none.
+     */
+    val safety: Boolean = false,
 ) {
     companion object {
         /** The default: basemap only. */

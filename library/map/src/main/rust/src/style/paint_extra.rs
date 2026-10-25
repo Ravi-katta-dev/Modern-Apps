@@ -194,6 +194,7 @@ pub(crate) fn layer(json: &Json) -> Result<Layer, String> {
         None => None,
         Some(Some("poi")) => Some(Toggle::Poi),
         Some(Some("transit")) => Some(Toggle::Transit),
+        Some(Some("safety")) => Some(Toggle::Safety),
         Some(other) => return Err(format!("`{id}` has an unknown toggle {other:?}")),
     };
     let text_offset = match json.get("text_offset").map(|v| v.as_array()) {

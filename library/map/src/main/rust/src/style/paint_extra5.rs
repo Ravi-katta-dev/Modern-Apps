@@ -48,6 +48,7 @@ fn the_flat_style_agrees_with_basemap_json() {
                     | "landuse_swimming_pool"
                     | "landuse_residential"
                     | "landuse_commercial"
+                    | "safety-points"
             )
         {
             continue;

@@ -74,7 +74,7 @@ use super::sprite_extra::decode_rgba8;
 /// The 2x sprite sheet, embedded. An APK asset is not a file the renderer can open, so
 /// the bytes ship in the `.so` exactly as the fonts do.
 const SHEET_PNG: &[u8] = include_bytes!("../../assets/sprites/sprites@2x.png");
-/// Its index: 62 entries of `{x, y, width, height, pixelRatio}`.
+/// Its index: 67 entries of `{x, y, width, height, pixelRatio}`.
 const SHEET_JSON: &str = include_str!("../../assets/sprites/sprites@2x.json");
 
 /// One icon in the sheet: where to sample it, and how big to draw it.
@@ -313,8 +313,8 @@ mod tests {
         assert_eq!(atlas.pixels.len(), 512 * 532 * 4, "RGBA8, tightly packed");
         assert_eq!(
             atlas.len(),
-            62,
-            "upstream's 53 entries plus fuel, hotel, bank, atm, the four vehicle mode sprites and family"
+            67,
+            "upstream's 53 entries plus fuel, hotel, bank, atm, the four vehicle mode sprites, family and the five safety icons"
         );
         assert_eq!(atlas.dark_v_offset(), 0.5, "two equal halves");
     }
@@ -444,6 +444,22 @@ mod tests {
     fn an_unknown_name_misses_rather_than_returning_a_neighbour() {
         assert!(atlas().get("not_an_icon").is_none());
         assert!(atlas().get("").is_none());
+    }
+
+    /// Every safety kind the `safety-points` layer draws resolves to its own icon, inside the
+    /// light half, so the safety overlay never draws a neighbouring rect or nothing.
+    #[test]
+    fn every_safety_kind_resolves_to_its_own_sprite() {
+        let atlas = atlas();
+        let dv = atlas.dark_v_offset();
+        let mut seen = Vec::new();
+        for kind in ["speed_camera", "alpr", "surveillance", "stop_sign", "traffic_signals"] {
+            let sprite = atlas.get(kind).unwrap_or_else(|| panic!("`{kind}` has no sprite"));
+            assert!(sprite.uv.v1 <= dv, "`{kind}` strays into the dark half");
+            assert!((sprite.width_dp - 19.0).abs() < 1e-6, "`{kind}` is {} Dp", sprite.width_dp);
+            assert!(!seen.contains(&sprite.uv.u0.to_bits()), "`{kind}` shares a rect");
+            seen.push(sprite.uv.u0.to_bits());
+        }
     }
 
     /// A sheet that will not decode must leave an atlas that answers every lookup with

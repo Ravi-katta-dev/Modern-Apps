@@ -126,6 +126,7 @@ fn every_authored_layer_a_flat_layer_names_exists() {
         "landuse_swimming_pool",
         "landuse_residential",
         "landuse_commercial",
+        "safety",
     ];
     for layer in layers() {
         if APP_ONLY.contains(&layer.authored.as_str()) {

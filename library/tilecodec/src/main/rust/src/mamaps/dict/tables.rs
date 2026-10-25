@@ -35,6 +35,7 @@ pub const LAYERS: &[&str] = &[
     "transit",
     "traffic",
     "junction",
+    "safety",
 ];
 
 pub const LAYER_LANDTYPE: u8 = 0;
@@ -61,6 +62,11 @@ pub const LAYER_TRAFFIC: u8 = 7;
 /// built or shipped — there is no deployed reader to refuse. Any layer appended after a v7
 /// archive exists must bump the format, the way v4 did for `traffic`.
 pub const LAYER_JUNCTION: u8 = 8;
+/// One `GEOM_POINT` per OSM safety node (speed/red-light cameras, ALPR, surveillance, stop
+/// signs, traffic signals). Excluded from the basemap style: it draws only when the safety
+/// overlay is enabled. Archives built before it still open (prefix rule in
+/// `check_matches_schema`) and just carry no safety features.
+pub const LAYER_SAFETY: u8 = 9;
 
 /// Every `kind` value the schema can emit, id 1 upward. Index 0 is [`NONE`].
 ///
@@ -228,6 +234,12 @@ pub const KINDS: &[&str] = &[
     "orchard",
     "vineyard",
     "quarry",
+    // safety. Names match `osm_ingest::safety` kinds and the renderer's sprite names.
+    "speed_camera",
+    "alpr",
+    "surveillance",
+    "stop_sign",
+    "traffic_signals",
 ];
 
 /// Every `kind_detail` value, id 1 upward. Index 0 is [`NONE`].

@@ -4,7 +4,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import com.vayunmathur.maps.ui.RoadsLayer
-import com.vayunmathur.maps.ui.SafetyLayer
 import com.vayunmathur.maps.ui.SatelliteLayer
 import com.vayunmathur.maps.ui.TransitStopsLayer
 import com.vayunmathur.maps.util.OfflineRouterLifecycle
@@ -25,17 +24,16 @@ import kotlinx.coroutines.withContext
  * [com.vayunmathur.library.map.UserPuck] and [com.vayunmathur.library.map.RouteOverlay]).
  *
  * What is still Compose here draws no pins, so none of it lags a pan: satellite imagery, and the
- * roads/safety/transit-stop overlays that remain **no-ops** until the renderer grows a vector
+ * roads/transit-stop overlays that remain **no-ops** until the renderer grows a vector
  * source-layer API (reported to lead — symbol-renderer owns that). The basemap draws its own road
  * network and ambient POIs regardless; POI taps arrive as `MapClick.poi`.
  *
- * Traffic is not here: the renderer draws the baked per-component layer, coloured from a table
- * [MapSurface] resolves from the theme and pushes in, gated by the traffic toggle.
+ * Traffic and safety are not here: the renderer draws both baked layers, gated by their
+ * toggles through `LayerOptions` in [MapSurface].
  */
 @Composable
 fun MapLayers(
     satelliteEnabled: Boolean = false,
-    safetyEnabled: Boolean = false,
     transitEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
@@ -54,10 +52,6 @@ fun MapLayers(
 
     // Our own road rendering — no-op until the renderer can draw vector source-layers.
     RoadsLayer()
-
-    // Safety / road-furniture layer. Gated on the toggle; no-op until the renderer can
-    // draw vector source-layers.
-    SafetyLayer(safetyEnabled)
 
     if (transitEnabled) {
         // Baked GTFS stop pins. No-op until the renderer can draw vector source-layers;

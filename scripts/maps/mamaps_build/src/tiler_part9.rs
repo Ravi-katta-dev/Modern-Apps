@@ -18,7 +18,7 @@ mod tests_part9 {
         use tilecodec::mamaps::dict::LAYERS;
         // Eight content layers: landtype..junction minus transit, whose geometry
         // comes from a GTFS export the fixture path does not carry.
-        let layers: [(u8, Class, Geometry); 8] = [
+        let layers: [(u8, Class, Geometry); 9] = [
             (
                 dict::LAYER_LANDTYPE,
                 Class::area(dict::LAYER_LANDTYPE, crate::schema::kind("lake"), 0),
@@ -59,8 +59,13 @@ mod tests_part9 {
                 crate::schema::junction::junction_class(),
                 Geometry::Lines(vec![vec![(-120.0, 35.0), (-119.9996, 35.0004)]]),
             ),
+            (
+                dict::LAYER_SAFETY,
+                crate::schema::safety::classify(&[("highway", "stop")][..]).expect("stop"),
+                Geometry::Points(vec![(-120.0, 35.0)]),
+            ),
         ];
-        assert_eq!(LAYERS.len(), 9, "nine layers in the dictionary, eight tiled here");
+        assert_eq!(LAYERS.len(), 10, "ten layers in the dictionary, nine tiled here");
         let mut seen = std::collections::BTreeSet::new();
         for (layer_id, class, geometry) in layers {
             let feature = Feature {
