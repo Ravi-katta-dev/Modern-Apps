@@ -218,7 +218,6 @@ pub fn prepare_routing(
         {
             let entry = scratch.get_entry(node);
             entry.g_fwd = t_actual;
-            entry.g_bwd = t_actual;
         }
         let n_data = g.get_node(node);
         let h = heuristic_time_10ms(g, n_data.lat_e7, n_data.lon_e7, end.proj_lat, end.proj_lon, mode);
@@ -417,20 +416,27 @@ pub fn perform_search_loop(
     let mut best_total = u32::MAX;
     while !heap.empty() && ctx.iterations < 25_000_000 {
         ctx.iterations += 1;
-        let u = heap.pop();
+        let (score, u) = heap.pop();
 
         let u_cost = scratch.get_entry(u).g_fwd;
         if u >= g.node_count {
             continue;
         }
         let n_u = g.node(u);
+        let h_u = heuristic_time_10ms(
+            g, n_u.lat_e7, n_u.lon_e7, ctx.end.proj_lat, ctx.end.proj_lon, mode,
+        );
+        // A node is re-pushed every time its cost improves, so older entries for it
+        // linger in the heap. The fresh entry pops first and already expanded the
+        // node at this same cost, so expanding a stale one again finds nothing new.
+        if score != u_cost.wrapping_add(h_u) {
+            continue;
+        }
 
         // `f` is a lower bound on any route through `u`, and the heap pops in
         // non-decreasing `f` order, so once it cannot beat a completed route
         // nothing left can.
-        let f_u = u_cost.saturating_add(heuristic_time_10ms(
-            g, n_u.lat_e7, n_u.lon_e7, ctx.end.proj_lat, ctx.end.proj_lon, mode,
-        ));
+        let f_u = u_cost.saturating_add(h_u);
         if f_u >= best_total {
             break;
         }
@@ -471,7 +477,6 @@ pub fn perform_search_loop(
                 let entry_v = scratch.get_entry(v);
                 if new_g < entry_v.g_fwd {
                     entry_v.g_fwd = new_g;
-                    entry_v.g_bwd = new_g;
                     entry_v.p_fwd = u;
                     true
                 } else {

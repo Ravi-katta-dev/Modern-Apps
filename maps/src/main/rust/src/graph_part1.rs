@@ -70,22 +70,16 @@ pub struct Graph {
     elevation: *const u8,
 
     /// v7 blocked views, parsed (not inflated) at load. `None` on the v6 path,
-    /// where the raw pointers above serve directly. The unpacked bytes live in
-    /// the [`Graph::unpacked`] caches below on first use.
+    /// where the raw pointers above serve directly.
+    ///
+    /// Each view inflates and keeps a block (4096 records) the first time a
+    /// record in it is read. A route only touches the blocks along its search
+    /// frontier, whereas inflating whole sections up front meant ~10 GiB of heap
+    /// for the world pack on the first route: a multi-minute stall, then an OOM
+    /// kill on an 8 GB phone.
     nodes_view: Option<BlockedView>,
     edges_view: Option<BlockedView>,
     elevation_view: Option<BlockedView>,
-
-    /// Lazily inflated v7 sections, one per blocked file. Empty (and the raw
-    /// pointers above null) on the v6 path.
-    ///
-    /// Full-section inflate on first use rather than a per-block cache: routing
-    /// touches the whole graph anyway, so steady-state memory equals the v6
-    /// resident set and the hot accessors keep their pointer arithmetic. The
-    /// cost is a one-time inflate per section on first route, not per lookup.
-    unpacked_nodes: std::sync::OnceLock<Vec<u8>>,
-    unpacked_edges: std::sync::OnceLock<Vec<u8>>,
-    unpacked_elevation: std::sync::OnceLock<Vec<u8>>,
 
     // Derived cost tables (computed in `load`, matching the C++ `init`).
     pub lon_to_mm_scale: [u32; 4096],
@@ -102,11 +96,16 @@ pub struct Graph {
 pub(crate) struct BlockedView {
     record_len: usize,
     records_per_block: u64,
+    /// `log2(records_per_block)` when it is a power of two (always, for packs
+    /// the writer produces), so the hot lookup shifts instead of dividing.
+    block_shift: Option<u32>,
     unpacked_len: u64,
     /// Absolute file offsets of each block start, plus the file end.
     offsets: Vec<u64>,
     frames: *const u8,
-    frames_len: u64,
+    /// Inflated blocks, filled on first read. A block that fails to decode is
+    /// stored empty, so its records read as absent rather than retrying.
+    blocks: Box<[std::sync::OnceLock<Box<[u8]>>]>,
 }
 
 // Raw pointers into a mapping the graph owns: Send exactly like the tables.
@@ -155,27 +154,45 @@ impl BlockedView {
         Some(BlockedView {
             record_len,
             records_per_block,
+            block_shift: records_per_block
+                .is_power_of_two()
+                .then(|| records_per_block.trailing_zeros()),
             unpacked_len,
             offsets,
             frames: bytes.as_ptr(),
-            frames_len: bytes.len() as u64,
+            blocks: (0..block_count).map(|_| std::sync::OnceLock::new()).collect(),
         })
     }
 
-    /// Inflate every block and concatenate, verifying the unpacked length.
-    /// Called once per section via the graph's `OnceLock`s.
-    pub(crate) fn unpack(&self) -> Option<Vec<u8>> {
-        let bytes = unsafe { std::slice::from_raw_parts(self.frames, self.frames_len as usize) };
-        let parsed = tilecodec::blocked::Blocked::parse(bytes).ok()?;
-        let mut cache = tilecodec::blocked::BlockCache::new(0);
-        let mut out = Vec::with_capacity(self.unpacked_len as usize);
-        for b in 0..parsed.block_count() {
-            out.extend_from_slice(cache.get(&parsed, b).ok()?);
+    /// The `record_len` bytes of record `id`, or `None` when it is out of range
+    /// or its block does not decode.
+    #[inline]
+    pub(crate) fn record(&self, id: u64) -> Option<&[u8]> {
+        let (b, i) = match self.block_shift {
+            Some(s) => (id >> s, id & (self.records_per_block - 1)),
+            None => (id / self.records_per_block, id % self.records_per_block),
+        };
+        let block = self.blocks.get(b as usize)?.get_or_init(|| self.inflate(b as usize));
+        let at = i as usize * self.record_len;
+        block.get(at..at + self.record_len)
+    }
+
+    /// Decode block `b`'s zstd frame, checking it against the size the header
+    /// implies. Empty on any failure.
+    #[cold]
+    fn inflate(&self, b: usize) -> Box<[u8]> {
+        let block_bytes = self.records_per_block * self.record_len as u64;
+        let want = block_bytes.min(self.unpacked_len.saturating_sub(b as u64 * block_bytes)) as usize;
+        let (start, end) = (self.offsets[b] as usize, self.offsets[b + 1] as usize);
+        let frame = unsafe { std::slice::from_raw_parts(self.frames.add(start), end - start) };
+        let mut out = Vec::with_capacity(want);
+        let decoded = ruzstd::decoding::StreamingDecoder::new(frame)
+            .ok()
+            .and_then(|mut d| std::io::Read::read_to_end(&mut d, &mut out).ok());
+        if decoded.is_none() || out.len() != want {
+            return Box::default();
         }
-        if out.len() as u64 != self.unpacked_len {
-            return None;
-        }
-        Some(out)
+        out.into_boxed_slice()
     }
 }
 

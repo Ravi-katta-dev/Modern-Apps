@@ -5,6 +5,7 @@
 //! casts are reproduced exactly to keep routing output bit-identical.
 
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
 
 use crate::graph::{
     Graph, DEG_TO_RAD, DRIVING, INVALID_EDGE, LIVING_STREET, MAX_DRIVING_KMH, MOTORWAY,
@@ -12,7 +13,33 @@ use crate::graph::{
 };
 
 /// Live traffic snapshot: global edge id -> speed (km/h). 0 means "unknown".
-pub type TrafficSpeeds = HashMap<u64, u8>;
+/// Probed once per relaxed edge while driving, so SipHash is replaced by a
+/// single multiply.
+pub type TrafficSpeeds = HashMap<u64, u8, BuildHasherDefault<EdgeIdHasher>>;
+
+/// Fibonacci hash for `u64` edge ids. The multiply spreads entropy into the high
+/// bits, which hashbrown uses for its control bytes.
+#[derive(Default)]
+pub struct EdgeIdHasher(u64);
+
+impl Hasher for EdgeIdHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(8) ^ u64::from(b)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        }
+    }
+
+    #[inline]
+    fn write_u64(&mut self, n: u64) {
+        self.0 = (self.0 ^ n).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
 
 /// Bits of an `Edge::type_` byte that carry the OSM road class. The high bits
 /// are flags — [`REVERSE_GEOMETRY_FLAG`] today — so every consumer that treats

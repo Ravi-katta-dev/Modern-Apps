@@ -3747,6 +3747,7 @@ dependencies = [
  "flate2",
  "jni",
  "libc",
+ "ruzstd",
  "tilecodec",
 ]
 

@@ -21,28 +21,21 @@ impl Graph {
         }
     }
 
-    /// A node record out of a v7 blocked section: inflate once (whole section,
-    /// cached), then plain indexing. Steady-state memory equals the v6
-    /// resident set; the cost is a one-time inflate per section on first
-    /// route, not per lookup — which is what keeps the A* hot loop free of
-    /// locks and branches past this one.
-    #[cold]
+    /// A node record out of a v7 blocked section; inflates its block on first
+    /// read. Not `#[cold]`: the shipped archive is v7, so this is the A* hot path.
+    #[inline]
     fn blocked_node(&self, view: &BlockedView, id: u32) -> NodeMaster {
-        let bytes = self.unpacked_nodes.get_or_init(|| view.unpack().unwrap_or_default());
-        let at = id as usize * 12;
-        if at + 12 > bytes.len() {
+        let Some(r) = view.record(u64::from(id)).filter(|r| r.len() >= 12) else {
             return NodeMaster {
                 lat_e7: 0,
                 lon_e7: 0,
                 edge_ptr: 0,
             };
-        }
+        };
         NodeMaster {
-            lat_e7: i32::from_le_bytes(bytes[at..at + 4].try_into().expect("4 bytes")),
-            lon_e7: i32::from_le_bytes(bytes[at + 4..at + 8].try_into().expect("4 bytes")),
-            edge_ptr: u64::from(u32::from_le_bytes(
-                bytes[at + 8..at + 12].try_into().expect("4 bytes"),
-            )),
+            lat_e7: i32::from_le_bytes([r[0], r[1], r[2], r[3]]),
+            lon_e7: i32::from_le_bytes([r[4], r[5], r[6], r[7]]),
+            edge_ptr: u64::from(u32::from_le_bytes([r[8], r[9], r[10], r[11]])),
         }
     }
 
@@ -85,18 +78,14 @@ impl Graph {
         unsafe { read_at::<i16>(self.elevation, id as usize) }
     }
 
-    /// An elevation sample out of a v7 blocked section. Same lazy-inflate
-    /// discipline as [`Graph::blocked_node`].
+    /// An elevation sample out of a v7 blocked section; inflates its block on
+    /// first read.
     #[cold]
     fn blocked_elevation(&self, view: &BlockedView, id: u32) -> i16 {
-        let bytes = self
-            .unpacked_elevation
-            .get_or_init(|| view.unpack().unwrap_or_default());
-        let at = id as usize * 2;
-        if at + 2 > bytes.len() {
-            return 0;
+        match view.record(u64::from(id)) {
+            Some(&[a, b, ..]) => i16::from_le_bytes([a, b]),
+            _ => 0,
         }
-        i16::from_le_bytes(bytes[at..at + 2].try_into().expect("2 bytes"))
     }
 
     /// `[start, end)` of node `id`'s outgoing edges in `edges.bin`. `id` must be a
@@ -164,8 +153,7 @@ impl Graph {
     }
 
     /// One edge record, by value. v6 reads the mapped record directly; v7
-    /// indexes the lazily inflated section. Same lazy-inflate discipline as
-    /// [`Graph::blocked_node`].
+    /// reads it out of its lazily inflated block.
     #[inline]
     fn edge_rec(&self, _source: u32, idx: u64) -> EdgeRec {
         if let Some(view) = &self.edges_view {
@@ -174,26 +162,23 @@ impl Graph {
         unsafe { read_at::<EdgeRec>(self.edges, idx as usize) }
     }
 
-    /// An edge record out of a v7 blocked section.
-    #[cold]
+    /// An edge record out of a v7 blocked section. Hot path, like
+    /// [`Graph::blocked_node`].
+    #[inline]
     fn blocked_edge(&self, view: &BlockedView, idx: u64) -> EdgeRec {
-        let bytes = self
-            .unpacked_edges
-            .get_or_init(|| view.unpack().unwrap_or_default());
-        let at = idx as usize * 7;
-        if at + 7 > bytes.len() {
-            return EdgeRec {
+        match view.record(idx) {
+            Some(&[d0, d1, x0, x1, x2, type_, speed_limit, ..]) => EdgeRec {
+                target_delta: i16::from_le_bytes([d0, d1]),
+                dist: [x0, x1, x2],
+                type_,
+                speed_limit,
+            },
+            _ => EdgeRec {
                 target_delta: 0,
                 dist: [0, 0, 0],
                 type_: 0,
                 speed_limit: 0,
-            };
-        }
-        EdgeRec {
-            target_delta: i16::from_le_bytes([bytes[at], bytes[at + 1]]),
-            dist: [bytes[at + 2], bytes[at + 3], bytes[at + 4]],
-            type_: bytes[at + 5],
-            speed_limit: bytes[at + 6],
+            },
         }
     }
 

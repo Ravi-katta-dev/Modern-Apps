@@ -344,4 +344,24 @@ mod archive_tests {
         assert_eq!(g.edge_count, 0, "the meta's E survives the container");
         std::fs::remove_file(&path).ok();
     }
+
+    /// Blocks inflate independently, so every record must land in the right
+    /// block at the right offset, including across boundaries, in the short last
+    /// block, and with a non-power-of-two blocking that takes the divide path.
+    #[test]
+    fn a_blocked_view_reads_every_record_across_block_boundaries() {
+        let recs: Vec<u8> = (0..23u8).flat_map(|i| [i, i.wrapping_mul(7), !i]).collect();
+        for per_block in [4u32, 5] {
+            let bytes = tilecodec::blocked::write_blocked_with(&recs, 3, per_block);
+            let view = BlockedView::parse(&bytes).expect("blocked section parses");
+            for i in (0..23u8).rev() {
+                assert_eq!(
+                    view.record(u64::from(i)),
+                    Some(&[i, i.wrapping_mul(7), !i][..]),
+                    "record {i} with {per_block} per block"
+                );
+            }
+            assert_eq!(view.record(23), None, "past the end with {per_block} per block");
+        }
+    }
 }

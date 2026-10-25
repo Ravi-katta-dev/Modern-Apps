@@ -51,8 +51,9 @@ impl RadixHeap {
         self.count += 1;
     }
 
+    /// Pops the minimum entry as `(score, node_id)`.
     #[inline]
-    pub fn pop(&mut self) -> u32 {
+    pub fn pop(&mut self) -> (u32, u32) {
         if self.buckets[0].is_empty() {
             // Lowest non-empty bucket above 0 holds the current minimum; drain it
             // down against the new last_pop_value (standard radix-heap advance).
@@ -71,7 +72,7 @@ impl RadixHeap {
 
         let node = self.buckets[0].pop().expect("bucket 0 non-empty after refill");
         self.count -= 1;
-        node.id
+        (node.score, node.id)
     }
 
     pub fn clear(&mut self) {
@@ -90,25 +91,17 @@ impl RadixHeap {
 
 // --- Routing scratchpad ---
 
+/// Kept to 8 bytes so a long search touches as few cache lines as possible.
 #[derive(Clone, Copy)]
 pub struct Entry {
-    pub node_id: u32,
     pub g_fwd: u32,
-    pub g_bwd: u32,
     pub p_fwd: u32,
-    #[allow(dead_code)]
-    pub p_bwd: u32,
 }
 
 impl Entry {
-    /// Freshly-allocated pages are memset to 0xFF, matching the C++ page
-    /// initializer.
     const FRESH: Entry = Entry {
-        node_id: 0xFFFF_FFFF,
         g_fwd: 0xFFFF_FFFF,
-        g_bwd: 0xFFFF_FFFF,
         p_fwd: 0xFFFF_FFFF,
-        p_bwd: 0xFFFF_FFFF,
     };
 }
 
@@ -152,10 +145,6 @@ impl RoutingScratchpad {
         }
 
         let page = self.directory[dir_idx].as_mut().unwrap();
-        let e = &mut page[page_offset];
-        if e.node_id == 0xFFFF_FFFF {
-            e.node_id = node_id;
-        }
-        e
+        &mut page[page_offset]
     }
 }

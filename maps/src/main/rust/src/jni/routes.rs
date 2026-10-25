@@ -3,7 +3,7 @@
 //! traffic-prefetch reverse callback, and the walk-leg road snapper the
 //! transit planner borrows. Pure move out of `lib.rs`; no logic changes.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use jni::objects::{JObject, JString, JValue};
@@ -32,7 +32,7 @@ pub(crate) fn graph() -> Option<Arc<Graph>> {
 /// written by `updateTrafficNative`.
 pub(crate) fn traffic_speeds() -> &'static RwLock<TrafficSpeeds> {
     static S: OnceLock<RwLock<TrafficSpeeds>> = OnceLock::new();
-    S.get_or_init(|| RwLock::new(HashMap::new()))
+    S.get_or_init(|| RwLock::new(TrafficSpeeds::default()))
 }
 
 /// Reusable A* working sets, serialized so only one route runs at a time.
@@ -55,6 +55,15 @@ fn route_state() -> &'static Mutex<RouteState> {
 // Traffic prefetch reverse-callback
 // ---------------------------------------------------------------------------
 
+/// The 1° traffic square containing `(lat_e7, lon_e7)`, packed as Kotlin's
+/// `packedSquare`.
+fn traffic_square(lat_e7: i32, lon_e7: i32) -> (i32, i32, u32) {
+    let lat_idx = (lat_e7 as f64 * 1e-7).floor() as i32;
+    let lon_idx = (lon_e7 as f64 * 1e-7).floor() as i32;
+    let packed = (((lat_idx + 360) as u32) << 16) | (lon_idx + 720) as u32;
+    (lat_idx, lon_idx, packed)
+}
+
 /// Request the traffic square containing `(lat_e7, lon_e7)` from Kotlin if it
 /// hasn't been requested yet. Mirrors the C++ `ensure_traffic_loaded`.
 pub(crate) fn ensure_traffic_loaded(
@@ -64,9 +73,7 @@ pub(crate) fn ensure_traffic_loaded(
     lon_e7: i32,
     force_async: bool,
 ) {
-    let lat_idx = (lat_e7 as f64 * 1e-7).floor() as i32;
-    let lon_idx = (lon_e7 as f64 * 1e-7).floor() as i32;
-    let packed = (((lat_idx + 360) as u32) << 16) | (lon_idx + 720) as u32;
+    let (lat_idx, lon_idx, packed) = traffic_square(lat_e7, lon_e7);
 
     {
         let mut meta = traffic_meta().lock().unwrap();
@@ -157,9 +164,20 @@ pub extern "system" fn Java_com_vayunmathur_maps_util_OfflineRouter_findRouteNat
         let RouteState { scratch, heap } = &mut *state;
 
         // prepare + search need the JNI env for the driving traffic prefetch.
+        // The search asks on every expansion, but a square once requested stays
+        // requested, so only the first ask per square needs the global lock.
         let ctx = {
+            let mut last_square = u32::MAX;
+            let mut seen_squares: HashSet<u32> = HashSet::new();
             let mut ensure = |lat_e7: i32, lon_e7: i32| {
-                ensure_traffic_loaded(&mut *env, &thiz, lat_e7, lon_e7, false);
+                let (_, _, square) = traffic_square(lat_e7, lon_e7);
+                if square == last_square {
+                    return;
+                }
+                last_square = square;
+                if seen_squares.insert(square) {
+                    ensure_traffic_loaded(&mut *env, &thiz, lat_e7, lon_e7, false);
+                }
             };
 
             let mut ctx = match prepare_routing(

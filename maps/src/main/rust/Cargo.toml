@@ -24,6 +24,8 @@ flate2.workspace = true
 # crate's own rule. Path dep, not workspace: tilecodec is detached (see its
 # Cargo.toml), the same way library/map's Rust consumes it.
 tilecodec = { path = "../../../../library/tilecodec/src/main/rust" }
+# Per-block inflate of v7 graph sections (the same pure-Rust decoder tilecodec uses).
+ruzstd.workspace = true
 
 # Test-only writer access: device tests synthesize v7 blocked payloads with
 # `write_blocked`. Same package id, so cargo unifies features for the test

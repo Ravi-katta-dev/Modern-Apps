@@ -32,7 +32,7 @@ use std::fmt::Write as _;
 use std::io::Write as _;
 
 use offlinerouter::geometry::{accurate_dist_mm, TrafficSpeeds};
-use offlinerouter::graph::{get_pt_at, Graph, LatLon, BICYCLE, DRIVING, NO_NAME, WALK};
+use offlinerouter::graph::{archive_path, get_pt_at, Graph, LatLon, BICYCLE, DRIVING, NO_NAME, WALK};
 use offlinerouter::routing::{perform_search_loop, prepare_routing, reconstruct_path};
 use offlinerouter::state::{RadixHeap, RoutingScratchpad};
 
@@ -88,7 +88,7 @@ fn need(args: &[String], name: &str) -> Result<String, String> {
 }
 
 fn load(dir: &str) -> Result<Graph, String> {
-    Graph::load(dir).ok_or_else(|| {
+    Graph::load(dir).or_else(|| Graph::load_archive(&archive_path(dir))).ok_or_else(|| {
         format!("cannot load a graph from {dir} (missing/short files, or a bad metadata.bin header)")
     })
 }
@@ -206,7 +206,7 @@ fn report(args: &[String]) -> Result<bool, String> {
 
     let g = load(&dir)?;
     let pairs = read_pairs(&pairs_path)?;
-    let speeds: TrafficSpeeds = HashMap::new();
+    let speeds = TrafficSpeeds::default();
     let mut scratch = RoutingScratchpad::new();
     let mut heap = RadixHeap::new();
 
@@ -585,7 +585,7 @@ fn bench(args: &[String]) -> Result<bool, String> {
     let load_ms = load_started.elapsed().as_secs_f64() * 1e3;
 
     let pairs = read_pairs(&pairs_path)?;
-    let speeds: TrafficSpeeds = HashMap::new();
+    let speeds = TrafficSpeeds::default();
     let mut scratch = RoutingScratchpad::new();
     let mut heap = RadixHeap::new();
 
