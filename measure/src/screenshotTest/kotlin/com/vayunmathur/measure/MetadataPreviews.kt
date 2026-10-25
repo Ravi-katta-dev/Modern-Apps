@@ -34,86 +34,94 @@ import com.vayunmathur.measure.ui.SettingsContent
 /** Desktop-wide (1280dp >= 840dp), so the letterboxed expanded layout renders. */
 private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
 
-@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
-@Composable
-fun Preview1Compass() {
-    DynamicTheme {
-        CompassContent(
-            state = CompassUiState(
-                azimuthTrueDeg = 41.0,
-                azimuthMagDeg = 54.0,
-                declinationDeg = -13.0,
-                hasLocation = true,
-            ),
-            actions = CompassActions.Noop,
-        )
-    }
-}
-
-@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
-@Composable
-fun Preview2Level() {
-    DynamicTheme {
-        LevelContent(
-            state = LevelUiState(pitchDeg = 0.2, rollDeg = -0.1, isFlat = true),
-            actions = LevelActions.Noop,
-        )
-    }
-}
-
-@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
-@Composable
-fun Preview3Ruler() {
-    DynamicTheme {
-        RulerContent(state = RulerUiState(pixelsPerMm = 9.5f))
-    }
-}
-
-@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
-@Composable
-fun Preview4ArMeasure() {
-    DynamicTheme {
-        ArMeasureContent(
-            state = ArMeasureUiState(
-                quality = TrackingQuality.Good,
-                hasPlane = true,
-                cameraPermissionGranted = true,
-                anchors = listOf(
-                    Anchor(1, 0.25, 0.62, 0.0, onPlane = true),
-                    Anchor(2, 0.72, 0.55, 0.0, onPlane = true),
+class PhonePreviews {
+    @PreviewTest
+    @Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
+    @Composable
+    fun Preview1Compass() {
+        DynamicTheme {
+            CompassContent(
+                state = CompassUiState(
+                    azimuthTrueDeg = 41.0,
+                    azimuthMagDeg = 54.0,
+                    declinationDeg = -13.0,
+                    hasLocation = true,
                 ),
-                distanceM = 2.436,
-            ),
-            actions = ArMeasureActions.Noop,
-        )
+                actions = CompassActions.Noop,
+            )
+        }
     }
-}
 
-@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
-@Composable
-fun Preview5Saved() {
-    DynamicTheme {
-        SavedMeasurementsContent(
-            state = SavedUiState(
-                measurements = listOf(
-                    SavedMeasurement(1, "Kitchen wall", MeasurementKind.Distance, 3.42, 0L),
-                    SavedMeasurement(2, "Rug", MeasurementKind.Area, 4.18, 0L),
-                    SavedMeasurement(3, "Desk depth", MeasurementKind.Distance, 0.735, 0L),
+    @PreviewTest
+    @Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
+    @Composable
+    fun Preview2Level() {
+        DynamicTheme {
+            LevelContent(
+                state = LevelUiState(pitchDeg = 0.2, rollDeg = -0.1, isFlat = true),
+                actions = LevelActions.Noop,
+            )
+        }
+    }
+
+    @PreviewTest
+    @Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
+    @Composable
+    fun Preview3Ruler() {
+        DynamicTheme {
+            RulerContent(state = RulerUiState(pixelsPerMm = 9.5f))
+        }
+    }
+
+    @PreviewTest
+    @Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
+    @Composable
+    fun Preview4ArMeasure() {
+        DynamicTheme {
+            ArMeasureContent(
+                state = ArMeasureUiState(
+                    quality = TrackingQuality.Good,
+                    hasPlane = true,
+                    cameraPermissionGranted = true,
+                    anchors = listOf(
+                        Anchor(1, 0.25, 0.62, 0.0, onPlane = true),
+                        Anchor(2, 0.72, 0.55, 0.0, onPlane = true),
+                    ),
+                    distanceM = 2.436,
                 ),
-            ),
-            actions = SavedActions.Noop,
-        )
+                actions = ArMeasureActions.Noop,
+            )
+        }
     }
-}
 
-@Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
-@Composable
-fun Preview6Settings() {
-    DynamicTheme {
-        SettingsContent(
-            state = SettingsUiState(levelCalibrated = true),
-            actions = SettingsActions.Noop,
-        )
+    @PreviewTest
+    @Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
+    @Composable
+    fun Preview5Saved() {
+        DynamicTheme {
+            SavedMeasurementsContent(
+                state = SavedUiState(
+                    measurements = listOf(
+                        SavedMeasurement(1, "Kitchen wall", MeasurementKind.Distance, 3.42, 0L),
+                        SavedMeasurement(2, "Rug", MeasurementKind.Area, 4.18, 0L),
+                        SavedMeasurement(3, "Desk depth", MeasurementKind.Distance, 0.735, 0L),
+                    ),
+                ),
+                actions = SavedActions.Noop,
+            )
+        }
+    }
+
+    @PreviewTest
+    @Preview(showBackground = true, widthDp = 412, heightDp = 915, group = "phone")
+    @Composable
+    fun Preview6Settings() {
+        DynamicTheme {
+            SettingsContent(
+                state = SettingsUiState(levelCalibrated = true),
+                actions = SettingsActions.Noop,
+            )
+        }
     }
 }
 
