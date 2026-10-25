@@ -5,41 +5,41 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.tv.material3.Button
-import androidx.tv.material3.Checkbox
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
+import com.vayunmathur.library.tv.TvButton
+import com.vayunmathur.library.tv.TvDialog
+import com.vayunmathur.library.tv.TvInitialFocus
+import com.vayunmathur.library.tv.TvListRow
+import com.vayunmathur.library.tv.TvScreenHeader
+import com.vayunmathur.library.tv.TvTextField
+import com.vayunmathur.library.tv.tvContentPadding
+import com.vayunmathur.library.ui.IconCheck
+import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.ui.VideoInfo
 import com.vayunmathur.youpipe.util.YouPipeViewModel
 
 /**
- * TV add-to-playlist: staged membership checkboxes as a focusable list.
+ * TV add-to-playlist: staged membership as a focusable list with a confirm dialog.
  *
- * The phone stages membership in an `AddToListDialog` and applies on OK. Same staging here —
- * each playlist row is a focusable `Surface` with a checkbox (CENTER toggles membership), and
- * the OK/Cancel rows at the bottom apply or drop the stage. BACK dismisses without applying,
- * via the overlay-dismiss-first rule. The "new playlist" field only opens its text entry on
- * explicit focus + IME action, never autofocused.
+ * The phone stages membership in an `AddToListDialog` and applies on OK. Same staging
+ * here — each playlist row toggles membership on CENTER — and OK/Cancel live in the
+ * header. The new-playlist field is a [TvTextField] (IME only on CENTER). BACK pops
+ * without applying.
  */
 @Composable
 fun TvAddToPlaylistPage(
@@ -59,17 +59,15 @@ fun TvAddToPlaylistPage(
         // Same fallback as the phone dialog: the video state went away (rotation, process
         // death) so there is nothing to add — back out instead of staging against nothing.
         TvInitialFocus(closeFocus)
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(48.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Text(text = stringResource(R.string.add_to_playlist), style = MaterialTheme.typography.headlineSmall)
-            Button(onClick = { backStack.pop() }, modifier = Modifier.focusRequester(closeFocus)) {
-                Text(stringResource(R.string.action_close))
-            }
-        }
+        TvScreenHeader(
+            title = stringResource(R.string.add_to_playlist),
+            actions = {
+                TvButton(
+                    text = stringResource(R.string.action_close),
+                    onClick = { backStack.pop() },
+                )
+            },
+        )
         return
     }
 
@@ -81,7 +79,6 @@ fun TvAddToPlaylistPage(
     }
     var staged by remember(membership) { mutableStateOf(membership) }
     var newName by remember { mutableStateOf("") }
-    var nameOpen by remember { mutableStateOf(false) }
     val watchLaterLabel = stringResource(R.string.playlist_watch_later)
 
     fun confirm() {
@@ -101,82 +98,74 @@ fun TvAddToPlaylistPage(
     }
 
     TvInitialFocus(closeFocus)
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(horizontal = 48.dp, vertical = 32.dp),
-    ) {
-        Text(text = stringResource(R.string.add_to_playlist), style = MaterialTheme.typography.headlineSmall)
+    Column(Modifier.fillMaxSize()) {
+        TvScreenHeader(
+            title = stringResource(R.string.add_to_playlist),
+            actions = {
+                TvButton(
+                    text = stringResource(UiR.string.ok),
+                    onClick = ::confirm,
+                    primary = true,
+                )
+                TvButton(
+                    text = stringResource(UiR.string.cancel),
+                    onClick = { backStack.pop() },
+                )
+            },
+        )
         LazyColumn(
-            modifier = Modifier.weight(1f).padding(top = 16.dp),
+            state = rememberLazyListState(),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = tvContentPadding(top = 14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(playlists, key = { it.id }) { playlist ->
                 val checked = playlist.id in staged
-                Surface(
+                TvListRow(
+                    headline = if (playlist.mandatory) watchLaterLabel else playlist.name,
+                    trailing = if (checked) {
+                        { IconCheck() }
+                    } else {
+                        null
+                    },
+                    selected = checked,
                     onClick = {
                         staged = if (checked) staged - playlist.id else staged + playlist.id
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Row(
-                        Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(checked = checked, onCheckedChange = null)
-                        Text(
-                            text = if (playlist.mandatory) watchLaterLabel else playlist.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(start = 12.dp),
-                        )
-                    }
-                }
+                )
             }
             item(key = "new-playlist") {
-                Surface(
-                    onClick = { nameOpen = true },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(Modifier.padding(16.dp)) {
-                        Text(text = stringResource(R.string.new_playlist), style = MaterialTheme.typography.titleMedium)
-                        if (nameOpen) {
-                            androidx.compose.foundation.text.BasicTextField(
-                                value = newName,
-                                onValueChange = { newName = it },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                textStyle = MaterialTheme.typography.titleMedium.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                ),
-                            )
-                            val canCreate = newName.isNotBlank() &&
-                                allPlaylists.none { it.name == newName.trim() }
-                            Button(
-                                onClick = {
-                                    ypvm.playlistOps.createPlaylistAndAddVideo(newName.trim(), video)
-                                    backStack.pop()
-                                },
-                                enabled = canCreate,
-                                modifier = Modifier.padding(top = 8.dp),
-                            ) {
-                                Text(stringResource(R.string.new_playlist))
+                var nameOpen by remember { mutableStateOf(false) }
+                if (!nameOpen) {
+                    TvListRow(
+                        headline = stringResource(R.string.new_playlist),
+                        onClick = { nameOpen = true },
+                    )
+                } else {
+                    val canCreate = newName.isNotBlank() &&
+                        allPlaylists.none { it.name == newName.trim() }
+                    TvTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        placeholder = stringResource(R.string.label_playlist_name),
+                        onSubmit = {
+                            if (canCreate) {
+                                ypvm.playlistOps.createPlaylistAndAddVideo(newName.trim(), video)
+                                backStack.pop()
                             }
-                        }
-                    }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    TvButton(
+                        text = stringResource(R.string.new_playlist),
+                        onClick = {
+                            ypvm.playlistOps.createPlaylistAndAddVideo(newName.trim(), video)
+                            backStack.pop()
+                        },
+                        enabled = canCreate,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
                 }
-            }
-        }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.padding(top = 16.dp),
-        ) {
-            Button(onClick = ::confirm) {
-                Text(stringResource(android.R.string.ok))
-            }
-            Button(onClick = { backStack.pop() }, modifier = Modifier.focusRequester(closeFocus)) {
-                Text(stringResource(android.R.string.cancel))
             }
         }
     }

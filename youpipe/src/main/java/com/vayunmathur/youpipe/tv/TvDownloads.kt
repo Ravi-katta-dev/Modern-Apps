@@ -1,51 +1,46 @@
 package com.vayunmathur.youpipe.tv
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
-import androidx.tv.material3.Checkbox
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
-import com.vayunmathur.library.image.compose.AsyncImage
-import com.vayunmathur.library.image.ImageRequest
+import com.vayunmathur.library.tv.TvButton
+import com.vayunmathur.library.tv.TvEmptyState
+import com.vayunmathur.library.tv.TvInitialFocus
+import com.vayunmathur.library.tv.TvProgressStrip
+import com.vayunmathur.library.tv.TvRowCard
+import com.vayunmathur.library.tv.TvScreenHeader
+import com.vayunmathur.library.tv.TvShelf
+import com.vayunmathur.library.tv.tvContentPadding
 import com.vayunmathur.library.ui.CircularProgressIndicator
 import com.vayunmathur.library.ui.IconClose
 import com.vayunmathur.library.ui.IconDelete
+import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.youpipe.R
-import com.vayunmathur.youpipe.ui.videoRowState
 import com.vayunmathur.youpipe.util.DownloadManager
 import com.vayunmathur.youpipe.util.YouPipeViewModel
 
 /**
- * TV downloads: active downloads with cancel + completed downloads with D-pad multiselect.
- *
- * Mirrors the phone `DownloadedVideosPage` binding (activeDownloads + downloadedVideosByRecency)
- * as one focusable list — no expanded-width grid switch, a TV reports one window size.
- * Selection is checkboxes (same pattern as history); BACK clears first.
+ * TV downloads: active downloads with cancel + completed downloads as a grid, with D-pad
+ * multiselect. Mirrors the phone `DownloadedVideosPage` binding (activeDownloads +
+ * downloadedVideosByRecency). Selection deletes; BACK clears first.
  */
 @Composable
 fun TvDownloadsPage(
@@ -55,6 +50,7 @@ fun TvDownloadsPage(
     val downloadedVideos by ypvm.downloadedVideos.collectAsState()
     val activeDownloads by DownloadManager.activeDownloads.collectAsState()
     val downloads by ypvm.downloadedVideosByRecency.collectAsState()
+    val historyById = remember(downloadedVideos) { emptyMap<Long, Long>() }
     val context = LocalContext.current
     val firstFocus = remember { FocusRequester() }
 
@@ -66,29 +62,24 @@ fun TvDownloadsPage(
         selectedActiveIds = emptySet()
     }
 
+    val rows = rememberTvVideoRows(
+        videos = remember(downloads) { downloads.map { it.videoItem } },
+        ypvm = ypvm,
+        historyProgressMsById = historyById,
+    )
+
     TvInitialFocus(firstFocus)
-    val listState = rememberLazyListState()
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 48.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item(key = "downloads-title") {
-            Text(
-                text = if (isSelectionMode) {
-                    stringResource(R.string.selected_count, selectedIds.size + selectedActiveIds.size)
-                } else {
-                    stringResource(R.string.title_downloads)
-                },
-                style = MaterialTheme.typography.headlineSmall,
-            )
-        }
-        if (isSelectionMode) {
-            item(key = "downloads-actions") {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(
+    Column(Modifier.fillMaxSize()) {
+        TvScreenHeader(
+            title = if (isSelectionMode) {
+                stringResource(R.string.selected_count, (selectedIds.size + selectedActiveIds.size).toString())
+            } else {
+                stringResource(R.string.title_downloads)
+            },
+            actions = {
+                if (isSelectionMode) {
+                    TvButton(
+                        text = stringResource(UiR.string.delete),
                         onClick = {
                             selectedIds.forEach { id ->
                                 downloadedVideos.find { it.id == id }?.let { ypvm.deleteDownloadedVideo(it) }
@@ -99,109 +90,93 @@ fun TvDownloadsPage(
                             selectedIds = emptySet()
                             selectedActiveIds = emptySet()
                         },
-                    ) {
-                        IconDelete()
-                    }
-                    Button(
+                        icon = { IconDelete() },
+                    )
+                    TvButton(
+                        text = stringResource(UiR.string.cancel),
                         onClick = {
                             selectedIds = emptySet()
                             selectedActiveIds = emptySet()
                         },
-                    ) {
-                        IconClose()
-                    }
+                        icon = { IconClose() },
+                    )
                 }
-            }
-        }
-        items(activeDownloads.toList(), key = { (videoID, _) -> "active-$videoID" }) { (videoID, status) ->
-            val isSelected = videoID in selectedActiveIds
-            Surface(
-                onClick = {
-                    if (isSelectionMode) {
-                        selectedActiveIds = if (isSelected) selectedActiveIds - videoID else selectedActiveIds + videoID
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (isSelectionMode) {
-                        Checkbox(
-                            checked = isSelected,
-                            onCheckedChange = {
+            },
+        )
+        val activeList = remember(activeDownloads) { activeDownloads.toList() }
+        if (activeList.isNotEmpty()) {
+            // Active downloads: progress rows. Cancel lives in the header delete flow —
+            // long-press a row to select it, then delete cancels the download. No nested
+            // buttons: a D-pad cannot land "inside" a row.
+            TvShelf(title = stringResource(R.string.download)) {
+                items(
+                    activeList.size,
+                    key = { index -> "active-${activeList[index].first}" },
+                ) { index ->
+                    val (videoID, status) = activeList[index]
+                    val isSelected = videoID in selectedActiveIds
+                    TvRowCard(
+                        title = status.videoInfo.name,
+                        subtitle = "${(status.progress * 100).toInt()}%" +
+                            if (isSelected) "  •  ✓" else "",
+                        leading = {
+                            CircularProgressIndicator(
+                                progress = { status.progress.toFloat() },
+                                modifier = Modifier.size(40.dp),
+                            )
+                        },
+                        width = 420.dp,
+                        onClick = {
+                            if (isSelectionMode) {
                                 selectedActiveIds = if (isSelected) {
                                     selectedActiveIds - videoID
                                 } else {
                                     selectedActiveIds + videoID
                                 }
-                            },
-                        )
-                    }
-                    if (status.videoInfo.thumbnailURL.isNotEmpty()) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(status.videoInfo.thumbnailURL)
-                                .memoryCacheKey("dl-thumb-$videoID")
-                                .build(),
-                            contentDescription = null,
-                            modifier = Modifier.padding(end = 12.dp),
-                        )
-                    }
-                    Column(Modifier.weight(1f)) {
-                        Text(text = status.videoInfo.name, style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            text = "${(status.progress * 100).toInt()}%",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    CircularProgressIndicator(
-                        progress = { status.progress.toFloat() },
-                        modifier = Modifier.size(24.dp),
+                            }
+                        },
+                        onLongClick = {
+                            selectedActiveIds = if (isSelected) {
+                                selectedActiveIds - videoID
+                            } else {
+                                selectedActiveIds + videoID
+                            }
+                        },
                     )
-                    if (!isSelectionMode) {
-                        Button(onClick = { DownloadManager.cancelDownload(context, videoID) }) {
-                            IconClose()
-                        }
-                    }
                 }
             }
         }
-        items(downloads, key = { it.id }) { downloadItem ->
-            val isSelected = downloadItem.id in selectedIds
-            TvVideoCard(
-                row = videoRowState(
-                    context = context,
-                    videoInfo = downloadItem.videoItem,
-                    showAuthor = true,
-                ),
-                onOpen = {
-                    if (isSelectionMode) {
-                        selectedIds = if (isSelected) selectedIds - downloadItem.id else selectedIds + downloadItem.id
+        if (rows.isEmpty() && activeList.isEmpty()) {
+            TvEmptyState(title = stringResource(R.string.playlist_empty))
+            return@Column
+        }
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(TV_GRID_COLUMNS),
+            state = rememberLazyGridState(),
+            modifier = Modifier.fillMaxSize().padding(top = 8.dp),
+            contentPadding = tvContentPadding(),
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(28.dp),
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(20.dp),
+        ) {
+            items(rows.size, key = { rows[it].row.videoID }) { index ->
+                val item = rows[index]
+                val isSelected = item.info.videoID in selectedIds
+                TvSelectableCard(
+                    item = item,
+                    selected = isSelected,
+                    inSelectionMode = isSelectionMode,
+                    onOpen = { backStack.add(TvRoute.Video(item.row.videoID)) },
+                    onToggleSelect = {
+                        val id = item.info.videoID
+                        selectedIds = if (isSelected) selectedIds - id else selectedIds + id
+                    },
+                    modifier = if (index == 0 && activeList.isEmpty()) {
+                        Modifier.focusRequester(firstFocus)
                     } else {
-                        backStack.add(TvRoute.Video(downloadItem.id))
-                    }
-                },
-                modifier = if (activeDownloads.isEmpty() && downloads.indexOf(downloadItem) == 0) {
-                    Modifier.focusRequester(firstFocus)
-                } else {
-                    Modifier
-                },
-                trailingContent = {
-                    if (isSelectionMode) {
-                        Checkbox(
-                            checked = isSelected,
-                            onCheckedChange = {
-                                selectedIds = if (isSelected) {
-                                    selectedIds - downloadItem.id
-                                } else {
-                                    selectedIds + downloadItem.id
-                                }
-                            },
-                            modifier = Modifier.padding(top = 8.dp),
-                        )
-                    }
-                },
-            )
+                        Modifier
+                    },
+                )
+            }
         }
     }
 }

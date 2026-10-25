@@ -25,6 +25,10 @@ sealed interface TvRoute : NavKey {
     @Serializable
     data class Video(val videoID: Long) : TvRoute
 
+    /** Fullscreen playback for one video. Pushed from detail/hero Play; BACK returns. */
+    @Serializable
+    data class VideoPlayerRoute(val videoID: Long, val resume: Boolean = false) : TvRoute
+
     @Serializable
     data class Channel(val channelID: String) : TvRoute
 
@@ -63,9 +67,11 @@ sealed interface TvRoute : NavKey {
     data object ManageInterests : TvRoute
 }
 
-/** Tab indices in [TvMainTabs], matching the phone's five tabs minus swipe. */
-const val TV_TAB_HOME = 0
-const val TV_TAB_SUBSCRIPTIONS = 1
-const val TV_TAB_HISTORY = 2
-const val TV_TAB_SAVED = 3
-const val TV_TAB_SETTINGS = 4
+/** Rail indices in [TvRailHost]: Search is a destination, then the five browse roots. */
+const val TV_RAIL_SEARCH = 0
+const val TV_RAIL_HOME = 1
+const val TV_RAIL_SUBSCRIPTIONS = 2
+const val TV_RAIL_HISTORY = 3
+const val TV_RAIL_SAVED = 4
+const val TV_RAIL_SETTINGS = 5
+const val TV_RAIL_COUNT = 6

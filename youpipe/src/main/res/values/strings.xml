@@ -310,4 +310,19 @@
     <string name="tv_move_mode_hint">Moving — focus a playlist and press OK to place it here</string>
     <!-- TV saved / playlist: move action label. Verb -->
     <string name="tv_action_move">Move</string>
+    <!-- TV home hero: primary action. Verb -->
+    <string name="tv_action_resume">Resume</string>
+    <!-- TV home hero: secondary options-dialog action. Noun phrase -->
+    <string name="tv_action_video_options">More options</string>
+    <!-- TV home: chapters-style shelves. Nouns -->
+    <string name="tv_shelf_continue">Continue watching</string>
+    <string name="tv_shelf_latest_subs">Latest from subscriptions</string>
+    <string name="tv_shelf_for_you">Recommended for you</string>
+    <!-- TV channel avatar content description. Noun -->
+    <string name="tv_cd_brand">YouPipe</string>
+    <string name="tv_added_to_watch_later">Added to Watch later</string>
+    <plurals name="tv_comment_likes">
+        <item quantity="one">%1$s like</item>
+        <item quantity="other">%1$s likes</item>
+    </plurals>
 </resources>

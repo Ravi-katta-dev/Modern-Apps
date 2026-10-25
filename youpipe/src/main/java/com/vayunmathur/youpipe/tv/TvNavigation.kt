@@ -1,19 +1,21 @@
 package com.vayunmathur.youpipe.tv
 
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Tab
-import androidx.tv.material3.TabRow
+import com.vayunmathur.library.tv.TvAppFrame
+import com.vayunmathur.library.tv.TvDestination
+import com.vayunmathur.library.tv.TvIcon
+import com.vayunmathur.library.ui.IconHistory
+import com.vayunmathur.library.ui.IconHome
+import com.vayunmathur.library.ui.IconPhotoLibrary
+import com.vayunmathur.library.ui.IconSearch
+import com.vayunmathur.library.ui.IconSettings
+import com.vayunmathur.library.ui.IconSubscriptions
 import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.library.util.MainNavigation
 import com.vayunmathur.library.util.NavBackStack
@@ -28,21 +30,22 @@ import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.util.YouPipeViewModel
 
 /**
- * The TV navigation host: [rememberNavBackStack] + [MainNavigation] over [TvRoute], replacing
- * the phone's 5-tab swipe pager.
+ * The TV navigation host: [rememberNavBackStack] + [MainNavigation] over [TvRoute], inside a
+ * [TvAppFrame] icon rail.
  *
- * No `HorizontalPager` swipe — a TV has no touch — and no shared-element morphs: the phone's
- * title keys assume single-origin compositions the tab pager already strains, and TV screens
- * compose independently. Tabs are a focusable [TabRow] strip; D-pad LEFT/RIGHT moves between
- * tabs, DOWN drops into content. Each tab keeps its own screen so focus restores per tab.
+ * The rail (Search, Home, Subscriptions, History, Saved, Settings) owns the top-level
+ * destinations — focus moves select, CENTER jumps into content, BACK from content returns to
+ * the rail. Detail routes (video, channel, feed, playlist, settings sub-pages, dialogs-as-pages)
+ * push above the frame; popping them returns to the rail screen underneath.
  */
 @Composable
 fun TvNavigation(ypvm: YouPipeViewModel, initialBackStack: List<TvRoute> = listOf(TvRoute.Main())) {
     val backStack = rememberNavBackStack(initialBackStack)
     MainNavigation(backStack) {
-        entry<TvRoute.Main> { TvMainTabs(backStack, ypvm, it.initialTab) }
+        entry<TvRoute.Main> { TvRailHost(backStack, ypvm, it.initialTab) }
         entry<TvRoute.Search> { TvSearchPage(backStack, ypvm) }
         entry<TvRoute.Video> { TvVideoPage(backStack, ypvm, it.videoID) }
+        entry<TvRoute.VideoPlayerRoute> { TvPlayerPage(backStack, ypvm, it.videoID) }
         entry<TvRoute.Channel> { TvChannelPage(backStack, ypvm, it.channelID) }
         entry<TvRoute.SubscriptionFeed> { TvSubscriptionFeedPage(backStack, ypvm, it.category) }
         entry<TvRoute.CreateSubscriptionCategory> { TvCreateCategoryPage(backStack, ypvm, it.id) }
@@ -60,69 +63,64 @@ fun TvNavigation(ypvm: YouPipeViewModel, initialBackStack: List<TvRoute> = listO
 
 /**
  * Map a persisted default-page key to the TV initial backstack, mirroring the phone
- * [com.vayunmathur.youpipe.defaultBackStack] mapping. Tab indices match [TvMainTabs]:
- * the same five tabs the phone offers minus swipe. `all_subscriptions` seeds the
- * Subscriptions root beneath the feed so BACK returns to the list instead of exiting.
+ * [com.vayunmathur.youpipe.defaultBackStack] mapping. Rail indices match [TvRailHost]:
+ * `all_subscriptions` seeds the Subscriptions root beneath the feed so BACK returns to the
+ * list instead of exiting.
  */
 fun tvDefaultBackStack(key: String?): List<TvRoute> = when (key) {
-    DEFAULT_PAGE_SUBSCRIPTIONS -> listOf(TvRoute.Main(TV_TAB_SUBSCRIPTIONS))
+    DEFAULT_PAGE_SUBSCRIPTIONS -> listOf(TvRoute.Main(TV_RAIL_SUBSCRIPTIONS))
     DEFAULT_PAGE_ALL_SUBSCRIPTIONS ->
-        listOf(TvRoute.Main(TV_TAB_SUBSCRIPTIONS), TvRoute.SubscriptionFeed(null))
-    DEFAULT_PAGE_HISTORY -> listOf(TvRoute.Main(TV_TAB_HISTORY))
+        listOf(TvRoute.Main(TV_RAIL_SUBSCRIPTIONS), TvRoute.SubscriptionFeed(null))
+    DEFAULT_PAGE_HISTORY -> listOf(TvRoute.Main(TV_RAIL_HISTORY))
     // Both the legacy "downloads" key and the new "saved" key open the Saved hub.
-    DEFAULT_PAGE_DOWNLOADS, DEFAULT_PAGE_SAVED -> listOf(TvRoute.Main(TV_TAB_SAVED))
-    DEFAULT_PAGE_SETTINGS -> listOf(TvRoute.Main(TV_TAB_SETTINGS))
-    else -> listOf(TvRoute.Main(TV_TAB_HOME)) // home / unset / unknown
+    DEFAULT_PAGE_DOWNLOADS, DEFAULT_PAGE_SAVED -> listOf(TvRoute.Main(TV_RAIL_SAVED))
+    DEFAULT_PAGE_SETTINGS -> listOf(TvRoute.Main(TV_RAIL_SETTINGS))
+    else -> listOf(TvRoute.Main(TV_RAIL_HOME)) // home / unset / unknown
 }
 
 /**
- * The five TV tabs as a D-pad strip: Home, Subscriptions, History, Saved, Settings.
- *
- * Unlike the phone's `TabbedPagerScaffold`, tabs are destinations only — selecting one swaps
- * the content below without any swipe gesture. Per-tab focus restores because each tab's
- * screen owns its own list state.
+ * The six TV rail destinations inside [TvAppFrame]: Search is a destination (never a grid
+ * card), then Home, Subscriptions, History, Saved/Library, Settings.
  */
 @Composable
-private fun TvMainTabs(
+private fun TvRailHost(
     backStack: NavBackStack<TvRoute>,
     ypvm: YouPipeViewModel,
     initialTab: Int,
 ) {
-    var tab by remember { mutableIntStateOf(initialTab.coerceIn(0, 4)) }
+    var rail by rememberSaveable { mutableIntStateOf(initialTab.coerceIn(0, TV_RAIL_COUNT - 1)) }
+    val searchLabel = stringResource(UiR.string.search)
     val homeLabel = stringResource(UiR.string.home)
     val subsLabel = stringResource(R.string.title_subscriptions)
     val historyLabel = stringResource(R.string.title_history)
     val savedLabel = stringResource(UiR.string.saved)
     val settingsLabel = stringResource(UiR.string.settings)
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+    val destinations = remember(searchLabel, homeLabel, subsLabel, historyLabel, savedLabel, settingsLabel) {
+        listOf(
+            TvDestination(searchLabel) { TvIcon { IconSearch() } },
+            TvDestination(homeLabel) { TvIcon { IconHome() } },
+            TvDestination(subsLabel) { TvIcon { IconSubscriptions() } },
+            TvDestination(historyLabel) { TvIcon { IconHistory() } },
+            TvDestination(savedLabel) { TvIcon { IconPhotoLibrary() } },
+            TvDestination(settingsLabel) { TvIcon { IconSettings() } },
+        )
+    }
+    TvAppFrame(
+        destinations = destinations,
+        selected = rail,
+        onSelect = { rail = it },
+        brand = { TvBrand() },
+        // This frame is always the bottom of the TV stack: BACK from content returns to
+        // the rail, and BACK from the rail exits (the activity finishes).
+        backReturnsToRail = backStack.backStack.size <= 1,
     ) {
-        TabRow(selectedTabIndex = tab) {
-            for (i in 0..4) {
-                Tab(
-                    selected = tab == i,
-                    onFocus = { tab = i },
-                    onClick = { tab = i },
-                ) {
-                    androidx.tv.material3.Text(
-                        tvLabelForTab(i, homeLabel, subsLabel, historyLabel, savedLabel, settingsLabel),
-                    )
-                }
-            }
-        }
-        when (tab) {
-            TV_TAB_HOME -> TvHomeFeedPage(backStack, ypvm)
-            TV_TAB_SUBSCRIPTIONS -> TvSubscriptionsPage(backStack, ypvm)
-            TV_TAB_HISTORY -> TvHistoryPage(backStack, ypvm)
-            TV_TAB_SAVED -> TvSavedPage(backStack, ypvm)
+        when (rail) {
+            TV_RAIL_SEARCH -> TvSearchPage(backStack, ypvm)
+            TV_RAIL_HOME -> TvHomeFeedPage(backStack, ypvm)
+            TV_RAIL_SUBSCRIPTIONS -> TvSubscriptionsPage(backStack, ypvm)
+            TV_RAIL_HISTORY -> TvHistoryPage(backStack, ypvm)
+            TV_RAIL_SAVED -> TvSavedPage(backStack, ypvm)
             else -> TvSettingsPage(backStack, ypvm)
         }
-    }
-    // BACK on a root tab exits the app (the activity finishes); deeper routes pop via nav3.
-    BackHandler(enabled = backStack.backStack.size <= 1) {
-        // No-op: with nothing to pop, the activity handles BACK as finish.
     }
 }

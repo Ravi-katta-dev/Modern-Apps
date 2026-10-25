@@ -1,36 +1,29 @@
 package com.vayunmathur.youpipe.tv
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
-import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Button
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.vayunmathur.library.tv.TvIconButton
+import com.vayunmathur.library.tv.TvSeekRow
 import com.vayunmathur.library.ui.FadeVisibility
 import com.vayunmathur.library.ui.IconPause
 import com.vayunmathur.library.ui.IconPlay
@@ -69,14 +62,16 @@ internal fun TvPlaybackClock(
 }
 
 /**
- * The TV transport overlay: headline, seek bar, elapsed/total, and focusable controls.
+ * The TV transport overlay: big title, [TvSeekRow] (chapter markers + SponsorBlock
+ * segments), elapsed/total, and focusable transport buttons.
  *
- * Two layers, like the receiver's overlay but focus-split:
+ * Two layers, like the receiver's overlay but focus-split (same semantics as before):
  *
- * - The **readout** (headline, bar, times) is non-focusable: LEFT/RIGHT scrub and UP/DOWN
+ * - The **readout** (title, seek row) is non-focusable: LEFT/RIGHT scrub and UP/DOWN
  *   volume are gestures handled by [TvDpadInput], not a focus ring between buttons.
- * - The **controls** (play/pause, next/previous) are focusable `Button`s below the readout,
- *   so CENTER/ENTER on a focused control acts even while the gesture path is scrubbing.
+ * - The **controls** (play/pause, next/previous) are focusable [TvIconButton]s below the
+ *   readout, so CENTER/ENTER on a focused control acts even while the gesture path is
+ *   scrubbing.
  *
  * Only mounted while [TvTransportState.visible]; auto-hide is owned there, not here.
  */
@@ -100,7 +95,7 @@ fun TvTransportOverlay(
                     ),
                 )
                 .padding(horizontal = 48.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             TvPlaybackClock { positionMs ->
                 val transport by CastPlayback.transport.collectAsState()
@@ -108,64 +103,60 @@ fun TvTransportOverlay(
                 // Sponsor markers: same filtered segments the phone seek row draws yellow,
                 // read here so the transport already polling bufferedMs can also show them.
                 val sponsorSegments = rememberTvSponsorSegments(ypvm)
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
+                val chapters = rememberTvChapterMarkers(ypvm, transport.durationMs)
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (author.isNotBlank()) {
                             Text(
-                                text = title,
-                                style = MaterialTheme.typography.titleLarge,
-                                color = Color.White,
+                                text = author,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color.White.copy(alpha = 0.7f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            if (author.isNotBlank()) {
-                                Text(
-                                    text = author,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                            }
-                        }
-                        if (speed != 1f) {
-                            Text(
-                                text = formatTvSpeed(speed),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color.White.copy(alpha = 0.8f),
-                            )
                         }
                     }
-                    TvSeekBar(
-                        positionMs = position,
-                        bufferedMs = transport.bufferedMs,
-                        durationMs = transport.durationMs,
-                        sponsorSegments = sponsorSegments,
-                        scrubbing = TvDpadInput.scrubPreviewMs != null,
+                    TvSeekRow(
+                        elapsed = formatTvElapsed(position),
+                        total = if (transport.durationMs > 0) {
+                            formatTvElapsed(transport.durationMs)
+                        } else {
+                            ""
+                        },
+                        progress = if (transport.durationMs > 0) {
+                            (position.toFloat() / transport.durationMs).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        },
+                        buffered = if (transport.durationMs > 0) {
+                            (transport.bufferedMs.toFloat() / transport.durationMs).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        },
+                        active = TvDpadInput.scrubPreviewMs != null,
+                        markers = chapters + sponsorSegments.map {
+                            (it.start.toFloat() / transport.durationMs).coerceIn(0f, 1f)
+                        },
                     )
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    if (speed != 1f || transport.buffering || !transport.playing) {
+                        val statusText = if (transport.buffering) {
+                            "…"
+                        } else if (transport.playing) {
+                            formatTvSpeed(speed)
+                        } else {
+                            "❚❚ " + formatTvSpeed(speed)
+                        }
                         Text(
-                            text = formatTvElapsed(position),
+                            text = statusText,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = Color.White,
-                        )
-                        Text(
-                            text = when {
-                                transport.buffering -> "…"
-                                transport.playing -> "❚❚"
-                                else -> "▶"
-                            },
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Color.White,
-                        )
-                        Text(
-                            text = if (transport.durationMs > 0) formatTvElapsed(transport.durationMs) else "",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Color.White,
+                            color = Color.White.copy(alpha = 0.8f),
                         )
                     }
                 }
@@ -176,11 +167,17 @@ fun TvTransportOverlay(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (hasPrevious) {
-                    Button(onClick = { CastPlayback.onNavigate?.invoke(false) }) { IconSkipPrevious() }
+                    TvIconButton(
+                        onClick = { CastPlayback.onNavigate?.invoke(false) },
+                        icon = { IconSkipPrevious() },
+                    )
                 }
                 TvPlayPauseButton()
                 if (hasNext) {
-                    Button(onClick = { CastPlayback.onNavigate?.invoke(true) }) { IconSkipNext() }
+                    TvIconButton(
+                        onClick = { CastPlayback.onNavigate?.invoke(true) },
+                        icon = { IconSkipNext() },
+                    )
                 }
             }
         }
@@ -191,18 +188,18 @@ fun TvTransportOverlay(
 @Composable
 private fun TvPlayPauseButton() {
     val transport by CastPlayback.transport.collectAsState()
-    Button(
+    TvIconButton(
         onClick = {
-            val player = CastPlayback.attachedPlayer ?: return@Button
+            val player = CastPlayback.attachedPlayer ?: return@TvIconButton
             if (player.isPlaying) player.pause() else player.play()
         },
-    ) {
-        if (transport.playing) IconPause() else IconPlay()
-    }
+        size = 64.dp,
+        icon = { if (transport.playing) IconPause() else IconPlay() },
+    )
 }
 
 /**
- * Filtered sponsor segments for the TV seek bar: same `category in categories` filter the
+ * Filtered sponsor segments for the TV seek row: same `category in categories` filter the
  * phone `VideoPlayerSeekRow` draws as yellow markers. Reads the already-polled video state —
  * the transport loop already polls `bufferedMs`, no new data path.
  */
@@ -215,76 +212,18 @@ private fun rememberTvSponsorSegments(ypvm: YouPipeViewModel): List<SponsorSegme
     }
 }
 
-/**
- * The seek bar, drawn as nested boxes rather than as a `Slider`.
- *
- * A `Slider` is a touch control: it wants a drag gesture and a focusable thumb, and on a
- * television it would offer both to a device that has neither. The remote handling lives in
- * [TvDpadInput]; this is a progress indicator that happens to be movable by the remote.
- *
- * Layers mirror the phone `VideoPlayerSeekRow`: buffered ghost, yellow sponsor markers,
- * played progress, thumb.
- */
+/** Chapter boundaries as 0..1 fractions for the seek-row markers. */
 @Composable
-private fun TvSeekBar(
-    positionMs: Long,
-    bufferedMs: Long,
-    durationMs: Long,
-    sponsorSegments: List<SponsorSegment>,
-    scrubbing: Boolean,
-) {
-    if (durationMs <= 0) return
-    val progress = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)
-    val buffered = (bufferedMs.toFloat() / durationMs).coerceIn(0f, 1f)
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(if (scrubbing) 10.dp else 6.dp)
-            .clip(MaterialTheme.shapes.small)
-            .background(Color.White.copy(alpha = 0.25f)),
-        contentAlignment = Alignment.CenterStart,
-    ) {
-        // Buffered ghost under progress, like the phone's buffered slider.
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(buffered)
-                .background(Color.White.copy(alpha = 0.3f)),
-        )
-        // Yellow sponsor markers over the buffered layer, like the phone's Canvas rects.
-        Canvas(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
-            sponsorSegments.forEach { segment ->
-                val startX = (segment.start.toFloat() / durationMs) * size.width
-                val endX = (segment.end.toFloat() / durationMs) * size.width
-                drawRect(
-                    color = Color.Yellow.copy(alpha = 0.7f),
-                    topLeft = Offset(startX, 0f),
-                    size = Size(endX - startX, size.height),
-                )
-            }
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(progress)
-                .background(MaterialTheme.colorScheme.primary),
-        )
-        Box(
-            modifier = Modifier.fillMaxWidth(progress),
-            contentAlignment = Alignment.CenterEnd,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(if (scrubbing) 20.dp else 14.dp)
-                    .clip(MaterialTheme.shapes.small)
-                    .background(MaterialTheme.colorScheme.primary),
-            )
-        }
+private fun rememberTvChapterMarkers(ypvm: YouPipeViewModel, durationMs: Long): List<Float> {
+    val videoState by ypvm.videoState.collectAsState()
+    return remember(videoState.segments, durationMs) {
+        if (durationMs <= 0) return@remember emptyList()
+        videoState.segments.map { (it.time.toFloat() / durationMs).coerceIn(0f, 1f) }
     }
 }
 
 /** `H:MM:SS` past an hour, `M:SS` below it — what every other player on the panel does. */
-private fun formatTvElapsed(positionMs: Long): String {
+internal fun formatTvElapsed(positionMs: Long): String {
     val totalSeconds = (positionMs / 1_000).coerceAtLeast(0)
     val hours = totalSeconds / 3_600
     val minutes = (totalSeconds % 3_600) / 60
@@ -298,6 +237,8 @@ private fun formatTvElapsed(positionMs: Long): String {
 
 /** "2" rather than "2.0", "1.5" rather than "1.50". Matches the phone's speed readout. */
 private fun formatTvSpeed(speed: Float): String {
+    if (speed == 1f) return ""
     val r = Math.round(speed * 100f) / 100f
-    return if (r % 1f == 0f) r.toInt().toString() else r.toString().trimEnd('0').trimEnd('.')
+    val body = if (r % 1f == 0f) r.toInt().toString() else r.toString().trimEnd('0').trimEnd('.')
+    return "${body}x"
 }

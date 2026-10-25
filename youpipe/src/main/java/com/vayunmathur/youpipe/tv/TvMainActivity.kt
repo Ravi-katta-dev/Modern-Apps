@@ -2,12 +2,23 @@ package com.vayunmathur.youpipe.tv
 
 import android.view.KeyEvent
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.tv.material3.darkColorScheme
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Text
+import com.vayunmathur.library.tv.MaTvTheme
+import com.vayunmathur.library.tv.TvAccent
+import com.vayunmathur.library.tv.TvIcon
+import com.vayunmathur.library.ui.IconPlay
 import com.vayunmathur.library.ui.MaActivity
 import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.youpipe.DEFAULT_PAGE_KEY
+import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.data.SubscriptionRepository
 import com.vayunmathur.youpipe.util.YouPipeViewModel
 import com.vayunmathur.youpipe.util.YouPipeViewModelFactory
@@ -17,7 +28,8 @@ import com.vayunmathur.youpipe.util.YouPipeViewModelFactory
  * stays exactly as it is — this activity hosts the D-pad browse + player UI.
  *
  * Landscape-locked and non-edge-to-edge per the manifest; the activity owns the [TvDpadInput]
- * key map so scrub/volume/BACK work consistently across browse and player.
+ * key map so scrub/volume/BACK work consistently across browse and player. The theme is the
+ * shared always-dark [MaTvTheme] in YouPipe red — never a phone dynamic scheme.
  */
 class TvMainActivity : MaActivity() {
     override val edgeToEdge: Boolean = false
@@ -59,13 +71,27 @@ class TvMainActivity : MaActivity() {
 
     @Composable
     override fun AppTheme(content: @Composable () -> Unit) {
-        // Always dark, not dynamic: a TV has no wallpaper to derive a scheme from.
-        // Paints nothing itself; screens set their own background.
-        MaterialTheme(colorScheme = darkColorScheme(), content = content)
+        // Always dark in YouPipe red; screens set their own backgrounds over it.
+        MaTvTheme(accent = TvAccent.Red, content = content)
     }
 
     @Composable
     override fun Content() {
         TvNavigation(youPipeViewModel, initialBackStack)
+    }
+}
+
+/** The rail brand: play glyph + "YouPipe", shown at the top of the expanded rail. */
+@Composable
+internal fun TvBrand(modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        TvIcon { IconPlay() }
+        Text(
+            text = stringResource(R.string.app_name),
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            modifier = Modifier.padding(start = 12.dp),
+        )
     }
 }

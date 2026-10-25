@@ -37,6 +37,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":library:tv"))
     implementation(project(":library:image"))
     implementation(project(":youpipe:extractor"))
     // Puts the video on a TV through the installed Cast app: a Surface and a PCM pipe, no sockets.
