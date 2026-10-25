@@ -1,7 +1,14 @@
 package com.vayunmathur.games.chess
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+import androidx.navigationevent.compose.rememberNavigationEventDispatcherOwner
 import com.android.tools.screenshot.PreviewTest
 import com.vayunmathur.games.chess.data.Board
 import com.vayunmathur.games.chess.data.PieceColor
@@ -13,6 +20,14 @@ import com.vayunmathur.games.chess.util.PuzzleDifficulty
 import com.vayunmathur.games.chess.util.PuzzleStatus
 import com.vayunmathur.games.chess.util.PuzzleUiState
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.Icon
+import com.vayunmathur.library.ui.IconOnline
+import com.vayunmathur.library.ui.IconPlay
+import com.vayunmathur.library.util.BottomBarItem
+import com.vayunmathur.library.util.BottomNavBar
+import com.vayunmathur.library.util.MainNavigation
+import com.vayunmathur.library.util.SiblingPage
+import com.vayunmathur.library.util.rememberNavBackStack
 
 /** Phone-shaped, roughly 1080x2340 at xxhdpi — comfortably above the F-Droid minimum. */
 private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
@@ -45,7 +60,7 @@ class MetadataPreviews {
     @Preview(name = "1-game", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Game() {
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(Route.Game) {
             ChessGameScreen(
                 state = ChessUiState(
                     board = grecoAttack,
@@ -65,26 +80,14 @@ class MetadataPreviews {
     @Preview(name = "2-puzzles", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2Puzzles() {
-        DynamicTheme(darkTheme = true) {
-            PuzzleBoardScreen(
-                state = PuzzleUiState(
-                    board = scholarsMatePuzzle,
-                    playerColor = PieceColor.WHITE,
-                    rating = 812,
-                    solutionIndex = 1,
-                    status = PuzzleStatus.Solving,
-                    difficulty = PuzzleDifficulty.EASY,
-                ),
-                actions = PuzzleActions.Noop,
-            )
-        }
+        ChromePreview(Route.Puzzles)
     }
 
     @PreviewTest
     @Preview(name = "3-newgame", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3NewGame() {
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(Route.Game) {
             // What the app opens on: the starting position behind the mode picker.
             ChessGameScreen(
                 state = ChessUiState(),
@@ -110,6 +113,62 @@ class MetadataPreviews {
                 onNewGame = {},
                 onOpenGameCenter = {},
             )
+        }
+    }
+
+    /**
+     * The app's real tab chrome around preview screen content: the same
+     * [BottomBarItem] list and [MainNavigation] host the activity declares, with a
+     * literal back stack for the shown tab. Online and Learn need their ViewModels,
+     * so their entries show an empty page (never visible — the stack stays on the
+     * previewed tab). [gameContent] varies per preview (mid-game vs new-game).
+     */
+    @Composable
+    private fun ChromePreview(route: Route, gameContent: @Composable () -> Unit = {}) {
+        DynamicTheme(darkTheme = true) {
+            CompositionLocalProvider(
+                LocalNavigationEventDispatcherOwner provides rememberNavigationEventDispatcherOwner(
+                    parent = null,
+                ),
+            ) {
+                val backStack = rememberNavBackStack(route)
+                val cur = backStack.last()
+                val pages: List<BottomBarItem<out Route>> = listOf(
+                    BottomBarItem("Offline Play", Route.Game) { IconPlay() },
+                    BottomBarItem("Online Play", Route.Online) { IconOnline() },
+                    BottomBarItem("Puzzles", Route.Puzzles) {
+                        Icon(painterResource(R.drawable.chess_knight_fill1_24px), null)
+                    },
+                    BottomBarItem("Learn", Route.Learn) {
+                        Icon(painterResource(R.drawable.school_24px), null)
+                    },
+                )
+                MainNavigation(
+                    backStack,
+                    bottomBar = {
+                        if (cur is Route.Game || cur is Route.Online || cur is Route.Puzzles || cur is Route.Learn) {
+                            BottomNavBar(backStack, pages, cur)
+                        }
+                    },
+                ) {
+                    entry<Route.Game>(metadata = SiblingPage()) { gameContent() }
+                    entry<Route.Puzzles>(metadata = SiblingPage()) {
+                        PuzzleBoardScreen(
+                            state = PuzzleUiState(
+                                board = scholarsMatePuzzle,
+                                playerColor = PieceColor.WHITE,
+                                rating = 812,
+                                solutionIndex = 1,
+                                status = PuzzleStatus.Solving,
+                                difficulty = PuzzleDifficulty.EASY,
+                            ),
+                            actions = PuzzleActions.Noop,
+                        )
+                    }
+                    entry<Route.Online>(metadata = SiblingPage()) { Box(Modifier.fillMaxSize()) }
+                    entry<Route.Learn>(metadata = SiblingPage()) { Box(Modifier.fillMaxSize()) }
+                }
+            }
         }
     }
 
