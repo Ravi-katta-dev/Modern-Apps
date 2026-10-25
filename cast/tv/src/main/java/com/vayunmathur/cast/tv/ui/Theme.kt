@@ -1,23 +1,22 @@
 package com.vayunmathur.cast.tv.ui
 
 import androidx.compose.runtime.Composable
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.darkColorScheme
+import com.vayunmathur.library.tv.MaTvTheme
+import com.vayunmathur.library.tv.TvAccent
 
 /**
  * The theme for every screen in this app.
  *
- * **Always dark, and not dynamic.** `DynamicTheme` was the wrong shape here twice over: a television
- * has no wallpaper to derive a colour scheme from, and there is no light mode to offer because nobody
- * has ever wanted a white screen filling a wall in a dim room. The old call site passed
- * `darkTheme = true` unconditionally, which was that conclusion reached one argument short.
+ * Always dark, keyed off the Cast blue accent, and shared with the other TV apps through
+ * `:library:tv` rather than a local colour scheme.
  *
- * **Paints nothing.** Deliberately not `Surface`, and not a `Box` with the scheme's background either:
+ * **Paints nothing.** Deliberately not `Surface`, and not a `Box` with the scheme's background:
  * one of the two things wrapped in this theme is an overlay above a decoder surface, and anything
- * opaque here would be a solid rectangle over the video for the whole session. Screens that want a
- * background say so themselves - see `ReceiverContent`.
+ * opaque here would be a solid rectangle over the video for the whole session. `MaTvTheme` only
+ * installs the colour scheme and content colours (verified in `library/tv/TvTheme.kt`), so that
+ * property carries over. Screens that want a background say so themselves.
  */
 @Composable
 fun CastTvTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = darkColorScheme(), content = content)
+    MaTvTheme(accent = TvAccent.Blue, content = content)
 }

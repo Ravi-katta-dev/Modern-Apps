@@ -1,190 +1,157 @@
 package com.vayunmathur.cast.tv.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
 import com.vayunmathur.cast.tv.R
 import com.vayunmathur.cast.tv.platform.ReceiverFailure
 import com.vayunmathur.cast.tv.platform.ReceiverPhase
 import com.vayunmathur.cast.tv.platform.ReceiverUiState
-import com.vayunmathur.library.ui.SpecialAccess
-import androidx.tv.material3.Button
+import com.vayunmathur.library.tv.TvButton
+import com.vayunmathur.library.tv.TvEmptyState
+import com.vayunmathur.library.tv.TvInitialFocus
+import com.vayunmathur.library.tv.TvLoading
+import com.vayunmathur.library.ui.IconCastConnected
+import com.vayunmathur.library.ui.IconScreenShare
+import com.vayunmathur.library.ui.IconWarning
 
 /**
- * The idle and pairing screen.
+ * Every full-screen state of the receiver that is not the picture itself.
  *
- * **On `androidx.tv`, and this paragraph used to argue the opposite.** The old reasoning was that
- * nothing here is focusable - no list to move a D-pad through, no button to press - so Material 3's
- * missing focus handling never came up, and the repo's rule that Material arrives only through
- * `:library:ui` could stay intact. That held for exactly as long as this app had no controls. It now
- * has a transport overlay driven from the television's remote, and building *that* on touch-first
- * components while this screen stayed on a third design system would leave one app with two.
- *
- * So the whole of `cast:tv` is on `androidx.tv`: the same Material design language, with focus as a
- * first-class concern rather than an afterthought. `:library:ui` remains on the compile classpath
- * because the app convention plugin puts it there, and R8 strips what nothing references.
- *
- * The `AppScaffold` went with it, and is not replaced. A title bar reading "Cast TV" above a screen
- * whose entire job is to show one sentence was furniture; the ten-foot rule is that everything on
- * screen should be worth reading from a sofa.
- *
- * The background is painted here rather than in `CastTvTheme`, because the other thing that theme wraps
- * is an overlay above a decoder surface and must stay transparent.
- *
- * Sizes are deliberately large: this is read from across a room, and a pair code the user has to walk
- * up to the TV to make out is a pair code that makes the feature feel broken.
+ * A dispatcher, not a layout: each arm is its own screen in its own file, sharing only the
+ * theme. The picture gets `MirrorActivity`; the now-playing artwork screen lives there too,
+ * beside the surface it accompanies. Nothing here paints a base background - the overlay case
+ * above a decoder surface needs transparency, so screens that want colour say so themselves.
  */
 @Composable
 fun ReceiverContent(state: ReceiverUiState, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(48.dp),
-        verticalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        if (state.localNetworkBlocked) {
-            Headline(stringResource(R.string.tv_local_network_blocked), isError = true)
-            Detail(stringResource(R.string.tv_local_network_blocked_hint))
-            return@Column
-        }
-        when (val phase = state.phase) {
-            ReceiverPhase.Starting -> Headline(stringResource(R.string.tv_starting))
+    if (state.localNetworkBlocked) {
+        NetworkBlockedScreen(modifier)
+        return
+    }
+    when (val phase = state.phase) {
+        ReceiverPhase.Starting -> StartingScreen(modifier)
 
-            ReceiverPhase.Advertising -> {
-                Headline(stringResource(R.string.tv_ready_title))
-                Detail(
-                    stringResource(
-                        R.string.tv_ready_hint,
-                        state.deviceName.ifBlank { stringResource(R.string.tv_name_unknown) },
-                    ),
-                )
-                AutoOpenPrompt()
-            }
+        ReceiverPhase.Advertising -> ReadyScreen(
+            deviceName = state.deviceName.ifBlank { stringResource(R.string.tv_name_unknown) },
+            networkLabel = state.networkLabel,
+            modifier = modifier,
+        )
 
-            is ReceiverPhase.Pairing -> {
-                Detail(stringResource(R.string.tv_pair_from, phase.senderName))
-                Headline(stringResource(R.string.tv_pair_title))
-                // The code itself, as large as the type scale goes: it is the one thing on this
-                // screen the user has to read from across a room and copy exactly.
-                Text(
-                    text = phase.code.chunked(3).joinToString("  "),
-                    style = MaterialTheme.typography.displayLarge,
-                    textAlign = TextAlign.Center,
-                )
-                if (phase.codeChanged) {
-                    Detail(stringResource(R.string.tv_pair_new_code), isError = true)
-                } else {
-                    Detail(
-                        pluralStringResource(
-                            R.plurals.tv_pair_attempts,
-                            phase.attemptsLeft,
-                            phase.attemptsLeft,
-                        ),
-                    )
-                }
-            }
+        is ReceiverPhase.Pairing -> PairingScreen(
+            senderName = phase.senderName,
+            code = phase.code,
+            attemptsLeft = phase.attemptsLeft,
+            codeChanged = phase.codeChanged,
+            modifier = modifier,
+        )
 
-            is ReceiverPhase.Connected ->
-                Headline(stringResource(R.string.tv_paired, phase.senderName))
+        // Paired; the stream is being set up. `MainActivity` moves on to `MirrorActivity` the
+        // moment frames arrive, so this is a held breath rather than a destination.
+        is ReceiverPhase.Connected -> ConnectedScreen(senderName = phase.senderName, modifier = modifier)
 
-            // The mirror has its own full-screen Activity, so this is only ever seen for the
-            // moment between the stream starting and that Activity coming up.
-            is ReceiverPhase.Mirroring ->
-                Headline(stringResource(R.string.tv_mirroring, phase.sourceName))
+        // The mirror has its own full-screen Activity, so this is only ever seen for the
+        // moment between the stream starting and that Activity coming up.
+        is ReceiverPhase.Mirroring ->
+            ConnectedScreen(senderName = phase.sourceName, mirroring = true, modifier = modifier)
 
-            is ReceiverPhase.Failed -> Headline(
-                stringResource(
-                    when (phase.reason) {
-                        ReceiverFailure.NoDecoder -> R.string.tv_no_decoder
-                        ReceiverFailure.NoAudioDecoder -> R.string.tv_no_audio_decoder
-                        ReceiverFailure.MissingCodecConfig ->
-                            R.string.tv_missing_codec_config
-                        ReceiverFailure.Handshake -> R.string.tv_stream_failed
-                        ReceiverFailure.StreamEnded -> R.string.tv_stream_failed
-                    },
-                ),
-                isError = true,
-            )
-        }
+        is ReceiverPhase.Failed -> FailedScreen(reason = phase.reason, modifier = modifier)
     }
 }
 
 @Composable
-private fun Headline(text: String, isError: Boolean = false) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.headlineLarge,
-        textAlign = TextAlign.Center,
-        color = if (isError) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
+private fun StartingScreen(modifier: Modifier = Modifier) {
+    TvLoading(
+        modifier = modifier.fillMaxSize(),
+        label = stringResource(R.string.tv_starting),
     )
 }
 
 @Composable
-private fun Detail(text: String, isError: Boolean = false) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.titleMedium,
-        textAlign = TextAlign.Center,
-        color = if (isError) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
+private fun ConnectedScreen(senderName: String, modifier: Modifier = Modifier, mirroring: Boolean = false) {
+    val focusRequester = remember { FocusRequester() }
+    TvInitialFocus(focusRequester)
+    TvEmptyState(
+        title = stringResource(
+            if (mirroring) R.string.tv_mirroring else R.string.tv_paired,
+            senderName,
+        ),
+        icon = { if (mirroring) IconScreenShare() else IconCastConnected() },
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 48.dp),
     )
 }
 
 /**
- * The one-tap grant for auto-open, shown on the idle screen until full-screen-intent access is
- * held.
- *
- * A `Button` rather than the phone-style permissions gate: the TV has two things to ask for
- * at most and a blocking wall would sit between a user and a screen whose whole job is one
- * sentence. Reprobed on every resume so a grant made in Settings clears this without reopening
- * the app.
+ * The receiver could not advertise itself: Android refused the mDNS registration, so no phone
+ * will ever list this TV. Distinct from "nothing has connected yet" - the fix is a permission,
+ * not opening the app on the phone.
  */
 @Composable
-private fun AutoOpenPrompt() {
+private fun NetworkBlockedScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var canAutoOpen by remember { mutableStateOf(SpecialAccess.hasFullScreenIntent(context)) }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                canAutoOpen = SpecialAccess.hasFullScreenIntent(context)
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-    if (canAutoOpen) return
-    Detail(stringResource(R.string.tv_auto_open_hint))
-    Button(onClick = { SpecialAccess.requestFullScreenIntent(context) }) {
-        Text(stringResource(R.string.tv_auto_open_grant))
-    }
+    val focusRequester = remember { FocusRequester() }
+    TvEmptyState(
+        title = stringResource(R.string.tv_local_network_blocked),
+        body = stringResource(R.string.tv_local_network_blocked_hint),
+        icon = { IconWarning() },
+        isError = true,
+        action = {
+            TvButton(
+                text = stringResource(R.string.tv_local_network_open_settings),
+                onClick = {
+                    context.startActivity(
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = android.net.Uri.fromParts("package", context.packageName, null)
+                        },
+                    )
+                },
+                primary = true,
+                modifier = Modifier.focusRequester(focusRequester),
+            )
+            TvInitialFocus(focusRequester)
+        },
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 48.dp),
+    )
+}
+
+/**
+ * Something the user has to know about, already a sentence rather than a code. Each failure has
+ * a different answer, which is why the contract distinguishes them; the screen keeps the shared
+ * shape and varies the copy.
+ */
+@Composable
+private fun FailedScreen(reason: ReceiverFailure, modifier: Modifier = Modifier) {
+    val message = stringResource(
+        when (reason) {
+            ReceiverFailure.NoDecoder -> R.string.tv_no_decoder
+            ReceiverFailure.NoAudioDecoder -> R.string.tv_no_audio_decoder
+            ReceiverFailure.MissingCodecConfig -> R.string.tv_missing_codec_config
+            ReceiverFailure.Handshake -> R.string.tv_stream_failed
+            ReceiverFailure.StreamEnded -> R.string.tv_stream_failed
+        },
+    )
+    // No retry button to offer: every one of these is fixed by the phone trying again (a new
+    // session) or by nothing the TV can do (no decoder). A button that re-runs nothing would
+    // be the cruellest control on the screen.
+    TvEmptyState(
+        title = message,
+        icon = { IconWarning() },
+        isError = true,
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 48.dp),
+    )
 }

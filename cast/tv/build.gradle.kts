@@ -33,6 +33,9 @@ dependencies {
     // The wire format, shared verbatim with the phone. Nothing in this app re-implements it.
     implementation(project(":cast:protocol"))
     implementation(project(":library:e2ee-p2p"))
+    // The shared TV design system: theme, cards, controls, states, transport. Deliberately not
+    // :library:image, so this offline receiver gains no INTERNET permission from its UI.
+    implementation(project(":library:tv"))
     // App content arrives as media rather than as pixels now, so the TV needs a player. Not
     // `media3-session`: the TV already has a remote-control path through its own control channel,
     // and a MediaSession would be a second one competing with it.

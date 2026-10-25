@@ -307,6 +307,7 @@ object ReceiverController {
             phase = ReceiverPhase.Advertising,
             deviceName = name,
             localNetworkBlocked = nsd.localNetworkBlocked,
+            networkLabel = NetworkLabel.of(context),
         )
         Log.status(TAG, "receiving as '$name' ($deviceId) on control port ${server.localPort}")
 

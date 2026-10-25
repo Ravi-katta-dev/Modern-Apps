@@ -115,6 +115,14 @@ data class ReceiverUiState(
     /** What the phone will show in its device list, and what the idle screen tells the user to pick. */
     val deviceName: String = "",
     /**
+     * "On HomeWi-Fi · 192.168.1.4", or empty when it could not be read.
+     *
+     * A best-effort footer for the idle screen: the SSID needs no permission to attempt, but the
+     * platform withholds it without location access, and the IP falls back on its own. Empty is a
+     * complete answer, not a loading state - the screen simply omits the line.
+     */
+    val networkLabel: String = "",
+    /**
      * Android 16+ refused the mDNS registration. Distinct from "nothing has connected yet", because
      * the fix is a permission rather than opening the app on the phone.
      */

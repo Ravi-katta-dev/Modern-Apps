@@ -270,6 +270,8 @@ class MirrorActivity : ComponentActivity(), SurfaceHolder.Callback {
                         ) {
                             NowPlayingScreen(
                                 nowPlaying = nowPlaying,
+                                snapshot = playback,
+                                sourceName = mirroring?.sourceName.orEmpty(),
                                 positionMs = positionMs,
                                 artwork = state.artwork,
                                 modifier = Modifier.weight(1f),

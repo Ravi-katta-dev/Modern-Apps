@@ -35,6 +35,8 @@
     <!-- Now playing, for an audio-only session where there is no picture -->
     <string name="tv_now_playing_no_artwork">No cover art</string>
     <string name="tv_now_playing_artwork">Cover art</string>
+    <string name="tv_now_playing_paused">Paused</string>
+    <string name="tv_now_playing_buffering">Buffering…</string>
 
     <!-- Foreground service -->
     <string name="tv_notification_channel_name">Receiving</string>
@@ -50,4 +52,18 @@
     <!-- Auto-open prompt on the idle screen, until full-screen-intent access is granted. -->
     <string name="tv_auto_open_hint">This TV can open itself when a phone starts casting. Allow it in Settings to turn that on.</string>
     <string name="tv_auto_open_grant">Allow auto-open</string>
+
+    <!-- Ready screen: the three how-to steps. Step 2 names this TV. -->
+    <string name="tv_howto_step1_title">Open Cast on your phone</string>
+    <string name="tv_howto_step1_body">Join the same Wi-Fi network as this TV.</string>
+    <string name="tv_howto_step2_title">Pick %1$s</string>
+    <string name="tv_howto_step2_body">Choose this TV from the device list.</string>
+    <string name="tv_howto_step3_title">Enter the code shown here</string>
+    <string name="tv_howto_step3_body">Type the six digits into your phone to connect.</string>
+    <!-- Ready screen footer: privacy facts, plus the network the receiver could read. -->
+    <string name="tv_privacy_facts">Encrypted end-to-end · Stays on your Wi-Fi · No account</string>
+    <string name="tv_network_line">On %1$s</string>
+
+    <!-- The receiver could not advertise itself: open the app Settings page to grant access. -->
+    <string name="tv_local_network_open_settings">Open Settings</string>
 </resources>
