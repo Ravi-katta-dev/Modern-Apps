@@ -171,6 +171,7 @@ pub fn build(weights: &dyn WeightSource, height: u32, width: u32) -> Result<Plan
     }
 
     let mut b = Builder::new(weights);
+    b.spatial_tiling();
     let mut layers = Layers { next: 0 };
     let l = &mut layers;
     let input = b.input(Shape::new(3, height, width));

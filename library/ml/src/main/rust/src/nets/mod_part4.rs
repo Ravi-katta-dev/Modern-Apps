@@ -10,7 +10,21 @@ impl<'a> Builder<'a> {
             error: None,
             inputs: Vec::new(),
             pad_edge: false,
+            spatial_tiled: false,
         }
+    }
+
+    /// Lower dense spatial convolutions to the register-blocked path from here on.
+    ///
+    /// A builder-level mode like [`Builder::edge_padding`]: the vision nets set it once
+    /// and every `group == 1` convolution lowers to one invocation per 4-channel x
+    /// 8-column block (`shaders/conv_tiled.glsl`) instead of one per output element.
+    /// Off by default, so nets that never opt in keep the dispatches they have today.
+    ///
+    /// Only [`Builder::conv`] consults it; [`Builder::conv_raw`] (graph-section
+    /// lowering) leaves it off, which is the previous behaviour there.
+    pub fn spatial_tiling(&mut self) {
+        self.spatial_tiled = true;
     }
 
     /// Make every convolution from here on replicate its border instead of reading zeros.

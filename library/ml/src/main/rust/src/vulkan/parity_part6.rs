@@ -197,3 +197,110 @@ fn a_row_mode_global_avg_pool_agrees_with_the_reference() {
         &[&input],
     );
 }
+
+/// Build `record` with spatial tiling on and require every spatial `Kind::Conv` in the
+/// plan to have taken the blocked path (`in1 == 1`), then run it both ways.
+fn blocked_conv_agrees(
+    what: &str,
+    count: usize,
+    shapes: &[Shape],
+    inputs: &[&[f32]],
+    record: impl FnOnce(&mut Builder, &[Id]) -> Id,
+) {
+    let source = Invented::new(count);
+    let plan = build(&source, shapes, |b, ids| {
+        b.spatial_tiling();
+        record(b, ids)
+    });
+    let mut seen = 0;
+    for op in &plan.ops {
+        if let crate::nets::Op::Dispatch { kind: crate::nets::Kind::Conv, push, .. } = op {
+            assert_eq!(push.in1, 1, "{what}: a Conv missed the blocked path: {push:?}");
+            seen += 1;
+        }
+    }
+    assert!(seen > 0, "{what}: the plan has no Conv");
+    compare(what, plan, source.into_data(), inputs);
+}
+
+/// Odd input widths put every row at a different quad alignment, so the scalar
+/// fallback runs; 6 output channels leave a half-empty channel block and 45 columns
+/// leave a partial column block.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_blocked_conv_over_unaligned_rows_agrees_with_the_reference() {
+    let input = spread(5 * 29 * 45, 0.3);
+    blocked_conv_agrees(
+        "a blocked 3x3 over 45-wide rows",
+        4,
+        &[Shape::new(5, 29, 45)],
+        &[&input],
+        |b, ids| {
+            let x = b.conv(ids[0], 0, 6, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 1, Act::Relu);
+            b.conv(x, 2, 7, (3, 3), (1, 1), (2, 2), (2, 2, 2, 2), 1, Act::None)
+        },
+    );
+}
+
+/// A U^2-Netp-like layer at a size the interpreter still runs quickly: 24 input
+/// channels into 16 at 40x80, with a fused residual onto a second dense 3x3, so most
+/// blocks are interior and the fused store indexes through the blocked layout.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_blocked_conv_at_a_real_width_agrees_with_the_reference() {
+    let input = spread(24 * 40 * 80, 1.7);
+    blocked_conv_agrees(
+        "a blocked 3x3 pair at 40x80",
+        4,
+        &[Shape::new(24, 40, 80)],
+        &[&input],
+        |b, ids| {
+            let x = b.conv(ids[0], 0, 16, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 1, Act::Relu);
+            let y = b.conv(x, 2, 16, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 1, Act::None);
+            b.add(x, y)
+        },
+    );
+}
+
+/// Strided dense convolutions on the blocked path at ragged sizes: a stride-2 3x3
+/// (scalar gather), a 5x5, and a stride-2 3x3 with the asymmetric stem padding.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn blocked_strided_convs_agree_with_the_reference() {
+    let input = spread(3 * 51 * 67, -0.6);
+    blocked_conv_agrees(
+        "blocked strided convs",
+        6,
+        &[Shape::new(3, 51, 67)],
+        &[&input],
+        |b, ids| {
+            let x = b.conv(ids[0], 0, 12, (3, 3), (2, 2), (1, 1), (1, 1, 1, 1), 1, Act::HardSwish);
+            let x = b.conv(x, 2, 12, (5, 5), (1, 1), (1, 1), (2, 2, 2, 2), 1, Act::Relu);
+            b.conv(x, 4, 12, (3, 3), (2, 2), (1, 1), (0, 0, 1, 1), 1, Act::Relu)
+        },
+    );
+}
+/// The aligned-window path at every quad offset and kernel shape it specialises:
+/// left pads 0, 3, 1 and 2 put the window start at offsets 0, 1, 3 and 2; then a
+/// dilated 3x3, a 5x5 and a stride (2, 1) 3x3. 48 and 64 columns keep the rows quad
+/// aligned so these take the window path rather than the scalar fallback.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn blocked_convs_at_every_window_alignment_agree_with_the_reference() {
+    let input = spread(6 * 20 * 48, 0.9);
+    blocked_conv_agrees(
+        "blocked convs at every window alignment",
+        14,
+        &[Shape::new(6, 20, 48)],
+        &[&input],
+        |b, ids| {
+            let x = b.conv(ids[0], 0, 8, (3, 3), (1, 1), (1, 1), (1, 0, 1, 2), 1, Act::Relu);
+            let x = b.conv(x, 2, 8, (3, 3), (1, 1), (1, 1), (1, 3, 1, 5), 1, Act::None);
+            let x = b.conv(x, 4, 8, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 1, Act::Relu);
+            let x = b.conv(x, 6, 8, (3, 3), (1, 1), (2, 2), (2, 2, 2, 2), 1, Act::Relu);
+            let x = b.conv(x, 8, 8, (5, 5), (1, 1), (1, 1), (2, 2, 2, 2), 1, Act::Relu);
+            let x = b.conv(x, 10, 8, (3, 3), (2, 1), (1, 1), (1, 1, 1, 1), 1, Act::Relu);
+            b.conv(x, 12, 5, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 1, Act::Sigmoid)
+        },
+    );
+}

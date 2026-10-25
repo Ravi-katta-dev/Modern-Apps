@@ -478,6 +478,9 @@ pub struct Builder<'a> {
     read: Vec<bool>,
     /// Whether convolutions replicate their border rather than reading zeros.
     pad_edge: bool,
+    /// Whether spatial convolutions lower to the register-blocked tiled path.
+    /// See [`Builder::spatial_tiling`].
+    spatial_tiled: bool,
 }
 
 /// Arena allocations are aligned to this many fp16 elements, i.e. 16 bytes — the same

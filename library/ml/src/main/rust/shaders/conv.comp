@@ -25,8 +25,16 @@
 //! tiling bug.
 
 #include "common.glsl"
+#include "conv_tiled.glsl"
 
 void main() {
+    // The register-blocked tiled path, for nets that opted in with
+    // `Builder::spatial_tiling`. The untiled body below is unchanged for
+    // everything else — same Kind, same push block, same dispatches.
+    if (p.in1 == 1u) {
+        tiled_spatial();
+        return;
+    }
     uint index = global_index();
     if (index >= p.count) {
         return;

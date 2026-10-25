@@ -69,6 +69,31 @@ pub(crate) mod tests {
         assert_eq!(tile_of("attn_apply.comp"), ATTN_TILE);
     }
 
+    /// The spatial block constants must equal the `conv_tiled.glsl` geometry: Rust
+    /// dispatches one invocation per `BLOCK_OC x BLOCK_X` block and the shader owns
+    /// that block. A mismatch leaves outputs unwritten, which only the device parity
+    /// fixtures would catch.
+    #[test]
+    fn the_spatial_tiles_match_their_shader() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders").join("conv_tiled.glsl");
+        let source = std::fs::read_to_string(&path).expect("the tiled conv include reads");
+        let define = |name: &str| {
+            source
+                .lines()
+                .find_map(|line| {
+                    line.trim_start().strip_prefix("#define ").and_then(|rest| {
+                        rest.strip_prefix(name).and_then(|value| {
+                            value.trim().trim_end_matches('u').parse::<u32>().ok()
+                        })
+                    })
+                })
+                .unwrap_or_else(|| panic!("conv_tiled.glsl declares no {name}"))
+        };
+        assert_eq!(define("BLOCK_OC"), SPATIAL_BLOCK_OC);
+        assert_eq!(define("BLOCK_X"), SPATIAL_BLOCK_X);
+    }
+
     fn tile_of(shader: &str) -> u32 {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders").join(shader);
         let source = std::fs::read_to_string(&path).expect("the shader reads");

@@ -140,6 +140,7 @@ fn ibnorm(
 /// Compile the whole forward pass.
 pub fn build(weights: &dyn WeightSource) -> Result<Plan, String> {
     let mut b = Builder::new(weights);
+    b.spatial_tiling();
     let mut layers = Layers { next: 0 };
     let l = &mut layers;
     let input = b.input(Shape::new(3, SIZE, SIZE));

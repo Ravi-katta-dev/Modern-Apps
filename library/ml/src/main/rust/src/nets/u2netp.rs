@@ -227,6 +227,7 @@ fn rsu4f(b: &mut Builder, layers: &mut Layers, x: Id) -> Id {
 /// maps — only `d0` is produced. `MlSegmentation.kt` never read the others.
 pub fn build(weights: &dyn WeightSource) -> Result<Plan, String> {
     let mut b = Builder::new(weights);
+    b.spatial_tiling();
     let mut layers = Layers { next: 0 };
     let l = &mut layers;
 

@@ -16,21 +16,15 @@ const CONV_POINT_INT8_TILE: u32 = 32;
 /// **Must equal `TILE` in both.** Held by `the_attention_tiles_match_their_shaders`.
 const ATTN_TILE: u32 = 32;
 
-/// `TILE_OC` in `shaders/conv_tiled.glsl`: output channels per workgroup.
+/// `BLOCK_OC` in `shaders/conv_tiled.glsl`: output channels per invocation.
 ///
-/// **Must equal `TILE_OC` there.** Held by `the_spatial_tiles_match_their_shader`.
-const SPATIAL_TILE_OC: u32 = 32;
+/// **Must equal `BLOCK_OC` there.** Held by `the_spatial_tiles_match_their_shader`.
+const SPATIAL_BLOCK_OC: u32 = 4;
 
-/// `TILE_POS` in `shaders/conv_tiled.glsl`: output positions per workgroup.
+/// `BLOCK_X` in `shaders/conv_tiled.glsl`: adjacent output columns per invocation.
 ///
-/// **Must equal `TILE_POS` there.** Held by the same test.
-const SPATIAL_TILE_POS: u32 = 32;
-
-/// `BLOCK` in `shaders/conv_tiled.glsl`: output channels and positions each
-/// invocation of the tiled spatial path owns.
-///
-/// **Must equal `BLOCK` there.** Held by the same test.
-const SPATIAL_BLOCK: u32 = 4;
+/// **Must equal `BLOCK_X` there.** Held by the same test.
+const SPATIAL_BLOCK_X: u32 = 8;
 
 /// `ROWS` in `shaders/conv_vec_int8.comp`: output channels per workgroup.
 ///

@@ -188,23 +188,16 @@ impl<'a> Builder<'a> {
                     });
                     return Ok(());
                 }
-                // A spatial convolution on the register-blocked tiled path, when the
-                // net opted in with `Builder::spatial_tiling`. Same `Kind::Conv` and
-                // the same push block the untiled path below writes — only `in1`
-                // differs (1, which no untiled dispatch sets) and the invocation
-                // count is workgroups rather than output elements. `conv.comp`
-                // branches on `in1`, so a net that never opts in keeps the exact
-                // dispatches it has today.
-                //
-                // Any kernel, stride, dilation and group: the tiled shader indexes
-                // them all from the push block the way the untiled one does. The
-                // exclusions are the ones it cannot share semantics with — a
-                // transposed convolution (different weight layout) and edge
-                // padding (a Supertonic mode vision never uses).
-                if self.spatial_tiled && !*transpose && !*pad_edge {
-                    let positions = so.h * so.w;
-                    let tiles = so.c.div_ceil(SPATIAL_TILE_OC)
-                        * positions.div_ceil(SPATIAL_TILE_POS);
+                // A spatial convolution on the register-blocked path, when the net opted
+                // in with `Builder::spatial_tiling`. Same `Kind::Conv` and push block as
+                // the untiled path below; `in1` = 1 selects the path in `conv.comp` and
+                // there is one invocation per 4-channel x 8-column block of a row.
+                // Transposed convolutions (different weight layout), edge padding
+                // (Supertonic only) and grouped convolutions stay untiled.
+                if self.spatial_tiled && !*transpose && !*pad_edge && *group == 1 {
+                    let blocks = so.c.div_ceil(SPATIAL_BLOCK_OC)
+                        * so.h
+                        * so.w.div_ceil(SPATIAL_BLOCK_X);
                     ops.push(Op::Dispatch {
                         kind: Kind::Conv,
                         push: Push {
@@ -237,8 +230,7 @@ impl<'a> Builder<'a> {
                             shift: Self::fuse_offset(*shift, &at)?,
                             ..Push::default()
                         },
-                        // One workgroup of 64 per tile, as for `Kind::ConvPoint`.
-                        invocations: tiles * 64,
+                        invocations: blocks,
                     });
                     return Ok(());
                 }
