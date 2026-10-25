@@ -36,12 +36,12 @@ data class VaccinationEntry(
     val dataSourceId: String? = null,
 )
 
-/** Whether a medication is still being taken. Maps to FHIR `MedicationStatement.status`. */
+/** Whether a medication is still being taken. Maps to FHIR `MedicationRequest.status`. */
 enum class MedicationStatus { Active, Completed, Stopped }
 
 /**
  * A medication the user takes or has taken, mirrored to Health Connect as a FHIR
- * `MedicationStatement`. Same nullable-FHIR-columns arrangement as [VaccinationEntry].
+ * `MedicationRequest`. Same nullable-FHIR-columns arrangement as [VaccinationEntry].
  */
 @Entity(indices = [Index(value = ["startedAt"])])
 data class MedicationEntry(
@@ -231,8 +231,30 @@ data class ConditionEntry(
     val dataSourceId: String? = null,
 )
 
+/** Which medical table a [DeletedMedicalResource] or [PendingMirror] refers to. */
+enum class MedicalKind { Vaccination, Medication, Dose, Allergy, Condition, LabResult }
+
+/**
+ * A Health Connect resource the user deleted here, so the next import does not bring it back.
+ *
+ * Another app's records are read-only to this one, and deleting our own can fail or happen while
+ * the feature is unavailable. [retryDelete] is true while our own copy still needs removing.
+ */
+@Entity(primaryKeys = ["kind", "dataSourceId", "fhirResourceId"])
+data class DeletedMedicalResource(
+    val kind: MedicalKind,
+    val dataSourceId: String,
+    val fhirResourceId: String,
+    val fhirResourceType: Int,
+    val retryDelete: Boolean,
+)
+
+/** A row whose latest local state has not reached Health Connect yet. */
+@Entity(primaryKeys = ["kind", "rowId"])
+data class PendingMirror(val kind: MedicalKind, val rowId: String)
+
 @Dao
-// Query surface of the medical tables: one method per query by Room's design.
+// Query surface of the medical tables
 // Splitting the interface would only move the same method count to more files.
 @Suppress("TooManyFunctions")
 interface MedicalDao {
@@ -241,9 +263,6 @@ interface MedicalDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertVaccination(entry: VaccinationEntry)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertVaccinations(entries: List<VaccinationEntry>)
 
     @Update
     suspend fun updateVaccination(entry: VaccinationEntry)
@@ -257,17 +276,16 @@ interface MedicalDao {
     @Query("SELECT * FROM VaccinationEntry WHERE id = :id")
     suspend fun getVaccination(id: String): VaccinationEntry?
 
-    /** Used to reconcile a Health Connect read against what is already stored locally. */
-    @Query("SELECT * FROM VaccinationEntry WHERE fhirResourceId IS NOT NULL")
-    suspend fun getMirroredVaccinations(): List<VaccinationEntry>
+    @Query(
+        "SELECT * FROM VaccinationEntry " +
+            "WHERE dataSourceId = :dataSourceId AND fhirResourceId = :fhirResourceId LIMIT 1"
+    )
+    suspend fun findVaccination(dataSourceId: String, fhirResourceId: String): VaccinationEntry?
 
     // --- Medications -------------------------------------------------------
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertMedication(entry: MedicationEntry)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertMedications(entries: List<MedicationEntry>)
 
     @Update
     suspend fun updateMedication(entry: MedicationEntry)
@@ -281,8 +299,14 @@ interface MedicalDao {
     @Query("SELECT * FROM MedicationEntry WHERE id = :id")
     suspend fun getMedication(id: String): MedicationEntry?
 
-    @Query("SELECT * FROM MedicationEntry WHERE fhirResourceId IS NOT NULL")
-    suspend fun getMirroredMedications(): List<MedicationEntry>
+    @Query(
+        "SELECT * FROM MedicationEntry " +
+            "WHERE dataSourceId = :dataSourceId AND fhirResourceId = :fhirResourceId LIMIT 1"
+    )
+    suspend fun findMedication(dataSourceId: String, fhirResourceId: String): MedicationEntry?
+
+    @Query("SELECT * FROM MedicationEntry WHERE fhirResourceId = :fhirResourceId")
+    suspend fun findMedicationsByFhirId(fhirResourceId: String): List<MedicationEntry>
 
     // --- Attachments -------------------------------------------------------
 
@@ -303,9 +327,6 @@ interface MedicalDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAllergy(entry: AllergyEntry)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertAllergies(entries: List<AllergyEntry>)
-
     @Delete
     suspend fun deleteAllergy(entry: AllergyEntry)
 
@@ -316,13 +337,16 @@ interface MedicalDao {
     @Query("SELECT * FROM AllergyEntry WHERE id = :id")
     suspend fun getAllergy(id: String): AllergyEntry?
 
+    @Query(
+        "SELECT * FROM AllergyEntry " +
+            "WHERE dataSourceId = :dataSourceId AND fhirResourceId = :fhirResourceId LIMIT 1"
+    )
+    suspend fun findAllergy(dataSourceId: String, fhirResourceId: String): AllergyEntry?
+
     // --- Conditions --------------------------------------------------------
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertCondition(entry: ConditionEntry)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertConditions(entries: List<ConditionEntry>)
 
     @Delete
     suspend fun deleteCondition(entry: ConditionEntry)
@@ -333,13 +357,16 @@ interface MedicalDao {
     @Query("SELECT * FROM ConditionEntry WHERE id = :id")
     suspend fun getCondition(id: String): ConditionEntry?
 
+    @Query(
+        "SELECT * FROM ConditionEntry " +
+            "WHERE dataSourceId = :dataSourceId AND fhirResourceId = :fhirResourceId LIMIT 1"
+    )
+    suspend fun findCondition(dataSourceId: String, fhirResourceId: String): ConditionEntry?
+
     // --- Lab results -------------------------------------------------------
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertLabResult(entry: LabResultEntry)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertLabResults(entries: List<LabResultEntry>)
 
     @Delete
     suspend fun deleteLabResult(entry: LabResultEntry)
@@ -349,6 +376,12 @@ interface MedicalDao {
 
     @Query("SELECT * FROM LabResultEntry WHERE id = :id")
     suspend fun getLabResult(id: String): LabResultEntry?
+
+    @Query(
+        "SELECT * FROM LabResultEntry " +
+            "WHERE dataSourceId = :dataSourceId AND fhirResourceId = :fhirResourceId LIMIT 1"
+    )
+    suspend fun findLabResult(dataSourceId: String, fhirResourceId: String): LabResultEntry?
 
     // --- Profile -----------------------------------------------------------
 
@@ -378,9 +411,6 @@ interface MedicalDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertDoseEvent(event: DoseEvent)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertDoseEvents(events: List<DoseEvent>)
-
     @Delete
     suspend fun deleteDoseEvent(event: DoseEvent)
 
@@ -395,4 +425,36 @@ interface MedicalDao {
 
     @Query("DELETE FROM DoseEvent WHERE medicationId = :medicationId")
     suspend fun deleteDosesFor(medicationId: String)
+
+    @Query("SELECT * FROM DoseEvent WHERE medicationId = :medicationId")
+    suspend fun getDosesFor(medicationId: String): List<DoseEvent>
+
+    @Query(
+        "SELECT * FROM DoseEvent " +
+            "WHERE dataSourceId = :dataSourceId AND fhirResourceId = :fhirResourceId LIMIT 1"
+    )
+    suspend fun findDoseEvent(dataSourceId: String, fhirResourceId: String): DoseEvent?
+
+    // --- Health Connect bookkeeping ---------------------------------------
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTombstone(tombstone: DeletedMedicalResource)
+
+    @Query(
+        "SELECT EXISTS(SELECT 1 FROM DeletedMedicalResource WHERE kind = :kind " +
+            "AND dataSourceId = :dataSourceId AND fhirResourceId = :fhirResourceId)"
+    )
+    suspend fun isTombstoned(kind: MedicalKind, dataSourceId: String, fhirResourceId: String): Boolean
+
+    @Query("SELECT * FROM DeletedMedicalResource WHERE retryDelete = 1 AND dataSourceId = :dataSourceId")
+    suspend fun getPendingRemoteDeletes(dataSourceId: String): List<DeletedMedicalResource>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertPendingMirror(pending: PendingMirror)
+
+    @Query("DELETE FROM PendingMirror WHERE kind = :kind AND rowId = :rowId")
+    suspend fun deletePendingMirror(kind: MedicalKind, rowId: String)
+
+    @Query("SELECT * FROM PendingMirror")
+    suspend fun getPendingMirrors(): List<PendingMirror>
 }

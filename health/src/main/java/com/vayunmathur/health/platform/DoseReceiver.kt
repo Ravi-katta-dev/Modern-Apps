@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.vayunmathur.library.log.Log
 import com.vayunmathur.health.data.HealthRepository
+import com.vayunmathur.health.data.MedicationStatus
 import com.vayunmathur.health.notifications.DoseNotification
 import com.vayunmathur.health.service.DoseSoundService
 import kotlinx.coroutines.CoroutineScope
@@ -33,10 +34,14 @@ class DoseReceiver : BroadcastReceiver() {
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             try {
-                val medication = repository.getMedication(medicationId)
-                val name = medication?.let {
-                    listOfNotNull(it.displayName, it.strength).joinToString(" ")
-                } ?: return@launch
+                val medication = repository.getMedication(medicationId) ?: return@launch
+                // A medication that has since been stopped should not ring, whatever alarm was
+                // already armed for it.
+                if (medication.status != MedicationStatus.Active) {
+                    repository.disableReminders(context, medicationId)
+                    return@launch
+                }
+                val name = listOfNotNull(medication.displayName, medication.strength).joinToString(" ")
 
                 DoseNotification.post(context, scheduleId, medicationId, name)
 

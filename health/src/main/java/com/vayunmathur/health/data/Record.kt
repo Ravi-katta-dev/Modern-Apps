@@ -369,8 +369,9 @@ interface HealthDao {
         VaccinationEntry::class, MedicationEntry::class, MedicalAttachment::class,
         MedicationSchedule::class, AllergyEntry::class, ConditionEntry::class,
         LabResultEntry::class, HealthProfile::class, ProfileAnswer::class, DoseEvent::class,
+        DeletedMedicalResource::class, PendingMirror::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @ColumnTypeConverters(Converters::class)
@@ -571,6 +572,44 @@ abstract class HealthDatabase : RoomDatabase() {
                     "CREATE INDEX IF NOT EXISTS index_DoseEvent_medicationId_takenAt " +
                         "ON DoseEvent (medicationId, takenAt)"
                 )
+            },
+            Migration(11, 12) {
+                it.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS DeletedMedicalResource (
+                        kind TEXT NOT NULL,
+                        dataSourceId TEXT NOT NULL,
+                        fhirResourceId TEXT NOT NULL,
+                        fhirResourceType INTEGER NOT NULL,
+                        retryDelete INTEGER NOT NULL,
+                        PRIMARY KEY(kind, dataSourceId, fhirResourceId)
+                    )
+                    """.trimIndent()
+                )
+                it.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS PendingMirror (
+                        kind TEXT NOT NULL,
+                        rowId TEXT NOT NULL,
+                        PRIMARY KEY(kind, rowId)
+                    )
+                    """.trimIndent()
+                )
+                // Anything that never reached Health Connect gets queued, so the first sync on the
+                // new version pushes it rather than leaving it local forever.
+                listOf(
+                    "Vaccination" to "VaccinationEntry",
+                    "Medication" to "MedicationEntry",
+                    "Dose" to "DoseEvent",
+                    "Allergy" to "AllergyEntry",
+                    "Condition" to "ConditionEntry",
+                    "LabResult" to "LabResultEntry",
+                ).forEach { (kind, table) ->
+                    it.execSQL(
+                        "INSERT OR IGNORE INTO PendingMirror (kind, rowId) " +
+                            "SELECT '$kind', id FROM $table WHERE fhirResourceId IS NULL"
+                    )
+                }
             }
         )
     }

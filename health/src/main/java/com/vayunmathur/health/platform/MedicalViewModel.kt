@@ -64,7 +64,7 @@ internal fun String.blankToNull(): String? = trim().ifBlank { null }
  * Room is the source of truth and Health Connect is a mirror written afterwards. That ordering is
  * what makes the feature work at all below Android 15, where the Personal Health Record API does not
  * exist, and it means a rejected or failed FHIR write costs the user nothing — the row is already
- * saved, it simply has no `fhirResourceId` yet.
+ * saved and stays queued in `PendingMirror` until a sync gets it written.
  *
  * The save/delete/mirror/import operations live in same-package files
  * ([MedicalVaccinationOps.kt][saveVaccinationDraft], [MedicalMedicationOps.kt][saveMedicationDraft],
@@ -371,7 +371,10 @@ class MedicalViewModel(
                 dosage = entry.dosageText.orEmpty(),
                 note = entry.note.orEmpty(),
                 scheduleId = schedule?.id,
-                remindersEnabled = schedule?.enabled == true,
+                // A stopped medication's schedule is kept but switched off; showing it as on is
+                // what lets reactivating the medication bring its reminders back.
+                remindersEnabled = schedule != null &&
+                    (schedule.enabled || entry.status != MedicationStatus.Active),
                 times = schedule?.times?.takeIf { it.isNotEmpty() }
                     ?: listOf(DEFAULT_DOSE_TIME_SECONDS),
                 repeatUnit = schedule?.repeatUnit ?: RepeatUnit.Daily,

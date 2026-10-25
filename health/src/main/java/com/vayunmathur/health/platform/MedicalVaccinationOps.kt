@@ -3,6 +3,7 @@ package com.vayunmathur.health.platform
 import androidx.core.net.toUri
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.health.data.MedicalAttachment
+import com.vayunmathur.health.data.MedicalKind
 import com.vayunmathur.health.data.VaccinationEntry
 import com.vayunmathur.health.domain.FhirRecords
 import kotlinx.coroutines.Dispatchers
@@ -25,9 +26,15 @@ fun MedicalViewModel.saveVaccinationDraft(fallbackAttachmentName: String) {
 
     viewModelScope.launch {
         // Keeping the row id on edit is what makes the Health Connect mirror an update rather
-        // than a second resource, since the row id is also the FHIR resource id.
+        // than a second resource. A provider's record is detached into the user's own instead.
         val existing = draft.editingId?.let { repository.getVaccination(it) }
-        val entry = (existing ?: VaccinationEntry(
+        val detached = repository.detachIfForeign(
+            MedicalKind.Vaccination,
+            PersonalHealthRecords.immunizationResourceType,
+            existing?.dataSourceId,
+            existing?.fhirResourceId,
+        )
+        val edited = (existing ?: VaccinationEntry(
             id = Uuid.random().toString(),
             displayName = "",
             occurredAt = Instant.now(),
@@ -42,7 +49,9 @@ fun MedicalViewModel.saveVaccinationDraft(fallbackAttachmentName: String) {
             performer = draft.performer.blankToNull(),
             note = draft.note.blankToNull(),
         )
+        val entry = if (detached) edited.copy(fhirResourceId = null, dataSourceId = null) else edited
         repository.upsertVaccination(entry)
+        repository.markPending(MedicalKind.Vaccination, entry.id)
 
         draft.savedAttachments
             .filter { it.id in draft.removedAttachmentIds }
@@ -82,22 +91,20 @@ fun MedicalViewModel.deleteVaccination(entry: VaccinationEntry) {
             repository.deleteAttachment(attachment)
         }
         repository.deleteVaccination(entry)
-
-        val dataSourceId = entry.dataSourceId
-        val fhirId = entry.fhirResourceId
-        if (dataSourceId != null && fhirId != null) {
-            PersonalHealthRecords.delete(
-                dataSourceId,
-                PersonalHealthRecords.immunizationResourceType,
-                fhirId,
-            )
-        }
+        repository.forgetRow(
+            MedicalKind.Vaccination,
+            entry.id,
+            PersonalHealthRecords.immunizationResourceType,
+            entry.dataSourceId,
+            entry.fhirResourceId,
+        )
     }
 }
 
-private suspend fun MedicalViewModel.mirrorVaccination(id: String) {
-    val dataSourceId = PersonalHealthRecords.dataSourceId() ?: return
-    val entry = repository.getVaccination(id) ?: return
+internal suspend fun MedicalViewModel.mirrorVaccination(id: String) {
+    val entry = repository.getVaccination(id)
+        ?: return repository.clearPending(MedicalKind.Vaccination, id)
+    val dataSourceId = repository.mirrorTarget(MedicalKind.Vaccination, id, entry.dataSourceId) ?: return
     val fhirAttachments = repository.getAttachmentsFor(id).map { attachment ->
         FhirRecords.FhirAttachment(
             contentType = attachment.mimeType,
@@ -113,4 +120,5 @@ private suspend fun MedicalViewModel.mirrorVaccination(id: String) {
     repository.upsertVaccination(
         entry.copy(fhirResourceId = written, dataSourceId = dataSourceId)
     )
+    repository.clearPending(MedicalKind.Vaccination, id)
 }

@@ -34,7 +34,8 @@ import kotlinx.coroutines.sync.withLock
  * devices in the supported range.
  *
  * Every write also tolerates failure at runtime. A rejected resource must not cost the user the entry
- * they just typed, so failures are logged and swallowed and the Room row simply stays unmirrored.
+ * they just typed, so failures are logged and swallowed; the row stays queued in `PendingMirror` and
+ * the next sync retries it.
  */
 object PersonalHealthRecords {
 
@@ -65,6 +66,7 @@ object PersonalHealthRecords {
 
     /** Key in the existing `"sync"` SharedPreferences that `HealthAPI` owns. */
     private const val PREF_DATA_SOURCE_ID = "phr_data_source_id"
+    private const val PREF_OWNED_DATA_SOURCE_IDS = "phr_owned_data_source_ids"
 
     private const val DATA_SOURCE_DISPLAY_NAME = "MA Health"
     private val DATA_SOURCE_URI: Uri = "https://maproj.org/fhir/ma-health".toUri()
@@ -72,24 +74,46 @@ object PersonalHealthRecords {
     /** Serialises get-or-create so two screens opening at once cannot create two data sources. */
     private val dataSourceMutex = Mutex()
 
-    private lateinit var appContext: Context
-    private lateinit var client: HealthConnectClient
+    @Volatile private var appContext: Context? = null
+    @Volatile private var client: HealthConnectClient? = null
+
+    private val hc: HealthConnectClient get() = checkNotNull(client)
 
     fun init(context: Context, healthConnectClient: HealthConnectClient) {
         appContext = context.applicationContext
         client = healthConnectClient
     }
 
+    /**
+     * Sets up the client for an entry point that runs without `MainActivity`, such as a dose
+     * alarm's Taken action in a process the alarm just started.
+     */
+    // Broad catch is deliberate: getOrCreate throws when Health Connect is missing or
+    // unsupported, and that has to leave the feature unavailable rather than crash a receiver.
+    @Suppress("TooGenericExceptionCaught")
+    fun ensureInitialized(context: Context) {
+        if (client != null) return
+        appContext = context.applicationContext
+        try {
+            init(context, HealthConnectClient.getOrCreate(context.applicationContext))
+        } catch (e: Exception) {
+            Log.status(TAG, "Health Connect is not available to initialise", e)
+        }
+    }
+
     // Broad catch is deliberate: this is the availability probe whose contract is to
     // never throw, and the Health Connect client throws undocumented RuntimeExceptions
     // (not just declared ones) when the module is missing or outdated.
     @Suppress("TooGenericExceptionCaught")
-    fun isAvailable(): Boolean = try {
-        client.features.getFeatureStatus(HealthConnectFeatures.FEATURE_PERSONAL_HEALTH_RECORD) ==
-            HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
-    } catch (e: Exception) {
-        Log.status(TAG, "Could not query the Personal Health Record feature status", e)
-        false
+    fun isAvailable(): Boolean {
+        val current = client ?: return false
+        return try {
+            current.features.getFeatureStatus(HealthConnectFeatures.FEATURE_PERSONAL_HEALTH_RECORD) ==
+                HealthConnectFeatures.FEATURE_STATUS_AVAILABLE
+        } catch (e: Exception) {
+            Log.status(TAG, "Could not query the Personal Health Record feature status", e)
+            false
+        }
     }
 
     /**
@@ -100,22 +124,22 @@ object PersonalHealthRecords {
      * stale cached id would make every subsequent write fail.
      */
     // Broad catch is deliberate: a rejected data source must not cost the user the entry
-    // they just typed — the Room row simply stays unmirrored and a later import reconciles.
+    // they just typed — the row stays queued and the next sync retries it.
     // The Health Connect client throws undocumented RuntimeExceptions, not just declared ones.
     @Suppress("TooGenericExceptionCaught")
     suspend fun dataSourceId(): String? {
         if (!isAvailable()) return null
         return dataSourceMutex.withLock {
             try {
-                val existing = client
-                    .getMedicalDataSources(GetMedicalDataSourcesRequest(listOf(appContext.packageName)))
+                val existing = hc
+                    .getMedicalDataSources(GetMedicalDataSourcesRequest(listOf(checkNotNull(appContext).packageName)))
                     .firstOrNull()
                 if (existing != null) {
                     cacheDataSourceId(existing.id)
                     return@withLock existing.id
                 }
 
-                val created = client.createMedicalDataSource(
+                val created = hc.createMedicalDataSource(
                     CreateMedicalDataSourceRequest(
                         fhirBaseUri = DATA_SOURCE_URI,
                         displayName = DATA_SOURCE_DISPLAY_NAME,
@@ -134,17 +158,35 @@ object PersonalHealthRecords {
         }
     }
 
+    private fun prefs() = appContext?.getSharedPreferences("sync", Context.MODE_PRIVATE)
+
     private fun cacheDataSourceId(id: String) {
-        appContext.getSharedPreferences("sync", Context.MODE_PRIVATE)
-            .edit { putString(PREF_DATA_SOURCE_ID, id) }
+        val prefs = prefs() ?: return
+        val owned = prefs.getStringSet(PREF_OWNED_DATA_SOURCE_IDS, null).orEmpty()
+        prefs.edit {
+            putString(PREF_DATA_SOURCE_ID, id)
+            putStringSet(PREF_OWNED_DATA_SOURCE_IDS, owned + id)
+        }
+    }
+
+    /**
+     * Whether [dataSourceId] is, or once was, this app's own.
+     *
+     * Once rather than only now: the user can delete the data source from Health Connect's
+     * settings, and rows written to the old one are still this app's to rewrite into the new one.
+     */
+    fun isOwnDataSource(dataSourceId: String): Boolean {
+        val prefs = prefs() ?: return false
+        return dataSourceId == prefs.getString(PREF_DATA_SOURCE_ID, null) ||
+            dataSourceId in prefs.getStringSet(PREF_OWNED_DATA_SOURCE_IDS, null).orEmpty()
     }
 
     /** Writes one FHIR resource, returning its Health Connect id or null if the write did not land. */
     // Broad catch is deliberate: a rejected resource must not cost the user the entry they
-    // just typed, so failures are logged and swallowed and the Room row stays unmirrored.
+    // just typed, so failures are logged and swallowed and the row stays queued for retry.
     @Suppress("TooGenericExceptionCaught")
     suspend fun upsert(dataSourceId: String, data: String): String? = try {
-        client.upsertMedicalResources(
+        hc.upsertMedicalResources(
             listOf(UpsertMedicalResourceRequest(dataSourceId, FHIR_VERSION, data))
         ).firstOrNull()?.id?.fhirResourceId
     } catch (e: Exception) {
@@ -152,17 +194,20 @@ object PersonalHealthRecords {
         null
     }
 
-    // Broad catch is deliberate: delete is best-effort cleanup — a stale mirror row is
-    // harmless next to a crash, and the client throws undocumented RuntimeExceptions.
+    /** Deletes one of this app's resources, returning whether Health Connect confirmed it. */
+    // Broad catch is deliberate: a failed delete is recorded and retried on the next sync,
+    // and the client throws undocumented RuntimeExceptions.
     @Suppress("TooGenericExceptionCaught")
-    suspend fun delete(dataSourceId: String, fhirResourceType: Int, fhirResourceId: String) {
-        if (!isAvailable()) return
-        try {
-            client.deleteMedicalResources(
+    suspend fun delete(dataSourceId: String, fhirResourceType: Int, fhirResourceId: String): Boolean {
+        if (!isAvailable()) return false
+        return try {
+            hc.deleteMedicalResources(
                 listOf(MedicalResourceId(dataSourceId, fhirResourceType, fhirResourceId))
             )
+            true
         } catch (e: Exception) {
             Log.error(TAG, "Could not delete a medical resource", e)
+            false
         }
     }
 
@@ -188,13 +233,13 @@ object PersonalHealthRecords {
         if (!isAvailable()) return emptyList()
         return try {
             val all = mutableListOf<MedicalResource>()
-            var response = client.readMedicalResources(
+            var response = hc.readMedicalResources(
                 ReadMedicalResourcesInitialRequest(medicalResourceType, emptySet(), PAGE_SIZE)
             )
             all += response.medicalResources
             var token = response.nextPageToken
             while (token != null) {
-                response = client.readMedicalResources(
+                response = hc.readMedicalResources(
                     ReadMedicalResourcesPageRequest(token, PAGE_SIZE)
                 )
                 all += response.medicalResources

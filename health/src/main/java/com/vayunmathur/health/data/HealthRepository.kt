@@ -101,18 +101,20 @@ class HealthRepository private constructor(context: Context) :
 
     // Medical history — vaccinations, medications and their attachments
     suspend fun upsertVaccination(entry: VaccinationEntry) = medicalDao.upsertVaccination(entry)
-    suspend fun upsertVaccinations(entries: List<VaccinationEntry>) = medicalDao.upsertVaccinations(entries)
     suspend fun deleteVaccination(entry: VaccinationEntry) = medicalDao.deleteVaccination(entry)
     fun getVaccinationsFlow(): Flow<List<VaccinationEntry>> = medicalDao.getVaccinationsFlow()
     suspend fun getVaccination(id: String): VaccinationEntry? = medicalDao.getVaccination(id)
-    suspend fun getMirroredVaccinations(): List<VaccinationEntry> = medicalDao.getMirroredVaccinations()
+    suspend fun findVaccination(dataSourceId: String, fhirResourceId: String): VaccinationEntry? =
+        medicalDao.findVaccination(dataSourceId, fhirResourceId)
 
     suspend fun upsertMedication(entry: MedicationEntry) = medicalDao.upsertMedication(entry)
-    suspend fun upsertMedications(entries: List<MedicationEntry>) = medicalDao.upsertMedications(entries)
     suspend fun deleteMedication(entry: MedicationEntry) = medicalDao.deleteMedication(entry)
     fun getMedicationsFlow(): Flow<List<MedicationEntry>> = medicalDao.getMedicationsFlow()
     suspend fun getMedication(id: String): MedicationEntry? = medicalDao.getMedication(id)
-    suspend fun getMirroredMedications(): List<MedicationEntry> = medicalDao.getMirroredMedications()
+    suspend fun findMedication(dataSourceId: String, fhirResourceId: String): MedicationEntry? =
+        medicalDao.findMedication(dataSourceId, fhirResourceId)
+    suspend fun findMedicationsByFhirId(fhirResourceId: String): List<MedicationEntry> =
+        medicalDao.findMedicationsByFhirId(fhirResourceId)
 
     suspend fun insertAttachment(attachment: MedicalAttachment) = medicalDao.insertAttachment(attachment)
     suspend fun deleteAttachment(attachment: MedicalAttachment) = medicalDao.deleteAttachment(attachment)
@@ -131,23 +133,26 @@ class HealthRepository private constructor(context: Context) :
 
     // Allergies and conditions
     suspend fun upsertAllergy(entry: AllergyEntry) = medicalDao.upsertAllergy(entry)
-    suspend fun upsertAllergies(entries: List<AllergyEntry>) = medicalDao.upsertAllergies(entries)
     suspend fun deleteAllergy(entry: AllergyEntry) = medicalDao.deleteAllergy(entry)
     fun getAllergiesFlow(): Flow<List<AllergyEntry>> = medicalDao.getAllergiesFlow()
     suspend fun getAllergy(id: String): AllergyEntry? = medicalDao.getAllergy(id)
+    suspend fun findAllergy(dataSourceId: String, fhirResourceId: String): AllergyEntry? =
+        medicalDao.findAllergy(dataSourceId, fhirResourceId)
 
     suspend fun upsertCondition(entry: ConditionEntry) = medicalDao.upsertCondition(entry)
-    suspend fun upsertConditions(entries: List<ConditionEntry>) = medicalDao.upsertConditions(entries)
     suspend fun deleteCondition(entry: ConditionEntry) = medicalDao.deleteCondition(entry)
     fun getConditionsFlow(): Flow<List<ConditionEntry>> = medicalDao.getConditionsFlow()
     suspend fun getCondition(id: String): ConditionEntry? = medicalDao.getCondition(id)
+    suspend fun findCondition(dataSourceId: String, fhirResourceId: String): ConditionEntry? =
+        medicalDao.findCondition(dataSourceId, fhirResourceId)
 
     // Lab results and the standing profile
     suspend fun upsertLabResult(entry: LabResultEntry) = medicalDao.upsertLabResult(entry)
-    suspend fun upsertLabResults(entries: List<LabResultEntry>) = medicalDao.upsertLabResults(entries)
     suspend fun deleteLabResult(entry: LabResultEntry) = medicalDao.deleteLabResult(entry)
     fun getLabResultsFlow(): Flow<List<LabResultEntry>> = medicalDao.getLabResultsFlow()
     suspend fun getLabResult(id: String): LabResultEntry? = medicalDao.getLabResult(id)
+    suspend fun findLabResult(dataSourceId: String, fhirResourceId: String): LabResultEntry? =
+        medicalDao.findLabResult(dataSourceId, fhirResourceId)
 
     suspend fun upsertProfile(profile: HealthProfile) = medicalDao.upsertProfile(profile)
     fun getProfileFlow(): Flow<HealthProfile?> = medicalDao.getProfileFlow()
@@ -161,13 +166,26 @@ class HealthRepository private constructor(context: Context) :
 
     // Doses taken
     suspend fun upsertDoseEvent(event: DoseEvent) = medicalDao.upsertDoseEvent(event)
-    suspend fun upsertDoseEvents(events: List<DoseEvent>) = medicalDao.upsertDoseEvents(events)
     suspend fun deleteDoseEvent(event: DoseEvent) = medicalDao.deleteDoseEvent(event)
     fun getDoseEventsFlow(): Flow<List<DoseEvent>> = medicalDao.getDoseEventsFlow()
     suspend fun getRecentDoses(medicationId: String, limit: Int): List<DoseEvent> =
         medicalDao.getRecentDoses(medicationId, limit)
     suspend fun getDoseEvent(id: String): DoseEvent? = medicalDao.getDoseEvent(id)
     suspend fun deleteDosesFor(medicationId: String) = medicalDao.deleteDosesFor(medicationId)
+    suspend fun getDosesFor(medicationId: String): List<DoseEvent> = medicalDao.getDosesFor(medicationId)
+    suspend fun findDoseEvent(dataSourceId: String, fhirResourceId: String): DoseEvent? =
+        medicalDao.findDoseEvent(dataSourceId, fhirResourceId)
+
+    // Health Connect bookkeeping
+    suspend fun upsertTombstone(tombstone: DeletedMedicalResource) = medicalDao.upsertTombstone(tombstone)
+    suspend fun isTombstoned(kind: MedicalKind, dataSourceId: String, fhirResourceId: String): Boolean =
+        medicalDao.isTombstoned(kind, dataSourceId, fhirResourceId)
+    suspend fun getPendingRemoteDeletes(dataSourceId: String): List<DeletedMedicalResource> =
+        medicalDao.getPendingRemoteDeletes(dataSourceId)
+    suspend fun markPending(kind: MedicalKind, rowId: String) =
+        medicalDao.insertPendingMirror(PendingMirror(kind, rowId))
+    suspend fun clearPending(kind: MedicalKind, rowId: String) = medicalDao.deletePendingMirror(kind, rowId)
+    suspend fun getPendingMirrors(): List<PendingMirror> = medicalDao.getPendingMirrors()
 
     /**
      * Expose underlying [HealthDatabase] for call sites that need transactional access

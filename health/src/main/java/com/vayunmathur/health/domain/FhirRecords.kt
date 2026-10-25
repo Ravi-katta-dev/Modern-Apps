@@ -10,15 +10,16 @@ import com.vayunmathur.health.data.PregnancyStatus
 import com.vayunmathur.health.data.SmokingStatus
 import com.vayunmathur.health.data.VaccinationEntry
 import java.time.Instant
+import java.time.ZoneId
 
 /**
  * Builds and reads the FHIR R4 JSON that Health Connect's Personal Health Record store accepts.
  *
  * Health Connect takes the resource as an opaque JSON string and validates it against the spec, so
  * the required fields below are not optional decoration: `Immunization` must carry `status`,
- * `vaccineCode`, `patient` and an `occurrence[x]`, and `MedicationStatement` must carry `status`,
- * `subject` and a `medication[x]`. Both reference a `Patient`, which is why [patientJson] exists and
- * is written to the same data source before anything else.
+ * `vaccineCode`, `patient` and an `occurrence[x]`, and `MedicationRequest` and `MedicationStatement`
+ * must carry `status`, `subject` and a `medication[x]`. All of them reference a `Patient`, which is
+ * why [patientJson] exists and is written to the same data source before anything else.
  *
  * Reading is deliberately far more forgiving than writing. Resources synced from a real health system
  * are shown alongside the user's own, and those carry codings, extensions and date precisions this
@@ -107,6 +108,15 @@ object FhirRecords {
     fun parseDoseEvent(data: String, dataSourceId: String): DoseEvent? =
         com.vayunmathur.health.domain.parseDoseEvent(data, dataSourceId)
 
+    fun parseMedicationStatement(data: String, dataSourceId: String): MedicationEntry? =
+        com.vayunmathur.health.domain.parseMedicationStatement(data, dataSourceId)
+
+    fun isUnplannedMedicationStatement(data: String): Boolean =
+        com.vayunmathur.health.domain.isUnplannedMedicationStatement(data)
+
+    fun isEnteredInError(data: String): Boolean =
+        com.vayunmathur.health.domain.isEnteredInError(data)
+
     fun parseAllergyIntolerance(data: String, dataSourceId: String): AllergyEntry? =
         com.vayunmathur.health.domain.parseAllergyIntolerance(data, dataSourceId)
 
@@ -161,11 +171,11 @@ object FhirRecords {
 
     /**
      * FHIR `dateTime` allows YYYY, YYYY-MM and YYYY-MM-DD as well as a full timestamp, and a provider
-     * feed uses all of them. Partial dates are anchored to the start of their first day in UTC, which
-     * is the wrong hour but the right day, and the log only ever shows the day.
+     * feed uses all of them. Partial dates are anchored to local midnight in [zone], the same way
+     * this app stores a date it picked itself, so they show on the day they name.
      */
-    internal fun parseDateTime(text: String?): Instant? =
-        com.vayunmathur.health.domain.parseDateTime(text)
+    internal fun parseDateTime(text: String?, zone: ZoneId = ZoneId.systemDefault()): Instant? =
+        com.vayunmathur.health.domain.parseDateTime(text, zone)
 
     /** Splits "0.5 mL" into 0.5 and "mL". Null when the text does not start with a number. */
     internal fun parseQuantity(text: String): Pair<Double, String>? =

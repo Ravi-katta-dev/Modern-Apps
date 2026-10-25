@@ -22,7 +22,7 @@ import java.time.Instant
  */
 internal fun labResultJson(entry: LabResultEntry): String = buildJsonObject {
     put("resourceType", "Observation")
-    put("id", entry.id)
+    put("id", entry.fhirResourceId ?: entry.id)
     put("status", "final")
     putObservationCategory("laboratory")
     putJsonObject("code") {
@@ -40,7 +40,7 @@ internal fun labResultJson(entry: LabResultEntry): String = buildJsonObject {
         put("text", entry.displayName)
     }
     putJsonObject("subject") { put("reference", "Patient/${FhirRecords.PATIENT_RESOURCE_ID}") }
-    put("effectiveDateTime", formatDateTime(entry.takenAt))
+    put("effectiveDateTime", formatClinicalDate(entry.takenAt))
 
     val numeric = entry.value
     if (numeric != null) {
@@ -104,7 +104,7 @@ internal fun pregnancyStatusJson(
             add(
                 buildJsonObject {
                     putCoded("code", FhirRecords.LOINC_SYSTEM, "11778-8", "Estimated date of delivery")
-                    put("valueDateTime", formatDateTime(it))
+                    put("valueDateTime", formatClinicalDate(it))
                 }
             )
         }

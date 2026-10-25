@@ -22,8 +22,13 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
+import java.time.ZoneId
+import java.util.TimeZone
+import kotlin.test.AfterTest
+import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -36,6 +41,21 @@ import kotlin.test.assertTrue
 class FhirRecordsTest {
 
     private val json = Json
+
+    // Date-precision fields are written and read in the device's zone, so pin it: the fixtures
+    // below use UTC midnight to stand for a picked date.
+    private lateinit var originalZone: TimeZone
+
+    @BeforeTest
+    fun pinZone() {
+        originalZone = TimeZone.getDefault()
+        TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
+    }
+
+    @AfterTest
+    fun restoreZone() {
+        TimeZone.setDefault(originalZone)
+    }
 
     private fun parse(text: String): JsonObject = json.parseToJsonElement(text).jsonObject
 
@@ -175,7 +195,8 @@ class FhirRecordsTest {
         assertEquals(FhirRecords.RXNORM_SYSTEM, coding.str("system"))
         assertEquals("308182", coding.str("code"))
         assertEquals("amoxicillin 250 MG Oral Capsule", coding.str("display"))
-        assertEquals("2026-01-10T00:00:00Z", root.str("authoredOn"))
+        // A picked date travels as a date, not as a UTC instant that can land on another day.
+        assertEquals("2026-01-10", root.str("authoredOn"))
     }
 
     @Test
@@ -195,7 +216,34 @@ class FhirRecordsTest {
         assertEquals(amoxicillin.rxcui, parsed.rxcui)
         assertEquals(amoxicillin.status, parsed.status)
         assertEquals(amoxicillin.startedAt, parsed.startedAt)
+        assertEquals(amoxicillin.endedAt, parsed.endedAt)
         assertEquals(amoxicillin.dosageText, parsed.dosageText)
+    }
+
+    @Test
+    fun `a finished course keeps its end date even without reminders`() {
+        val root = parse(FhirRecords.medicationRequestJson(amoxicillin))
+        val bounds = root["dosageInstruction"]!!.jsonArray.single().jsonObject["timing"]!!
+            .jsonObject["repeat"]!!.jsonObject["boundsPeriod"]!!.jsonObject
+
+        assertEquals("2026-01-10", bounds.str("start"))
+        assertEquals("2026-01-17", bounds.str("end"))
+    }
+
+    @Test
+    fun `an ongoing course does not carry a stale end date`() {
+        val ongoing = amoxicillin.copy(status = MedicationStatus.Active)
+        val root = parse(FhirRecords.medicationRequestJson(ongoing))
+        val bounds = root["dosageInstruction"]!!.jsonArray.single().jsonObject["timing"]!!
+            .jsonObject["repeat"]!!.jsonObject["boundsPeriod"]!!.jsonObject
+
+        assertNull(bounds.str("end"))
+    }
+
+    @Test
+    fun `the FHIR id is kept when the row already has one`() {
+        val imported = amoxicillin.copy(id = "local-row", fhirResourceId = "fhir-7")
+        assertEquals("fhir-7", parse(FhirRecords.medicationRequestJson(imported)).str("id"))
     }
 
     @Test
@@ -211,7 +259,8 @@ class FhirRecordsTest {
             anchorDate = KotlinLocalDate(2026, 1, 10),
             endDate = KotlinLocalDate(2026, 3, 1),
         )
-        val dosage = parse(FhirRecords.medicationRequestJson(amoxicillin, schedule))[
+        val ongoing = amoxicillin.copy(status = MedicationStatus.Active, endedAt = null)
+        val dosage = parse(FhirRecords.medicationRequestJson(ongoing, schedule))[
             "dosageInstruction"
         ]!!.jsonArray.single().jsonObject
         val repeat = dosage["timing"]!!.jsonObject["repeat"]!!.jsonObject
@@ -222,7 +271,8 @@ class FhirRecordsTest {
         )
         assertEquals("2", repeat.str("period"))
         assertEquals("wk", repeat.str("periodUnit"))
-        assertEquals("2", repeat.str("frequency"))
+        // Doses per period: two times of day on each of two days.
+        assertEquals("4", repeat.str("frequency"))
         assertEquals(
             listOf("mon", "thu"),
             (repeat["dayOfWeek"] as JsonArray).map { it.jsonPrimitive.content },
@@ -264,6 +314,79 @@ class FhirRecordsTest {
         assertNull(parsed.second)
     }
 
+    private fun requestWithRepeat(repeat: String) = """
+        {
+          "resourceType": "MedicationRequest",
+          "id": "rx-1",
+          "status": "active",
+          "intent": "order",
+          "medicationCodeableConcept": { "text": "Ibuprofen" },
+          "subject": { "reference": "Patient/other" },
+          "dosageInstruction": [ { "timing": { "repeat": $repeat } } ]
+        }
+    """.trimIndent()
+
+    @Test
+    fun `an hourly regimen is not read as a daily one`() {
+        val parsed = FhirRecords.parseMedicationRequest(
+            requestWithRepeat(
+                """{ "boundsPeriod": { "start": "2026-02-01" }, "timeOfDay": ["08:00:00"],
+                    "period": 8, "periodUnit": "h" }"""
+            ),
+            "hospital",
+        )
+
+        assertNotNull(parsed)
+        assertNull(parsed.second)
+    }
+
+    @Test
+    fun `daily on chosen weekdays becomes weekly on those days`() {
+        val schedule = FhirRecords.parseMedicationRequest(
+            requestWithRepeat(
+                """{ "boundsPeriod": { "start": "2026-02-01" }, "timeOfDay": ["08:00:00"],
+                    "period": 1, "periodUnit": "d", "dayOfWeek": ["mon", "wed", "fri"] }"""
+            ),
+            "hospital",
+        )?.second
+
+        assertNotNull(schedule)
+        assertEquals(RepeatUnit.Weekly, schedule.repeatUnit)
+        assertEquals(1, schedule.interval)
+        assertEquals((1 shl 1) or (1 shl 3) or (1 shl 5), schedule.daysOfWeek)
+    }
+
+    @Test
+    fun `a course start comes from the dosing period rather than when it was written`() {
+        val provider = """
+            {
+              "resourceType": "MedicationRequest",
+              "id": "rx-2",
+              "status": "active",
+              "intent": "order",
+              "medicationCodeableConcept": { "text": "Metformin" },
+              "subject": { "reference": "Patient/other" },
+              "authoredOn": "2026-01-20",
+              "dosageInstruction": [ { "timing": { "repeat": { "boundsPeriod": { "start": "2026-02-01" } } } } ]
+            }
+        """.trimIndent()
+
+        val parsed = FhirRecords.parseMedicationRequest(provider, "hospital")?.first
+
+        assertNotNull(parsed)
+        assertEquals(Instant.parse("2026-02-01T00:00:00Z"), parsed.startedAt)
+    }
+
+    @Test
+    fun `a retracted request is not a medication`() {
+        val retracted = FhirRecords.medicationRequestJson(amoxicillin)
+            .replace("\"status\":\"completed\"", "\"status\":\"entered-in-error\"")
+
+        assertTrue(FhirRecords.isEnteredInError(retracted))
+        assertNull(FhirRecords.parseMedicationRequest(retracted, "src"))
+        assertFalse(FhirRecords.isEnteredInError(FhirRecords.medicationRequestJson(amoxicillin)))
+    }
+
     // --- MedicationStatement: the dose actually taken --------------------------
 
     @Test
@@ -284,6 +407,46 @@ class FhirRecordsTest {
             "MedicationRequest/${amoxicillin.id}",
             (root["basedOn"] as JsonArray).single().jsonObject.str("reference"),
         )
+    }
+
+    @Test
+    fun `a dose points at the plan's FHIR id, not its local row id`() {
+        val imported = amoxicillin.copy(id = "local-row", fhirResourceId = "fhir-7")
+        val event = DoseEvent("dose-1", imported.id, Instant.parse("2026-01-12T08:05:00Z"))
+        val root = parse(FhirRecords.doseEventJson(event, imported))
+
+        assertEquals(
+            "MedicationRequest/fhir-7",
+            (root["basedOn"] as JsonArray).single().jsonObject.str("reference"),
+        )
+    }
+
+    @Test
+    fun `only a completed statement is a dose taken`() {
+        val event = DoseEvent("dose-1", amoxicillin.id, Instant.parse("2026-01-12T08:05:00Z"))
+        val taken = FhirRecords.doseEventJson(event, amoxicillin)
+
+        listOf("not-taken", "intended", "active", "entered-in-error").forEach { status ->
+            val other = taken.replace("\"status\":\"completed\"", "\"status\":\"$status\"")
+            assertNull(FhirRecords.parseDoseEvent(other, "src"), status)
+        }
+    }
+
+    @Test
+    fun `an absolute basedOn reference still finds its plan`() {
+        val provider = """
+            {
+              "resourceType": "MedicationStatement",
+              "id": "dose-9",
+              "status": "completed",
+              "basedOn": [ { "reference": "https://fhir.example.org/MedicationRequest/rx-4/_history/2" } ],
+              "medicationCodeableConcept": { "text": "Metformin" },
+              "subject": { "reference": "Patient/other" },
+              "effectiveDateTime": "2026-01-12T08:05:00Z"
+            }
+        """.trimIndent()
+
+        assertEquals("rx-4", FhirRecords.parseDoseEvent(provider, "hospital")?.medicationId)
     }
 
     @Test
@@ -329,6 +492,38 @@ class FhirRecordsTest {
         """.trimIndent()
 
         assertNull(FhirRecords.parseDoseEvent(bare, "hospital"))
+    }
+
+    @Test
+    fun `a provider's reported medication is read as a medication`() {
+        val reported = """
+            {
+              "resourceType": "MedicationStatement",
+              "id": "reported-1",
+              "status": "completed",
+              "medicationCodeableConcept": { "text": "Metformin" },
+              "subject": { "reference": "Patient/other" },
+              "effectivePeriod": { "start": "2024-06-01", "end": "2024-09-01" }
+            }
+        """.trimIndent()
+
+        assertTrue(FhirRecords.isUnplannedMedicationStatement(reported))
+        val parsed = FhirRecords.parseMedicationStatement(reported, "hospital")
+
+        assertNotNull(parsed)
+        assertEquals("Metformin", parsed.displayName)
+        assertEquals(MedicationStatus.Completed, parsed.status)
+        assertEquals(Instant.parse("2024-06-01T00:00:00Z"), parsed.startedAt)
+        assertEquals(Instant.parse("2024-09-01T00:00:00Z"), parsed.endedAt)
+    }
+
+    @Test
+    fun `a dose is never read as a reported medication`() {
+        val event = DoseEvent("dose-1", amoxicillin.id, Instant.parse("2026-01-12T08:05:00Z"))
+        val dose = FhirRecords.doseEventJson(event, amoxicillin)
+
+        assertFalse(FhirRecords.isUnplannedMedicationStatement(dose))
+        assertNull(FhirRecords.parseMedicationStatement(dose, "src"))
     }
 
     // --- Reading what other systems write ------------------------------------
@@ -494,7 +689,7 @@ class FhirRecordsTest {
             "problem-list-item",
             category["coding"]!!.jsonArray.single().jsonObject.str("code"),
         )
-        assertEquals("2022-01-15T00:00:00Z", root.str("onsetDateTime"))
+        assertEquals("2022-01-15", root.str("onsetDateTime"))
 
         val coding = root["code"]!!.jsonObject["coding"]!!.jsonArray.single().jsonObject
         assertEquals(FhirRecords.ICD10_SYSTEM, coding.str("system"))
@@ -513,7 +708,7 @@ class FhirRecordsTest {
             "resolved",
             root["clinicalStatus"]!!.jsonObject["coding"]!!.jsonArray.single().jsonObject.str("code"),
         )
-        assertEquals("2024-08-01T00:00:00Z", root.str("abatementDateTime"))
+        assertEquals("2024-08-01", root.str("abatementDateTime"))
     }
 
     @Test
@@ -653,7 +848,7 @@ class FhirRecordsTest {
         assertEquals("77386006", value.str("code"))
 
         val component = (root["component"] as JsonArray).single().jsonObject
-        assertEquals("2026-11-01T00:00:00Z", component.str("valueDateTime"))
+        assertEquals("2026-11-01", component.str("valueDateTime"))
 
         val (status, due) = FhirRecords.parsePregnancyStatus(json)!!
         assertEquals(PregnancyStatus.Pregnant, status)
@@ -737,5 +932,23 @@ class FhirRecordsTest {
         )
         assertNull(FhirRecords.parseDateTime("not a date"))
         assertNull(FhirRecords.parseDateTime(null))
+    }
+
+    @Test
+    fun `a date-only value lands on that day in the device's zone`() {
+        val pacific = ZoneId.of("America/Los_Angeles")
+        val parsed = FhirRecords.parseDateTime("2026-03-04", pacific)
+
+        assertNotNull(parsed)
+        assertEquals(java.time.LocalDate.of(2026, 3, 4), parsed.atZone(pacific).toLocalDate())
+    }
+
+    @Test
+    fun `a picked date is written as a date in any zone`() {
+        val tokyo = ZoneId.of("Asia/Tokyo")
+        val midnight = java.time.LocalDate.of(2026, 3, 4).atStartOfDay(tokyo).toInstant()
+
+        assertEquals("2026-03-04", formatClinicalDate(midnight, tokyo))
+        assertEquals("2026-03-04T09:30:00Z", formatClinicalDate(Instant.parse("2026-03-04T09:30:00Z"), tokyo))
     }
 }

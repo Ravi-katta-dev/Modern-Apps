@@ -11,6 +11,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import java.time.Instant
+import java.time.ZoneId
 
 internal fun patientJson(): String = buildJsonObject {
     put("resourceType", "Patient")
@@ -22,7 +23,7 @@ internal fun immunizationJson(
     attachments: List<FhirRecords.FhirAttachment> = emptyList(),
 ): String = buildJsonObject {
     put("resourceType", "Immunization")
-    put("id", entry.id)
+    put("id", entry.fhirResourceId ?: entry.id)
     put("status", "completed")
     putJsonObject("vaccineCode") {
         if (entry.cvxCode != null) {
@@ -39,7 +40,7 @@ internal fun immunizationJson(
         put("text", entry.displayName)
     }
     putJsonObject("patient") { put("reference", "Patient/${FhirRecords.PATIENT_RESOURCE_ID}") }
-    put("occurrenceDateTime", formatDateTime(entry.occurredAt))
+    put("occurrenceDateTime", formatClinicalDate(entry.occurredAt))
     entry.lotNumber?.takeIf { it.isNotBlank() }?.let { put("lotNumber", it) }
     entry.site?.takeIf { it.isNotBlank() }?.let { putJsonObject("site") { put("text", it) } }
     entry.route?.takeIf { it.isNotBlank() }?.let { putJsonObject("route") { put("text", it) } }
@@ -130,24 +131,21 @@ internal fun parseQuantity(text: String): Pair<Double, String>? {
     return if (unit.isEmpty()) null else value to unit
 }
 
-/** Known shapes of `occurrenceDateTime`, from most to least precise. */
-private val DATE_TIME_PARSERS: List<(String) -> Instant> = listOf(
+/**
+ * Known shapes of a FHIR `dateTime`, from most to least precise.
+ *
+ * Partial dates land on local midnight, which is how this app stores a date it picked itself.
+ * Anchoring them in UTC would show them a day early anywhere west of Greenwich.
+ */
+private fun dateTimeParsers(zone: ZoneId): List<(String) -> Instant> = listOf(
     { text -> Instant.parse(text) },
     { text -> java.time.OffsetDateTime.parse(text).toInstant() },
-    { text ->
-        java.time.LocalDate.parse(text).atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
-    },
-    { text ->
-        java.time.YearMonth.parse(text).atDay(1)
-            .atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
-    },
-    { text ->
-        java.time.Year.parse(text).atDay(1)
-            .atStartOfDay(java.time.ZoneOffset.UTC).toInstant()
-    },
+    { text -> java.time.LocalDate.parse(text).atStartOfDay(zone).toInstant() },
+    { text -> java.time.YearMonth.parse(text).atDay(1).atStartOfDay(zone).toInstant() },
+    { text -> java.time.Year.parse(text).atDay(1).atStartOfDay(zone).toInstant() },
 )
 
-internal fun parseDateTime(text: String?): Instant? {
+internal fun parseDateTime(text: String?, zone: ZoneId = ZoneId.systemDefault()): Instant? {
     if (text.isNullOrBlank()) return null
-    return DATE_TIME_PARSERS.firstNotNullOfOrNull { parser -> runCatching { parser(text) }.getOrNull() }
+    return dateTimeParsers(zone).firstNotNullOfOrNull { parser -> runCatching { parser(text) }.getOrNull() }
 }

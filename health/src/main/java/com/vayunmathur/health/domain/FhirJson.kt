@@ -10,6 +10,8 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import java.time.Instant
+import java.time.LocalTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 internal val fhirJson = Json { ignoreUnknownKeys = true }
@@ -92,6 +94,35 @@ internal fun JsonObjectBuilder.putQuantity(value: Double, unit: String?) {
 
 internal fun formatDateTime(instant: Instant): String =
     DateTimeFormatter.ISO_INSTANT.format(instant.truncatedTo(java.time.temporal.ChronoUnit.SECONDS))
+
+/**
+ * A date picked from a calendar as a FHIR `date`, anything else as a full `dateTime`.
+ *
+ * Date-precision fields are stored as local midnight. Writing that as a UTC instant puts it on the
+ * previous day for any reader east of UTC, so a value sitting exactly on local midnight is written
+ * as the bare date it stands for.
+ */
+internal fun formatClinicalDate(instant: Instant, zone: ZoneId = ZoneId.systemDefault()): String {
+    val local = instant.atZone(zone)
+    return if (local.toLocalTime() == LocalTime.MIDNIGHT) {
+        local.toLocalDate().toString()
+    } else {
+        formatDateTime(instant)
+    }
+}
+
+private const val ENTERED_IN_ERROR = "entered-in-error"
+
+/**
+ * Whether the author has retracted this resource.
+ *
+ * Most types say so in `status`; AllergyIntolerance and Condition say it in `verificationStatus`.
+ */
+internal fun isEnteredInError(data: String): Boolean {
+    val root = parseObject(data) ?: return false
+    return root.string("status") == ENTERED_IN_ERROR ||
+        (root["verificationStatus"] as? JsonObject).clinicalStatusCode() == ENTERED_IN_ERROR
+}
 
 internal fun formatQuantity(value: Double): String =
     if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()

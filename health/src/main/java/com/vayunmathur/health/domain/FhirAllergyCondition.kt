@@ -16,7 +16,7 @@ import java.time.Instant
 
 internal fun allergyIntoleranceJson(entry: AllergyEntry): String = buildJsonObject {
     put("resourceType", "AllergyIntolerance")
-    put("id", entry.id)
+    put("id", entry.fhirResourceId ?: entry.id)
     // An allergy list is only safe to act on if "not currently allergic" is distinguishable
     // from "never recorded", so clinicalStatus is always written rather than left implicit.
     putJsonObject("clinicalStatus") {
@@ -53,7 +53,7 @@ internal fun allergyIntoleranceJson(entry: AllergyEntry): String = buildJsonObje
         put("text", entry.displayName)
     }
     putJsonObject("patient") { put("reference", "Patient/${FhirRecords.PATIENT_RESOURCE_ID}") }
-    entry.onsetAt?.let { put("onsetDateTime", formatDateTime(it)) }
+    entry.onsetAt?.let { put("onsetDateTime", formatClinicalDate(it)) }
     put("recordedDate", formatDateTime(entry.recordedAt))
     entry.reaction?.takeIf { it.isNotBlank() }?.let { reaction ->
         putJsonArray("reaction") {
@@ -108,7 +108,7 @@ internal fun parseAllergyIntolerance(data: String, dataSourceId: String): Allerg
 
 internal fun conditionJson(entry: ConditionEntry): String = buildJsonObject {
     put("resourceType", "Condition")
-    put("id", entry.id)
+    put("id", entry.fhirResourceId ?: entry.id)
     putJsonObject("clinicalStatus") {
         putJsonArray("coding") {
             add(
@@ -153,8 +153,8 @@ internal fun conditionJson(entry: ConditionEntry): String = buildJsonObject {
         put("text", entry.displayName)
     }
     putJsonObject("subject") { put("reference", "Patient/${FhirRecords.PATIENT_RESOURCE_ID}") }
-    put("onsetDateTime", formatDateTime(entry.onsetAt))
-    entry.resolvedAt?.let { put("abatementDateTime", formatDateTime(it)) }
+    put("onsetDateTime", formatClinicalDate(entry.onsetAt))
+    entry.resolvedAt?.let { put("abatementDateTime", formatClinicalDate(it)) }
     entry.note?.takeIf { it.isNotBlank() }?.let {
         putJsonArray("note") { add(buildJsonObject { put("text", it) }) }
     }
