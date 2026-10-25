@@ -9,7 +9,7 @@ _Install: ./install auto (dev by default)._
 - Entry files: MainActivity.kt, Route.kt, Navigation.kt
 - Deps: :auto:protocol (`:library:carhost` only if the build file says so — verify before adding)
 - Metadata: metadata_data/auto.md (present)
-- Rust: no / screenshotTest: no
+- Rust: no / screenshotTest: yes (phone status/pairing/pinned-apps previews)
 
 ## Overview
 **Purpose:** Car head-unit projection (Android Auto compatible) — NOT a phone app. Projects driving-safe nav/media/call UI to the car display over USB or wireless; test with `./dhu` (Desktop Head Unit loopback), not on a phone screen.

@@ -1,15 +1,34 @@
 package com.vayunmathur.tuner.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.IconGrid
+import com.vayunmathur.library.ui.IconMusicNote
+import com.vayunmathur.library.ui.PagerTab
+import com.vayunmathur.library.ui.TabStyle
+import com.vayunmathur.library.ui.TabbedPagerScaffold
 import com.vayunmathur.tuner.data.AnalysisRange
 import com.vayunmathur.tuner.data.Instrument
 import com.vayunmathur.tuner.data.InstrumentKind
 import com.vayunmathur.tuner.data.KeyboardSpec
 import com.vayunmathur.tuner.data.StringSpec
+import com.vayunmathur.tuner.domain.ChordCandidate
+import com.vayunmathur.tuner.domain.ChordLabel
+import com.vayunmathur.tuner.domain.ChordName
+import com.vayunmathur.tuner.domain.ChordPresentation
+import com.vayunmathur.tuner.domain.ChordQuality
+import com.vayunmathur.tuner.domain.ChordReading
+import com.vayunmathur.tuner.domain.ChordTier
+import com.vayunmathur.tuner.domain.DetectedNote
 import com.vayunmathur.tuner.domain.TuningBand
+import com.vayunmathur.tuner.domain.Voicing
+import com.vayunmathur.tuner.platform.ChordUiState
 import com.vayunmathur.tuner.platform.NoteReadout
 import com.vayunmathur.tuner.platform.NoteUiState
 import com.vayunmathur.tuner.platform.TunerUiState
@@ -23,12 +42,12 @@ private const val EXPANDED = "spec:width=1280dp,height=800dp,dpi=240"
 /**
  * Store-listing images for `:tuner`, rendered from Compose previews.
  *
- * An instrumented test is not an option here: the screen is driven by live microphone audio,
+ * An instrumented test is not an option here: the screens are driven by live microphone audio,
  * and there is no way to feed a device a guitar. Literal state is the only reproducible source,
- * which is exactly why the screen is stateless.
+ * which is exactly why the screens are stateless.
  *
- * Only the Note tab is shown, because only the Note tab exists. The Chord tab is a placeholder
- * and screenshotting it would advertise a feature the app does not have.
+ * Note and Chord tabs render inside the real tab chrome ([ChromePreview]); only the
+ * selected tab is literal.
  */
 class MetadataPreviews {
 
@@ -73,7 +92,7 @@ class MetadataPreviews {
     @Preview(name = "1-note-in-tune", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1NoteInTune() {
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(selectedTab = 0) {
             NoteScreen(
                 state = noteState(
                     guitar,
@@ -94,7 +113,7 @@ class MetadataPreviews {
     @Preview(name = "2-note-flat", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2NoteFlat() {
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(selectedTab = 0) {
             NoteScreen(
                 state = noteState(
                     guitar,
@@ -115,7 +134,7 @@ class MetadataPreviews {
     @Preview(name = "3-note-piano-reference", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3NotePianoReference() {
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(selectedTab = 0) {
             NoteScreen(
                 state = noteState(
                     piano,
@@ -136,7 +155,7 @@ class MetadataPreviews {
     @Preview(name = "4-note-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4NoteExpanded() {
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(selectedTab = 0) {
             NoteScreen(
                 state = noteState(
                     guitar,
@@ -149,6 +168,73 @@ class MetadataPreviews {
                         band = TuningBand.IN_TUNE,
                     ),
                 ),
+            )
+        }
+    }
+
+    @PreviewTest
+    @Preview(name = "5-chord-g-major", device = PHONE, group = "phone", showSystemUi = true)
+    @Composable
+    fun Preview5ChordGMajor() {
+        // A strummed open-G shape, confidently named: G major (G3+B3+D4) with the
+        // recommended open voicing, so the diagram pager has its primary page.
+        ChromePreview(selectedTab = 1) {
+            ChordScreen(
+                state = noteState(guitar, NoteReadout(midi = 55, letter = "G", octave = 3, frequencyHz = 196.0, cents = 1.2, band = TuningBand.IN_TUNE)).copy(
+                    chord = ChordUiState(
+                        reading = ChordReading(
+                            notes = listOf(
+                                DetectedNote(midi = 55, salience = 0.9),
+                                DetectedNote(midi = 59, salience = 0.75),
+                                DetectedNote(midi = 62, salience = 0.7),
+                            ),
+                            bass = 55,
+                            bassConfidence = 0.85f,
+                            label = ChordLabel.Chord(ChordName(root = 55, quality = ChordQuality.MAJOR)),
+                            alternates = listOf(
+                                ChordCandidate(ChordName(root = 64, quality = ChordQuality.MAJOR), 0.31f),
+                            ),
+                            confidence = 0.92f,
+                            tier = ChordTier.CONFIRMED,
+                            presentation = ChordPresentation.CONFIDENT,
+                        ),
+                        voicings = listOf(
+                            Voicing(
+                                frets = listOf(3, 2, 0, 0, 0, 3),
+                                barreFret = null,
+                                fingerCount = 3,
+                                soundingMidi = listOf(55, 59, 62, 67, 71, 55),
+                                cost = 0.0,
+                                isPrimary = true,
+                            ),
+                        ),
+                    ),
+                ),
+                onSelectInstrument = {},
+            )
+        }
+    }
+
+    /**
+     * The app's real tab chrome around preview screen content: the same
+     * [TabbedPagerScaffold] with the same Note/Chord tabs `TunerTabs` declares.
+     * Only the selected tab is literal.
+     */
+    @Composable
+    private fun ChromePreview(selectedTab: Int, content: @Composable () -> Unit) {
+        DynamicTheme(darkTheme = true) {
+            val tabs = listOf(
+                PagerTab("Note", { IconMusicNote() }) {
+                    if (selectedTab == 0) content() else Box(Modifier.fillMaxSize())
+                },
+                PagerTab("Chord", { IconGrid() }) {
+                    if (selectedTab == 1) content() else Box(Modifier.fillMaxSize())
+                },
+            )
+            TabbedPagerScaffold(
+                tabs = tabs,
+                pagerState = rememberPagerState(initialPage = selectedTab, pageCount = { tabs.size }),
+                tabStyle = TabStyle.BottomNav,
             )
         }
     }
