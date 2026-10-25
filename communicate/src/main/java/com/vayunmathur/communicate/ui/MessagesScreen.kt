@@ -272,45 +272,66 @@ fun MessagesScreen(onOpenThread: (SmsThread) -> Unit, onOpenAccounts: () -> Unit
                         modifier = Modifier.padding(padding),
                     )
                     else -> {
-                        var pendingDelete by remember { mutableStateOf<SmsThread?>(null) }
-                        LazyColumn(
-                            modifier = Modifier
-                                .padding(padding)
-                                .fillMaxSize(),
-                            contentPadding = PaddingValues(bottom = 88.dp),
-                        ) {
-                            items(rows, key = { it.threadId }) { thread ->
-                                MessageThreadRow(
-                                    thread = thread,
-                                    onClick = { onOpenThread(thread) },
-                                    onDelete = { pendingDelete = thread },
-                                )
-                                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-                            }
-                        }
-                        val toDelete = pendingDelete
-                        if (toDelete != null) {
-                            com.vayunmathur.library.ui.ConfirmDialog(
-                                title = stringResource(R.string.delete_conversation_title),
-                                message = stringResource(R.string.delete_conversation_message),
-                                confirmLabel = stringResource(com.vayunmathur.library.ui.R.string.delete),
-                                dismissLabel = stringResource(com.vayunmathur.library.ui.R.string.cancel),
-                                destructive = true,
-                                onConfirm = {
-                                    pendingDelete = null
-                                    scope.launch {
-                                        val ok = withContext(Dispatchers.IO) {
-                                            CommunicateRepository.deleteConversation(context, toDelete)
-                                        }
-                                        if (ok) tick++ else AppMessages.show(context.getString(R.string.delete_failed))
+                        MessagesListContent(
+                            threads = rows,
+                            modifier = Modifier.padding(padding),
+                            onOpenThread = onOpenThread,
+                            onDeleteThread = { toDelete ->
+                                scope.launch {
+                                    val ok = withContext(Dispatchers.IO) {
+                                        CommunicateRepository.deleteConversation(context, toDelete)
                                     }
-                                },
-                                onDismiss = { pendingDelete = null },
-                            )
-                        }
+                                    if (ok) tick++ else AppMessages.show(context.getString(R.string.delete_failed))
+                                }
+                            },
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * The thread list, stateless: rows plus the delete-confirm dialog. Split out so
+ * screenshot previews can render threads without the SMS provider, the polling
+ * loop, or the permission gates above.
+ */
+@Composable
+fun MessagesListContent(
+    threads: List<SmsThread>,
+    modifier: Modifier = Modifier,
+    onOpenThread: (SmsThread) -> Unit,
+    onDeleteThread: (SmsThread) -> Unit,
+) {
+    var pendingDelete by remember { mutableStateOf<SmsThread?>(null) }
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 88.dp),
+    ) {
+        items(threads, key = { it.threadId }) { thread ->
+            MessageThreadRow(
+                thread = thread,
+                onClick = { onOpenThread(thread) },
+                onDelete = { pendingDelete = thread },
+            )
+            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+        }
+    }
+    val toDelete = pendingDelete
+    if (toDelete != null) {
+        com.vayunmathur.library.ui.ConfirmDialog(
+            title = stringResource(R.string.delete_conversation_title),
+            message = stringResource(R.string.delete_conversation_message),
+            confirmLabel = stringResource(com.vayunmathur.library.ui.R.string.delete),
+            dismissLabel = stringResource(com.vayunmathur.library.ui.R.string.cancel),
+            destructive = true,
+            onConfirm = {
+                pendingDelete = null
+                onDeleteThread(toDelete)
+            },
+            onDismiss = { pendingDelete = null },
+        )
     }
 }
