@@ -566,11 +566,15 @@ fn a_tiled_int8_convolution_agrees_with_the_reference() {
 #[ignore = "needs a Vulkan device"]
 fn a_tiled_int8_convolution_agrees_across_many_tiles_and_both_loops() {
     // Several 32 x 32 workgroup tiles in both axes, each axis ending on a partial one, run once
-    // through each of the shader's three loops: sixteen-tap wide loads (`in_c % 16 == 0` and a
-    // width divisible by four), the packed-word loop (`in_c % 4 == 0`) and the element-at-a-time
-    // one. A residual-free projection with no activation, so a wrong tap shows directly in the
-    // numbers rather than being squashed by a saturating activation.
-    for (out_channels, in_channels, width) in [(70u32, 64u32, 76u32), (70, 64, 75), (45, 30, 40)] {
+    // through each of the shader's loops: sixteen-tap weights with quad activations
+    // (`in_c % 16 == 0` and a width divisible by four), sixteen-tap weights with scalar
+    // activations (ragged widths 75, 49 and 98, the sampler's frame count and its double), the
+    // packed-word loop (`in_c % 4 == 0`) and the element-at-a-time one. A residual-free
+    // projection with no activation, so a wrong tap shows directly in the numbers rather than
+    // being squashed by a saturating activation.
+    for (out_channels, in_channels, width) in
+        [(70u32, 64u32, 76u32), (70, 64, 75), (70, 64, 49), (70, 64, 98), (45, 30, 40), (45, 36, 49)]
+    {
         let kernel: Vec<i8> = (0..(out_channels * in_channels) as i32)
             .map(|i| ((i * 53) % 251 - 125) as i8)
             .collect();

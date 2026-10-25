@@ -39,10 +39,11 @@
 //!
 //! # Wide loads
 //!
-//! When `in_c % 16 == 0` and the position count is a multiple of four - every encoder and prefill
-//! here - weights are read sixteen taps at a time through the `uvec4` view and activations four
-//! positions at a time through a read-only `f16vec4` view of the arena. Scalar loads were the
-//! limit: one 32-bit load per four MACs. The narrow paths below remain for anything else.
+//! When `in_c % 16 == 0` weights are read sixteen taps at a time through the `uvec4` view, at any
+//! width. Activations come four positions at a time through a read-only `f16vec4` view of the
+//! arena when the position count is a multiple of four (every encoder and prefill here), and as
+//! four scalar reads otherwise (Supertonic's sampler runs at whatever frame count the duration
+//! predictor gives). The narrow paths below remain for `in_c % 16 != 0`.
 
 #include "common.glsl"
 
@@ -93,15 +94,10 @@ void main() {
         }
     }
 
-    bool wide = (p.in_c & 15u) == 0u && (positions & 3u) == 0u && (p.in0 & 3u) == 0u
-        && (p.weight & 3u) == 0u;
-    if (wide) {
-        // Whole quads only: the position count is a multiple of four, so a quad is live or not.
+    if ((p.in_c & 15u) == 0u && (p.weight & 3u) == 0u) {
         if (position_base >= positions) {
             return;
         }
-        uint quads = positions >> 2u;
-        uint quad = (p.in0 + position_base) >> 2u;
         uint rows16[BLOCK];
         for (uint i = 0u; i < BLOCK; i++) {
             rows16[i] = (p.weight + ((rows[i] * p.in_c) >> 2u)) >> 2u;
@@ -110,16 +106,42 @@ void main() {
         for (uint i = 0u; i < BLOCK; i++) {
             sum[i] = vec4(0.0);
         }
-        for (uint k = 0u; k < p.in_c; k += 16u) {
-            uvec4 w[BLOCK];
-            for (uint i = 0u; i < BLOCK; i++) {
-                w[i] = weights128[rows16[i] + (k >> 4u)];
-            }
-            for (uint t = 0u; t < 16u; t++) {
-                vec4 x = vec4(arena_quad[quad + (k + t) * quads]);
+        if ((positions & 3u) == 0u && (p.in0 & 3u) == 0u) {
+            uint quads = positions >> 2u;
+            uint quad = (p.in0 + position_base) >> 2u;
+            for (uint k = 0u; k < p.in_c; k += 16u) {
+                uvec4 w[BLOCK];
                 for (uint i = 0u; i < BLOCK; i++) {
-                    float tap = float(bitfieldExtract(int(w[i][t >> 2u]), int((t & 3u) << 3u), 8));
-                    sum[i] += tap * x;
+                    w[i] = weights128[rows16[i] + (k >> 4u)];
+                }
+                for (uint t = 0u; t < 16u; t++) {
+                    vec4 x = vec4(arena_quad[quad + (k + t) * quads]);
+                    for (uint i = 0u; i < BLOCK; i++) {
+                        float tap = float(bitfieldExtract(int(w[i][t >> 2u]), int((t & 3u) << 3u), 8));
+                        sum[i] += tap * x;
+                    }
+                }
+            }
+        } else {
+            // Ragged width: scalar activation reads. Dead columns re-read the last live position
+            // (no branch, never out of the tensor) and are never stored.
+            uint cols[BLOCK];
+            for (uint j = 0u; j < BLOCK; j++) {
+                cols[j] = p.in0 + min(position_base + j, positions - 1u);
+            }
+            for (uint k = 0u; k < p.in_c; k += 16u) {
+                uvec4 w[BLOCK];
+                for (uint i = 0u; i < BLOCK; i++) {
+                    w[i] = weights128[rows16[i] + (k >> 4u)];
+                }
+                for (uint t = 0u; t < 16u; t++) {
+                    uint at = (k + t) * positions;
+                    vec4 x = vec4(float(arena[at + cols[0]]), float(arena[at + cols[1]]),
+                        float(arena[at + cols[2]]), float(arena[at + cols[3]]));
+                    for (uint i = 0u; i < BLOCK; i++) {
+                        float tap = float(bitfieldExtract(int(w[i][t >> 2u]), int((t & 3u) << 3u), 8));
+                        sum[i] += tap * x;
+                    }
                 }
             }
         }
