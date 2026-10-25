@@ -17,6 +17,7 @@ import com.vayunmathur.appstore.data.SyncStep
 import com.vayunmathur.appstore.data.UnifiedApp
 import com.vayunmathur.appstore.data.accrescent.AccrescentRepository
 import com.vayunmathur.appstore.data.installer.InstallCoordinator
+import com.vayunmathur.appstore.data.installer.InstallEvents
 import com.vayunmathur.appstore.data.installer.InstallFailureBatch
 import com.vayunmathur.appstore.data.installer.InstallStage
 import com.vayunmathur.appstore.data.play.PlayAuthState
@@ -90,6 +91,13 @@ class TvStoreViewModel(
     // --- Accrescent home row --------------------------------------------------------
     internal val accrescentAppsFlow = MutableStateFlow<List<UnifiedApp>>(emptyList())
 
+    // --- Library (installed apps) state ---------------------------------------------
+    internal val libraryFilterFlow = MutableStateFlow(SourceFilter.ALL)
+    /** Installed packages Play confirmed it hosts; tells a Play app from a sideload. */
+    internal val playInstalledPackagesFlow = MutableStateFlow<Set<String>>(emptySet())
+    /** Installed packages Accrescent's signed allowlist vouches for. */
+    internal val accrescentPackagesFlow = MutableStateFlow<Set<String>>(emptySet())
+
     val home: StateFlow<TvHomeUiState> = combine(
         sectionsFlow,
         isLoadingFlow,
@@ -102,6 +110,7 @@ class TvStoreViewModel(
             isLoading = loading,
             statusMessage = message,
             installedPackages = installed.map { it.packageName }.toSet(),
+            installedVersions = installed.associate { it.packageName to it.versionCode },
             stages = stages,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, TvHomeUiState())
@@ -192,6 +201,50 @@ class TvStoreViewModel(
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, TvUpdatesUiState())
 
+    /**
+     * Every installed app the store can attribute to a source, in catalogue order.
+     *
+     *
+     * Same attribution as the phone's `library` flow: the offline catalogue first,
+     * then Accrescent's allowlist, then Play — but only for packages Play confirmed
+     * it hosts, so a sideload is left out rather than mislabelled. Every branch is
+     * gated on the source still being enabled (#845).
+     */
+    val library: StateFlow<TvLibraryUiState> = combine(
+        catalog.packageIndex,
+        installedRepo.apps,
+        combine(
+            libraryFilterFlow,
+            playInstalledPackagesFlow,
+            accrescentPackagesFlow,
+            enabledSourcesFlow,
+        ) { filter, playPackages, accrescentPackages, enabled ->
+            TvLibraryInputs(filter, playPackages, accrescentPackages, enabled)
+        },
+    ) { index, installed, inputs ->
+        fun sourceOf(pkg: String): AppSource? {
+            index[pkg]?.source?.let { runCatching { AppSource.valueOf(it) }.getOrNull() }
+                ?.takeIf { it in inputs.enabled }?.let { return it }
+            if (AppSource.ACCRESCENT in inputs.enabled && pkg in inputs.accrescentPackages) {
+                return AppSource.ACCRESCENT
+            }
+            if (AppSource.PLAYSTORE in inputs.enabled && pkg in inputs.playPackages) {
+                return AppSource.PLAYSTORE
+            }
+            return null
+        }
+        val all = installed.mapNotNull { info ->
+            sourceOf(info.packageName)?.let { info.toTvListing(it) }
+        }
+        TvLibraryUiState(
+            apps = all.filter { inputs.filter.source == null || it.source == inputs.filter.source },
+            filter = inputs.filter,
+            counts = SourceFilter.entries.associateWith { f ->
+                if (f.source == null) all.size else all.count { it.source == f.source }
+            },
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, TvLibraryUiState())
+
     init {
         viewModelScope.launch {
             enabledSourcesFlow.value = settings.readEnabledSources()
@@ -201,6 +254,7 @@ class TvStoreViewModel(
             catalog.purgeDisabled(enabledSourcesFlow.value)
             installedRepo.refresh()
             if (AppSource.PLAYSTORE in enabledSourcesFlow.value) play.restore()
+            refreshPlayInstalledPackages(enabledSourcesFlow.value)
             syncIfNeverSynced()
             loadHome()
         }
@@ -211,6 +265,18 @@ class TvStoreViewModel(
                     loadHome()
                     catalogUpdatesFlow.value = catalog.updatesFor(installedRepo.updatable.value)
                 }
+        }
+        viewModelScope.launch {
+            // The OS install finishes asynchronously, well after commit for a large app.
+            // Re-read the device when it lands so tiles switch to Installed/Open, and
+            // re-ask Play which installed packages it hosts, instead of waiting for the
+            // next cold start. Mirrors the phone's InstallEvents collector.
+            InstallEvents.results.collect { result ->
+                if (result.success) {
+                    installedRepo.refresh()
+                    refreshPlayInstalledPackages()
+                }
+            }
         }
     }
 
@@ -574,9 +640,63 @@ class TvStoreViewModel(
     private suspend fun loadAccrescent(enabled: Set<AppSource> = enabledSourcesFlow.value) {
         if (AppSource.ACCRESCENT !in enabled) return
         accrescent.refreshRepoData()
+        // The same response tells us which packages Accrescent vouches for, which the
+        // library uses for attribution. Fail soft like the phone: a blip keeps the
+        // previous answer rather than emptying the library.
+        val ids = accrescent.appIds()
+        if (ids.isNotEmpty()) accrescentPackagesFlow.value = ids
         val page = accrescent.listApps()
         if (page.apps.isNotEmpty()) accrescentAppsFlow.value = page.apps.take(ACCRow_LIMIT)
     }
+
+    fun setLibraryFilter(filter: SourceFilter) {
+        libraryFilterFlow.value = filter
+    }
+
+    /** Re-read the device's installed set, for the library screen appearing. */
+    fun refreshInstalled() {
+        viewModelScope.launch {
+            installedRepo.refresh()
+            refreshPlayInstalledPackages()
+        }
+    }
+
+    /**
+     * Ask Play which installed packages it actually hosts, for library attribution.
+     *
+     * Mirrors the phone's `refreshPlayInstalledPackages`: only packages no offline
+     * source lists are worth asking about, and a failed lookup keeps the previous
+     * answer rather than emptying the library.
+     */
+    private suspend fun refreshPlayInstalledPackages(
+        enabled: Set<AppSource> = enabledSourcesFlow.value,
+    ) {
+        if (AppSource.PLAYSTORE !in enabled) {
+            playInstalledPackagesFlow.value = emptySet()
+            return
+        }
+        val index = catalog.indexSnapshot()
+        val candidates = installedRepo.apps.value
+            .map { it.packageName }
+            .filter { it !in index }
+        if (candidates.isEmpty()) {
+            playInstalledPackagesFlow.value = emptySet()
+            return
+        }
+        play.detailsOrNull(candidates)?.map { it.packageName }?.toSet()?.let {
+            playInstalledPackagesFlow.value = it
+        }
+    }
+
+    /** An installed package as a listing, for the library screen. */
+    private fun InstalledInfo.toTvListing(source: AppSource) = UnifiedApp(
+        packageName = packageName,
+        source = source,
+        name = name,
+        versionName = versionName,
+        versionCode = versionCode,
+        lastUpdated = lastUpdateTime,
+    )
 
     fun install(app: UnifiedApp) {
         viewModelScope.launch {
@@ -653,66 +773,6 @@ class TvStoreViewModel(
         const val REPEATED_FAILURE_LIMIT = 3
     }
 }
-
-/** One titled row on the TV browse screen. */
-data class TvSection(
-    val id: String,
-    val title: String,
-    val apps: List<UnifiedApp>,
-)
-
-/** Everything the TV browse screen draws. */
-data class TvHomeUiState(
-    val sections: List<TvSection> = emptyList(),
-    val isLoading: Boolean = false,
-    val statusMessage: String = "",
-    val installedPackages: Set<String> = emptySet(),
-    val stages: Map<String, InstallStage> = emptyMap(),
-)
-
-/** Everything the TV detail screen draws. */
-data class TvDetailUiState(
-    val app: UnifiedApp? = null,
-    val installedInfo: com.vayunmathur.appstore.data.InstalledInfo? = null,
-    val stage: InstallStage? = null,
-    val verification: com.vayunmathur.appstore.data.security.VerificationResult? = null,
-    /** True while richer Play/Accrescent details are being fetched over the network. */
-    val isLoadingDetails: Boolean = false,
-) {
-    val isInstalled: Boolean get() = installedInfo != null
-
-    val hasUpdate: Boolean
-        get() = installedInfo != null && (app?.versionCode ?: 0L) > installedInfo.versionCode
-}
-
-/** Everything the TV search hub draws. Same shape as the phone's `SearchUiState`. */
-data class TvSearchUiState(
-    val query: String = "",
-    val results: List<UnifiedApp> = emptyList(),
-    val filter: SourceFilter = SourceFilter.ALL,
-    val isSearching: Boolean = false,
-    /** True once a search has run for [query], so "no results" can be told from "not yet". */
-    val hasSearched: Boolean = false,
-    /**
-     * Play's half failed (e.g. rate-limited) while the offline half answered. Blank when
-     * Play answered or was never asked, so the list alone is the whole story.
-     */
-    val playError: String = "",
-    val installedPackages: Set<String> = emptySet(),
-    val stages: Map<String, InstallStage> = emptyMap(),
-)
-
-/** Everything the TV updates hub draws. Same shape as the phone's `UpdatesUiState`. */
-data class TvUpdatesUiState(
-    val updates: List<UnifiedApp> = emptyList(),
-    /** Currently-installed info per package, so the row can show old → new versions. */
-    val installedInfos: Map<String, InstalledInfo> = emptyMap(),
-    val stages: Map<String, InstallStage> = emptyMap(),
-    val isChecking: Boolean = false,
-    /** ms since epoch of the last completed check, 0 if never. */
-    val lastCheckedAt: Long = 0L,
-    val statusMessage: String = "",
-)
 
 class TvStoreViewModelFactory(
     private val context: android.content.Context,

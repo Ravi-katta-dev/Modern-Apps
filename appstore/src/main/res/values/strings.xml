@@ -262,4 +262,13 @@
     <string name="tv_detail_author">Developer</string>
     <string name="tv_compat_declared">Works on TV — the source lists a TV version</string>
     <string name="tv_compat_unverified">TV compatibility unverified — checked at install</string>
+    <!-- TV rail: Updates tab label with the pending count baked in, e.g. "Updates · 3". -->
+    <string name="tv_updates_with_count">Updates · %1$d</string>
+    <!-- TV search hub. -->
+    <string name="tv_searching">Searching…</string>
+    <string name="tv_search_prompt_tv">Modern Apps and F-Droid answer straight from this TV; Play results follow a moment later.</string>
+    <string name="tv_search_results">%1$d results</string>
+    <!-- TV detail and hero secondary action. -->
+    <string name="tv_detail_open">Details</string>
+    <string name="tv_detail_screenshots">Screenshots</string>
 </resources>

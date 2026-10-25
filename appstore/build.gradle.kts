@@ -62,6 +62,7 @@ dependencies {
     implementation(project(":library:work"))
     implementation(libs.androidx.datastore.preferences)
     implementation(project(":library:image"))
+    implementation(project(":library:tv"))
     // APK source-stamp verification. The stamp is a second signing identity that
     // survives Play App Signing re-signing, so it can be pinned per package where the
     // APK signing key (held by Google) cannot be.
