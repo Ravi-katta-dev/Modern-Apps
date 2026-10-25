@@ -22,18 +22,14 @@ fn gather_combine_host(
     crate::nets::gemma4::combine_cached(&embed.reader(), hidden, embedded)
 }
 
-/// The device combine plan over an EMBED file, or `None` when the file
-/// predates the plan's tensor expectations (see `nets::gemma4_gather`).
-///
-/// Unused until `Net::new` uploads only the tensors a plan reads: today this
-/// uploads the whole 3.6 GB EMBED file.
-#[allow(dead_code)]
+/// The device combine plan over an EMBED file, uploading only the ~13 MB it reads
+/// (`Reshaped::windowed`), or `None` when the file predates the plan's tensors.
 fn gemma4_gather_plan(embed: &Streamed) -> Option<Reshaped<()>> {
-    Reshaped::streamed(
+    Reshaped::windowed(
         context::shared().ok()?,
         embed.offsets(),
         embed,
-        (),
+        &[()],
         |offsets, ()| crate::nets::gemma4_gather::build_plan(offsets),
     )
     .ok()
@@ -227,12 +223,10 @@ fn build_gemma4<'l>(
         gemma4::Mode::DecodeStep.at(gemma4::CONTEXT_TIERS[0]),
         gemma4_plan,
     )?;
-    // Never a net over EMBED: `Reshaped::streamed` uploads the whole 3.6 GB
-    // file, which on top of TEXT OOM-kills a Pixel 8. The head comes from the
-    // ~402 MB head file or the host; the combine stays on the host until
-    // uploads are windowed.
+    // Never `Reshaped::streamed` over EMBED: it uploads the whole 3.6 GB file, which on top of
+    // TEXT OOM-kills a Pixel 8. The gather net is windowed to the tensors it reads.
     let head = head_file.as_ref().and_then(gemma4_head_file_plan);
-    let gather_net: Option<Reshaped<()>> = None;
+    let gather_net = gemma4_gather_plan(&embed);
     Ok(Gemma4Handle {
         net,
         head,

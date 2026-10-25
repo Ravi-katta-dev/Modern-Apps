@@ -86,13 +86,14 @@ struct Args {
     sample: bool,
     split: Option<u32>,
     len: Option<u32>,
+    gather: bool,
 }
 
 /// `--head <path>`, `--time <repeats>`, `--prefill <tokens>`, `--sample`; the
 /// rest are positional: text embed golden [trace] [tail] [head].
 fn parse_args() -> Args {
     let mut args =
-        Args { positional: Vec::new(), head: None, time: None, prefill: None, sample: false, split: None, len: None };
+        Args { positional: Vec::new(), head: None, time: None, prefill: None, sample: false, split: None, len: None, gather: false };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -102,6 +103,7 @@ fn parse_args() -> Args {
             "--sample" => args.sample = true,
             "--split" => args.split = it.next().and_then(|n| n.parse().ok()),
             "--len" => args.len = it.next().and_then(|n| n.parse().ok()),
+            "--gather" => args.gather = true,
             _ => args.positional.push(arg),
         }
     }
@@ -154,7 +156,13 @@ fn main() {
         Err(why) => return println!("no Vulkan device: {why}"),
     };
     if let Some(repeats) = args.time {
-        time_decode(&context, &weights, &embed_weights, head_weights.as_ref(), &tokens, repeats, args.sample);
+        time_decode(&context, &weights, &embed_weights, head_weights.as_ref(), &tokens, repeats, args.sample, args.gather);
+        return print_memory();
+    }
+    if args.gather {
+        if let Err(why) = gather_check(&context, &embed_weights, &tokens) {
+            println!("the gather check failed: {why}");
+        }
         return print_memory();
     }
     if let Some(k) = args.split {
@@ -332,6 +340,7 @@ struct StepTimes {
 fn decode_one(
     net: &mut Reshaped<gemma4::Pass>,
     head: Option<&mut Reshaped<bool>>,
+    gather: Option<&mut Reshaped<()>>,
     embed: &modelrunner::weights::Reader<'_>,
     rotary: &modelrunner::weights::Reader<'_>,
     token: u32,
@@ -340,7 +349,30 @@ fn decode_one(
     times: &mut StepTimes,
 ) -> Result<Option<u32>, String> {
     use std::time::Instant;
-    let (hidden_in, per_layer, gtimes) = gemma4::gather_timed(embed, token)?;
+    let (hidden_in, per_layer, gtimes) = match gather {
+        Some(gather) => {
+            let tick = Instant::now();
+            let hidden = embed.int4_row(
+                gemma4::embed::TOKENS,
+                gemma4::embed::TOKENS + 1,
+                &[gemma4::VOCAB, gemma4::D_MODEL],
+                token,
+            )?;
+            let row = if gemma4::embed::PLACEHOLDERS.contains(&token) { 0 } else { token };
+            let mut embedded = Vec::with_capacity((gemma4::PER_LAYER as usize) * gemma4::LAYERS);
+            for i in 0..gemma4::LAYERS {
+                let at = gemma4::embed::table(i);
+                embedded.extend(embed.int4_row(at, at + 1, &[gemma4::VOCAB, gemma4::PER_LAYER], row)?);
+            }
+            let rows_ms = tick.elapsed().as_secs_f64() * 1000.0;
+            let tick = Instant::now();
+            let out = gather.at(())?.infer_raw_many(&[&hidden, &embedded])?;
+            let per_layer = out.into_iter().next().ok_or("the gather net returned nothing")?;
+            let matmul_ms = tick.elapsed().as_secs_f64() * 1000.0;
+            (hidden, per_layer, gemma4::GatherTimes { rows_ms, bulk_ms: 0.0, matmul_ms })
+        }
+        None => gemma4::gather_timed(embed, token)?,
+    };
     let rows_tick = Instant::now();
     let angles_local = rotary_row(rotary, gemma4::ROTARY_LOCAL, gemma4::HEAD_DIM, position)?;
     let angles_global = rotary_row(rotary, gemma4::ROTARY_GLOBAL, gemma4::GLOBAL_HEAD_DIM, position)?;
@@ -401,11 +433,22 @@ fn time_decode(
     tokens: &[u32],
     repeats: usize,
     sample: bool,
+    device_gather: bool,
 ) {
     use std::time::Instant;
     let mut net = match streamed_net(context, weights, gemma4::Mode::DecodeStep.at(TIER), gemma4_plan) {
         Ok(net) => net,
         Err(why) => return println!("the net does not build: {why}"),
+    };
+    let mut gather_net = if device_gather {
+        match Reshaped::windowed(Arc::clone(context), embed.offsets(), embed, &[()], |offsets, ()| {
+            modelrunner::nets::gemma4_gather::build_plan(offsets)
+        }) {
+            Ok(net) => Some(net),
+            Err(why) => return println!("the gather net does not build: {why}"),
+        }
+    } else {
+        None
     };
     let mut head_net = match build_head(context, head, !sample) {
         Ok(net) => net,
@@ -424,7 +467,7 @@ fn time_decode(
         for (step, &token) in tokens.iter().enumerate() {
             let tick = Instant::now();
             let mut times = StepTimes::default();
-            match decode_one(&mut net, head_net.as_mut(), &reader, &rotary, token, step as u32, sample, &mut times) {
+            match decode_one(&mut net, head_net.as_mut(), gather_net.as_mut(), &reader, &rotary, token, step as u32, sample, &mut times) {
                 Ok(id) => ids.extend(id),
                 Err(why) => return println!("step {step} failed: {why}"),
             }
@@ -549,7 +592,7 @@ fn time_prefill(
         }
         let tick = Instant::now();
         let mut times = StepTimes::default();
-        let id = match decode_one(&mut net, head_net.as_mut(), &reader, &rotary, next, width, false, &mut times) {
+        let id = match decode_one(&mut net, head_net.as_mut(), None, &reader, &rotary, next, width, false, &mut times) {
             Ok(id) => id,
             Err(why) => return println!("the first decode step failed: {why}"),
         };
@@ -712,6 +755,60 @@ fn split_check(
         };
         println!("  {label:<32} {verdict}, max |logit diff| {max_diff:.4}");
     }
+    Ok(())
+}
+
+/// The device combine (`gemma4_gather`, uploaded through `Reshaped::windowed` so only the
+/// tensors it reads leave the 3.6 GB file) against the host `combine_cached`, per token.
+fn gather_check(context: &Arc<context::Context>, embed: &Streamed, tokens: &[u32]) -> Result<(), String> {
+    use std::time::Instant;
+    let tick = Instant::now();
+    let mut net = Reshaped::windowed(Arc::clone(context), embed.offsets(), embed, &[()], |offsets, ()| {
+        modelrunner::nets::gemma4_gather::build_plan(offsets)
+    })?;
+    println!("gather net built in {:.0} ms", tick.elapsed().as_secs_f64() * 1000.0);
+    let reader = embed.reader();
+    let (mut host_ms, mut device_ms, mut worst) = (0.0, 0.0, 0f32);
+    let repeats = 4;
+    for pass in 0..repeats {
+        for &token in tokens {
+            let hidden = reader.int4_row(
+                gemma4::embed::TOKENS,
+                gemma4::embed::TOKENS + 1,
+                &[gemma4::VOCAB, gemma4::D_MODEL],
+                token,
+            )?;
+            let row = if gemma4::embed::PLACEHOLDERS.contains(&token) { 0 } else { token };
+            let mut embedded = Vec::with_capacity((gemma4::PER_LAYER as usize) * gemma4::LAYERS);
+            for i in 0..gemma4::LAYERS {
+                let at = gemma4::embed::table(i);
+                embedded.extend(reader.int4_row(at, at + 1, &[gemma4::VOCAB, gemma4::PER_LAYER], row)?);
+            }
+            let tick = Instant::now();
+            let host = gemma4::combine_cached(&reader, &hidden, &embedded)?;
+            let host_t = tick.elapsed().as_secs_f64() * 1000.0;
+            let tick = Instant::now();
+            let out = net.at(())?.infer_raw_many(&[&hidden, &embedded])?;
+            let device_t = tick.elapsed().as_secs_f64() * 1000.0;
+            let device = out.into_iter().next().ok_or("the gather net returned nothing")?;
+            if device.len() != host.len() {
+                return Err(format!("device {} values, host {}", device.len(), host.len()));
+            }
+            let scale = host.iter().fold(0f32, |m, v| m.max(v.abs())).max(1e-6);
+            let diff = device.iter().zip(&host).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max) / scale;
+            worst = worst.max(diff);
+            if pass > 0 {
+                host_ms += host_t;
+                device_ms += device_t;
+            }
+        }
+    }
+    let n = (tokens.len() * (repeats - 1)) as f64;
+    println!(
+        "combine per token: host {:.2} ms, device {:.2} ms; worst max|diff|/max|host| {worst:.5}",
+        host_ms / n,
+        device_ms / n
+    );
     Ok(())
 }
 

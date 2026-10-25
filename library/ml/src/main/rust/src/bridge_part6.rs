@@ -5,13 +5,8 @@ impl Gemma4Handle {
         self.step_hidden(&hidden, &per_layer, want_logits)
     }
 
-    /// One token's embedding and per-layer inputs, device-combined when available.
-    ///
-    /// The 36 int4 rows still gather on host (`int4_row` is mmap-cheap); the
-    /// 13.8M-MAC `combine` SGEMV runs on-device via `gather_net` when the
-    /// handle carries it, else on host via `gemma4::gather` (bit-parity gate
-    /// between the two lives in `run_gemma4 --gather-parity`). `gather_net`
-    /// is `None` until that gate passes — today this is always the host path.
+    /// One token's embedding and per-layer inputs. The 36 int4 rows gather on the host
+    /// (`int4_row` is mmap-cheap); the combine runs on `gather_net` when it built, else on host.
     fn gather(&mut self, token: u32) -> Result<(Vec<f32>, Vec<f32>), String> {
         // Host rows (both paths need them — see `gemma4_gather` module docs
         // for why the row lookups did not move).
@@ -378,7 +373,7 @@ impl Gemma4Handle {
             let mut local = vec![0f32; (gemma4::HEAD_DIM * width) as usize];
             let mut global = vec![0f32; (gemma4::GLOBAL_HEAD_DIM * width) as usize];
             for (offset, &token) in chunk.iter().enumerate() {
-                let (h, p) = gemma4::gather(&self.embed.reader(), token)?;
+                let (h, p) = self.gather(token)?;
                 let column = offset as u32;
                 let position = self.position + column;
                 place(&mut hidden, &h, column, width);
@@ -416,7 +411,7 @@ impl Gemma4Handle {
         if !sequential.is_empty() {
             let started = std::time::Instant::now();
             for &token in sequential {
-                let (hidden, per_layer) = gemma4::gather(&self.embed.reader(), token)?;
+                let (hidden, per_layer) = self.gather(token)?;
                 self.step_hidden(&hidden, &per_layer, false)?;
             }
             log(&format!(

@@ -403,11 +403,9 @@ struct Gemma4Handle {
     /// the 16 logit splits. `None` without a head file - the host head covers
     /// that.
     head: Option<Reshaped<bool>>,
-    /// The device combine over the EMBED file: host-gathered rows in,
-    /// combined per-layer block out. `None` always for now — the combine
-    /// plan is built and tested but not yet wired into the step path (see
-    /// `gather_device` below); `gather` stays host-side until the parity
-    /// gate below passes on host + P8.
+    /// The device combine over the EMBED file, windowed to the ~13 MB it reads:
+    /// host-gathered rows in, combined per-layer block out. `None` falls back to
+    /// the host combine.
     gather_net: Option<Reshaped<()>>,
     /// The text model, retained for the rotary tables which are also host-read.
     weights: Streamed,
