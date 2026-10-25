@@ -4,11 +4,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.IconDashboard
+import com.vayunmathur.library.ui.IconHistory
+import com.vayunmathur.library.ui.IconSettings
+import com.vayunmathur.library.ui.PagerTab
+import com.vayunmathur.library.ui.TabStyle
+import com.vayunmathur.library.ui.TabbedPagerScaffold
+import com.vayunmathur.library.util.NavBackStack
+import com.vayunmathur.vpn.Route
 import com.vayunmathur.vpn.data.AppUsageSummary
 import com.vayunmathur.vpn.data.DomainBytesSummary
 import com.vayunmathur.vpn.data.DomainCountSummary
@@ -96,40 +105,21 @@ class MetadataPreviews {
     @Preview(name = "1-tunnels", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Tunnels() {
-        DynamicTheme(darkTheme = true) {
-            ConfigListContent(
-                configs = tunnels,
-                connectingId = 1L,
-                activeId = 1L,
-            )
-        }
+        ChromePreview(selectedTab = 0)
     }
 
     @PreviewTest
     @Preview(name = "2-top-apps", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview2TopApps() {
-        DynamicTheme(darkTheme = true) {
-            LoggingContent(
-                topApps = topApps,
-                domainsByCount = domainsByCount,
-                domainsByBytes = domainsByBytes,
-            )
-        }
+        ChromePreview(selectedTab = 1)
     }
 
     @PreviewTest
     @Preview(name = "3-top-domains", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3TopDomains() {
-        DynamicTheme(darkTheme = true) {
-            LoggingContent(
-                topApps = topApps,
-                domainsByCount = domainsByCount,
-                domainsByBytes = domainsByBytes,
-                initialTab = 2,
-            )
-        }
+        ChromePreview(selectedTab = 1, loggingTab = 2)
     }
 
     @PreviewTest
@@ -157,6 +147,43 @@ class MetadataPreviews {
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * The app's real tab chrome around preview screen content: the same
+     * [TabbedPagerScaffold] with the same Tunnels/Logging/Settings tabs `VpnTabs`
+     * declares. The Settings tab only needs a back stack (its actions fire intents
+     * on click), so it renders for real; only the selected tab is literal.
+     */
+    @Composable
+    private fun ChromePreview(selectedTab: Int, loggingTab: Int = 0) {
+        DynamicTheme(darkTheme = true) {
+            val tabs = listOf(
+                PagerTab("Tunnels", { IconDashboard() }) {
+                    ConfigListContent(
+                        configs = tunnels,
+                        connectingId = 1L,
+                        activeId = 1L,
+                    )
+                },
+                PagerTab("Logging", { IconHistory() }) {
+                    LoggingContent(
+                        topApps = topApps,
+                        domainsByCount = domainsByCount,
+                        domainsByBytes = domainsByBytes,
+                        initialTab = loggingTab,
+                    )
+                },
+                PagerTab("Settings", { IconSettings() }) {
+                    SettingsPage(backStack = NavBackStack(arrayOf(Route.Main())))
+                },
+            )
+            TabbedPagerScaffold(
+                tabs = tabs,
+                pagerState = rememberPagerState(initialPage = selectedTab, pageCount = { tabs.size }),
+                tabStyle = TabStyle.BottomNav,
+            )
         }
     }
 }
