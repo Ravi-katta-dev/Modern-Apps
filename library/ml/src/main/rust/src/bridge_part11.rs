@@ -39,14 +39,10 @@ fn gemma4_gather_plan(embed: &Streamed) -> Option<Reshaped<()>> {
     .ok()
 }
 
-/// The standalone head plan over a head file (`graph::GEMMA4_HEAD`).
-///
-/// `None` when no head file was opened. The head file holds ONLY the 48
-/// int8 triples (~402 MB), so this upload replaces the 3.6 GB EMBED upload
-/// on memory-constrained devices (Pixel 8 OOM-reboot, twice, 2026-09-26:
-/// TEXT 1.1 GB + EMBED 3.6 GB vs ~2.6 GB free). Preferred over
-/// `gemma4_head_plan` whenever present — same numerics, one-ninth the bytes.
-fn gemma4_head_file_plan(head: &Streamed) -> Option<Reshaped<()>> {
+/// The head over the standalone head file (`graph::GEMMA4_HEAD`, the 48
+/// int8 triples, ~385 MB): one upload, two recordings (`true` greedy id,
+/// `false` the 16 logit splits). `None` when the file does not match.
+fn gemma4_head_file_plan(head: &Streamed) -> Option<Reshaped<bool>> {
     let offsets = head.offsets();
     if offsets.len() != crate::nets::gemma4_head::HEAD_FILE_TENSORS {
         return None;
@@ -55,29 +51,11 @@ fn gemma4_head_file_plan(head: &Streamed) -> Option<Reshaped<()>> {
         context::shared().ok()?,
         offsets,
         head,
-        (),
-        |offsets, ()| crate::nets::gemma4_head::build_plan_standalone(offsets, false),
+        true,
+        |offsets, greedy| crate::nets::gemma4_head::build_plan_standalone(offsets, greedy),
     )
     .ok()
 }
-
-/// The greedy standalone head plan: 16 splits + device argmax id.
-/// See `gemma4_head_file_plan` (file-size rationale) and `build_plan_greedy`.
-fn gemma4_head_file_plan_greedy(head: &Streamed) -> Option<Reshaped<()>> {
-    let offsets = head.offsets();
-    if offsets.len() != crate::nets::gemma4_head::HEAD_FILE_TENSORS {
-        return None;
-    }
-    Reshaped::streamed(
-        context::shared().ok()?,
-        offsets,
-        head,
-        (),
-        |offsets, ()| crate::nets::gemma4_head::build_plan_standalone(offsets, true),
-    )
-    .ok()
-}
-
 /// Positions one prefill submit covers. Large enough that a prompt is **one** submit.
 ///
 /// # Splitting a prefill is wrong, not merely slower
@@ -91,9 +69,8 @@ fn gemma4_head_file_plan_greedy(head: &Streamed) -> Option<Reshaped<()>> {
 /// single chunk agrees with it exactly at 100, 400, 900 and 1,907 positions.
 ///
 /// The real repair is to attend over the cache rather than the chunk, as decode does, which
-/// makes any chunking correct. Until then the chunk must cover the prompt, and that is
-/// affordable here because the fixed prefix arrives precomputed - a turn prefills only the new
-/// tokens, not the 1,900 before them.
+/// makes any chunking correct. Until then only the first chunk at position 0 is batched and
+/// everything after it (later turns included) runs one position at a time.
 const CHUNK: u32 = 4096;
 
 /// Write one position's `values` into column `column` of a `[C, 1, width]` block.
@@ -254,15 +231,11 @@ fn build_gemma4<'l>(
     // file, which on top of TEXT OOM-kills a Pixel 8. The head comes from the
     // ~402 MB head file or the host; the combine stays on the host until
     // uploads are windowed.
-    let (head, head_greedy) = match &head_file {
-        Some(file) => (gemma4_head_file_plan(file), gemma4_head_file_plan_greedy(file)),
-        None => (None, None),
-    };
+    let head = head_file.as_ref().and_then(gemma4_head_file_plan);
     let gather_net: Option<Reshaped<()>> = None;
     Ok(Gemma4Handle {
         net,
         head,
-        head_greedy,
         gather_net,
         weights,
         embed,

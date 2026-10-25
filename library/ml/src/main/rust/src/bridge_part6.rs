@@ -194,7 +194,7 @@ impl Gemma4Handle {
         let Some(head) = self.head.as_mut() else {
             return self.tied_head_logits(hidden);
         };
-        let at = head.at(())?;
+        let at = head.at(false)?;
         let out = at.infer_raw_many(&[hidden])?;
         if out.len() != crate::nets::gemma4_head::HEAD_CHUNKS {
             return Err(format!(
@@ -217,33 +217,19 @@ impl Gemma4Handle {
 
     /// The greedy next token for `hidden`, reduced on the device.
     ///
-    /// Same head submit through the greedy plan (`build_plan_greedy`): the 16
-    /// splits concatenate on-device and one `Argmax` op reduces to a single
-    /// scalar holding the winning index as fp16 bits. Reads back 1 value
-    /// instead of 262144 — no 512 KB readback, no host scan. Falls back to
-    /// the host argmax over [`head_logits`](Self::head_logits) when the head
-    /// net is absent. The full-logits path (`logitsGemma4`) never calls this.
-    ///
-    /// NOTE: the greedy plan has a different output signature (16 splits + 1
-    /// id) from the logits plan, so it runs on the dedicated `head_greedy`
-    /// handle (same EMBED upload, separate recording). Falls back to the
-    /// host argmax when that handle is absent (no int8 chunks in file).
+    /// `head.at(true)`: the splits concatenate and reduce on the device, so two values
+    /// ([lo, hi] of the id) come back instead of 262144 logits. Host argmax without a head file.
     fn head_greedy(&mut self, hidden: &[f32]) -> Result<u32, String> {
-        use crate::nets::gemma4_head;
-        let Some(greedy) = self.head_greedy.as_mut() else {
+        let Some(head) = self.head.as_mut() else {
             let logits = self.head_logits(hidden)?;
             return Ok(argmax(&logits));
         };
-        let at = greedy.at(())?;
+        let at = head.at(true)?;
         let out = at.infer_raw_many(&[hidden])?;
-        if out.len() != gemma4_head::HEAD_CHUNKS + 1 {
-            return Err(format!(
-                "greedy head returned {} outputs, not {}",
-                out.len(),
-                gemma4_head::HEAD_CHUNKS + 1
-            ));
+        if out.len() != 1 {
+            return Err(format!("greedy head returned {} outputs, not 1", out.len()));
         }
-        let id_out = &out[gemma4_head::HEAD_CHUNKS];
+        let id_out = &out[0];
         if id_out.len() != 2 {
             return Err(format!("greedy id holds {} values, not 2", id_out.len()));
         }
@@ -372,7 +358,16 @@ impl Gemma4Handle {
                 self.context
             ));
         }
-        for chunk in tokens.chunks(CHUNK as usize) {
+        // `prefill_layer` attends only within its own chunk, so a batch is correct only when
+        // nothing precedes it. Past position 0 (later turns, text after an image, a second
+        // chunk) each token goes through the single-position pass, which attends the cache.
+        let (batched, sequential) = if self.position == 0 {
+            tokens.split_at(tokens.len().min(CHUNK as usize))
+        } else {
+            (&[][..], tokens)
+        };
+        if !batched.is_empty() {
+            let chunk = batched;
             let width = chunk.len() as u32;
             let gathering = std::time::Instant::now();
             // Gathered per position and laid out `[C, 1, T]` - channel-major, which is what
@@ -417,6 +412,19 @@ impl Gemma4Handle {
                 ran.elapsed().as_secs_f64() * 1000.0,
             ));
             self.position += width;
+        }
+        if !sequential.is_empty() {
+            let started = std::time::Instant::now();
+            for &token in sequential {
+                let (hidden, per_layer) = gemma4::gather(&self.embed.reader(), token)?;
+                self.step_hidden(&hidden, &per_layer, false)?;
+            }
+            log(&format!(
+                "gemma4 prefill {} positions sequentially, ending at {}: {:.0} ms",
+                sequential.len(),
+                self.position,
+                started.elapsed().as_secs_f64() * 1000.0,
+            ));
         }
         Ok(())
     }

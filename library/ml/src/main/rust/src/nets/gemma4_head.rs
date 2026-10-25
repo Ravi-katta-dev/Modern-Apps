@@ -204,8 +204,9 @@ fn build_plan_fp16(weights: &dyn WeightSource, greedy: bool) -> Result<Plan, Str
 ///
 /// Same 16 int8 triples as `build_plan8`, but the file holds NOTHING else:
 /// chunk `s` owns tensors `s * 3 .. s * 3 + 2` (no `host_tensor` companions
-/// needed — `finish` sees every tensor read). `greedy` appends the same
-/// on-device concat + argmax tail.
+/// needed — `finish` sees every tensor read). `greedy` replaces the 16 split
+/// outputs with the on-device argmax id alone, so a greedy step reads back
+/// two values instead of 512 KB.
 pub fn build_plan_standalone(weights: &dyn WeightSource, greedy: bool) -> Result<Plan, String> {
     let mut builder = Builder::new(weights);
     let b = &mut builder;
@@ -215,7 +216,9 @@ pub fn build_plan_standalone(weights: &dyn WeightSource, greedy: bool) -> Result
         outs.push(point8(b, s * 3, x, CLASSES_PER_CHUNK));
     }
     if greedy {
-        finish_greedy(b, &mut outs);
+        let row = b.concat(&outs);
+        let id = b.argmax(row);
+        return builder.finish(&[id]);
     }
     builder.finish(&outs)
 }
@@ -363,6 +366,16 @@ mod tests {
         crate::nets::tests::assert_no_aliasing(&plan);
         let sched = crate::nets::schedule::schedule(&plan);
         crate::nets::schedule::is_sound(&plan, &sched).expect("the fp16 head schedule is sound");
+    }
+
+    #[test]
+    fn the_standalone_greedy_head_returns_only_the_id() {
+        let source = Shapes::new(HEAD_FILE_TENSORS);
+        let plan = build_plan_standalone(&source, true).expect("the greedy head builds");
+        assert_eq!(plan.outputs.len(), 1);
+        assert_eq!(plan.outputs[0].shape, Shape::new(2, 1, 1));
+        let plan = build_plan_standalone(&source, false).expect("the logits head builds");
+        assert_eq!(plan.outputs.len(), HEAD_CHUNKS);
     }
 
     #[test]

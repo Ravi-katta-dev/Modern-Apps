@@ -229,14 +229,17 @@ fn build_whisper<'l>(
     // construction — when the UI can still report the recogniser as unavailable.
     decoding.check(whisper::VOCAB)?;
 
-    // Recorded on the encoder, which is what every transcription runs first.
-    let net = Reshaped::streamed(
+    // Recorded on the decode step first, then the encoder every transcription runs first: the
+    // first recording of each kernel is the expensive one, and this keeps it out of the first
+    // transcription's switch into decoding.
+    let mut net = Reshaped::streamed(
         context::shared()?,
         weights.offsets(),
         &weights,
-        whisper::Mode::Encode,
+        whisper::Mode::DecodeStep,
         whisper_plan,
     )?;
+    net.at(whisper::Mode::Encode)?;
     Ok(WhisperHandle { net, weights, decoding })
 }
 
@@ -395,14 +398,11 @@ fn log(message: &str) {
 /// [`Streamed`] and is gathered on the host, exactly as NLLB's tied embedding is.
 struct Gemma4Handle {
     net: Reshaped<gemma4::Pass>,
-    /// The GPU tied head over the EMBED file, upload-once at construction.
-    /// `None` on files without head chunks — the host head covers those.
-    head: Option<Reshaped<()>>,
-    /// The greedy head over the EMBED file: 16 splits + device argmax id.
-    /// `None` on files without int8 chunks — greedy falls back to the host
-    /// argmax over `head`. Built alongside `head` (same upload-once cost
-    /// class: one more recording over the same resident upload).
-    head_greedy: Option<Reshaped<()>>,
+    /// The GPU head over the standalone head file, one upload serving both
+    /// plans: `at(true)` is the device-argmax plan (one id back), `at(false)`
+    /// the 16 logit splits. `None` without a head file - the host head covers
+    /// that.
+    head: Option<Reshaped<bool>>,
     /// The device combine over the EMBED file: host-gathered rows in,
     /// combined per-layer block out. `None` always for now — the combine
     /// plan is built and tested but not yet wired into the step path (see

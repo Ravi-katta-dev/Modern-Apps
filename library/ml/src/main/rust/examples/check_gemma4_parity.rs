@@ -84,12 +84,15 @@ struct Args {
     time: Option<usize>,
     prefill: Option<u32>,
     sample: bool,
+    split: Option<u32>,
+    len: Option<u32>,
 }
 
 /// `--head <path>`, `--time <repeats>`, `--prefill <tokens>`, `--sample`; the
 /// rest are positional: text embed golden [trace] [tail] [head].
 fn parse_args() -> Args {
-    let mut args = Args { positional: Vec::new(), head: None, time: None, prefill: None, sample: false };
+    let mut args =
+        Args { positional: Vec::new(), head: None, time: None, prefill: None, sample: false, split: None, len: None };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -97,6 +100,8 @@ fn parse_args() -> Args {
             "--time" => args.time = it.next().and_then(|n| n.parse().ok()),
             "--prefill" => args.prefill = it.next().and_then(|n| n.parse().ok()),
             "--sample" => args.sample = true,
+            "--split" => args.split = it.next().and_then(|n| n.parse().ok()),
+            "--len" => args.len = it.next().and_then(|n| n.parse().ok()),
             _ => args.positional.push(arg),
         }
     }
@@ -115,7 +120,7 @@ fn main() {
     ) else {
         println!(
             "usage: check_gemma4_parity <text.maml> <embed.maml> <golden.json> [trace] [tail] \
-             [--head head.maml] [--time N [--sample]] [--prefill N]"
+             [--head head.maml] [--time N [--sample]] [--prefill N] [--split K [--len N]]"
         );
         return;
     };
@@ -150,6 +155,14 @@ fn main() {
     };
     if let Some(repeats) = args.time {
         time_decode(&context, &weights, &embed_weights, head_weights.as_ref(), &tokens, repeats, args.sample);
+        return print_memory();
+    }
+    if let Some(k) = args.split {
+        let n = args.len.unwrap_or(tokens.len() as u32) as usize;
+        let prompt: Vec<u32> = tokens.iter().copied().cycle().take(n).collect();
+        if let Err(why) = split_check(&context, &weights, &embed_weights, head_weights.as_ref(), &prompt, k) {
+            println!("the split check failed to run: {why}");
+        }
         return print_memory();
     }
     if let Some(width) = args.prefill {
@@ -552,6 +565,154 @@ fn time_prefill(
     if let Some(report) = prefill_report {
         print_kinds("prefill", &report);
     }
+}
+
+/// Feed `tokens` at positions `start..` without the head: one batched `Prefill` submit, or one
+/// single-position pass each (the decode layer, which attends the cache).
+fn feed(
+    net: &mut Reshaped<gemma4::Pass>,
+    embed: &modelrunner::weights::Reader<'_>,
+    rotary: &modelrunner::weights::Reader<'_>,
+    tokens: &[u32],
+    start: u32,
+    batched: bool,
+) -> Result<(), String> {
+    if tokens.is_empty() {
+        return Ok(());
+    }
+    let params = |position: u32| StepParams {
+        prefix: position,
+        window_start: position.saturating_sub(gemma4::WINDOW - 1),
+    };
+    if !batched {
+        for (offset, &token) in tokens.iter().enumerate() {
+            let position = start + offset as u32;
+            let (hidden, per_layer) = gemma4::gather(embed, token)?;
+            let local = rotary_row(rotary, gemma4::ROTARY_LOCAL, gemma4::HEAD_DIM, position)?;
+            let global = rotary_row(rotary, gemma4::ROTARY_GLOBAL, gemma4::GLOBAL_HEAD_DIM, position)?;
+            let at = net.at(gemma4::Mode::Prefill { tokens: 1 }.at(TIER))?;
+            at.set_params(params(position))?;
+            at.infer_raw_many(&[&hidden, &per_layer, &local, &global])?;
+        }
+        return Ok(());
+    }
+    let width = tokens.len() as u32;
+    let mut hidden = vec![0f32; (gemma4::D_MODEL * width) as usize];
+    let mut per_layer = vec![0f32; (gemma4::PER_LAYER * gemma4::LAYERS as u32 * width) as usize];
+    let mut local = vec![0f32; (gemma4::HEAD_DIM * width) as usize];
+    let mut global = vec![0f32; (gemma4::GLOBAL_HEAD_DIM * width) as usize];
+    for (column, &token) in tokens.iter().enumerate() {
+        let column = column as u32;
+        let (h, p) = gemma4::gather(embed, token)?;
+        place(&mut hidden, &h, column, width);
+        place(&mut per_layer, &p, column, width);
+        place(&mut local, &rotary_row(rotary, gemma4::ROTARY_LOCAL, gemma4::HEAD_DIM, start + column)?, column, width);
+        place(
+            &mut global,
+            &rotary_row(rotary, gemma4::ROTARY_GLOBAL, gemma4::GLOBAL_HEAD_DIM, start + column)?,
+            column,
+            width,
+        );
+    }
+    let at = net.at(gemma4::Mode::Prefill { tokens: width }.at(TIER))?;
+    at.set_params(params(start))?;
+    at.infer_raw_many(&[&hidden, &per_layer, &local, &global])?;
+    Ok(())
+}
+
+/// The last token as a decode step at `position`, then the logits head.
+#[allow(clippy::too_many_arguments)]
+fn last_logits(
+    net: &mut Reshaped<gemma4::Pass>,
+    head: &mut Reshaped<bool>,
+    embed: &modelrunner::weights::Reader<'_>,
+    rotary: &modelrunner::weights::Reader<'_>,
+    token: u32,
+    position: u32,
+) -> Result<Vec<f32>, String> {
+    let (hidden, per_layer) = gemma4::gather(embed, token)?;
+    let local = rotary_row(rotary, gemma4::ROTARY_LOCAL, gemma4::HEAD_DIM, position)?;
+    let global = rotary_row(rotary, gemma4::ROTARY_GLOBAL, gemma4::GLOBAL_HEAD_DIM, position)?;
+    let at = net.at(gemma4::Mode::DecodeStep.at(TIER))?;
+    at.set_params(StepParams { prefix: position, window_start: position.saturating_sub(gemma4::WINDOW - 1) })?;
+    let out = at.infer_raw_many(&[&hidden, &per_layer, &local, &global])?;
+    let state = out.into_iter().next().ok_or("the step returned nothing")?;
+    softcapped(&head.at(false)?.infer_raw_many(&[&state])?)
+}
+
+fn top10(logits: &[f32]) -> Vec<u32> {
+    let mut order: Vec<u32> = (0..logits.len() as u32).collect();
+    order.sort_by(|&a, &b| logits[b as usize].total_cmp(&logits[a as usize]));
+    order.truncate(10);
+    order
+}
+
+/// A prompt split `[0..k at 0][k..n-1 at k]` must give the next-token ranking the whole prompt
+/// gives at 0. Variants: whole batched (reference), all sequential, the app's stopgap (batched
+/// head + sequential tail), and a batched tail (correct only once prefill attends the cache).
+fn split_check(
+    context: &Arc<context::Context>,
+    weights: &Streamed,
+    embed: &Streamed,
+    head: Option<&Streamed>,
+    prompt: &[u32],
+    k: u32,
+) -> Result<(), String> {
+    let n = prompt.len();
+    let k = k as usize;
+    if n < 3 || k == 0 || k + 1 >= n || n as u32 >= TIER {
+        return Err(format!("need 0 < k < n - 1 and n < {TIER}; got k {k}, n {n}"));
+    }
+    let head = head.ok_or("the split check needs --head")?;
+    let mut net = streamed_net(context, weights, gemma4::Mode::DecodeStep.at(TIER), gemma4_plan)?;
+    let mut head_net = streamed_net(context, head, false, head_plan)?;
+    let reader = embed.reader();
+    let rotary = weights.reader();
+    let last = prompt[n - 1];
+    let body = &prompt[..n - 1];
+    let (front, tail) = body.split_at(k);
+    let mut run = |label: &str, front_batched: bool, tail_batched: bool, whole: bool| -> Result<Vec<f32>, String> {
+        let tick = std::time::Instant::now();
+        let mut tail_ms = 0.0;
+        if whole {
+            feed(&mut net, &reader, &rotary, body, 0, front_batched)?;
+        } else {
+            feed(&mut net, &reader, &rotary, front, 0, front_batched)?;
+            let tail_tick = std::time::Instant::now();
+            feed(&mut net, &reader, &rotary, tail, k as u32, tail_batched)?;
+            tail_ms = tail_tick.elapsed().as_secs_f64() * 1000.0;
+        }
+        let logits = last_logits(&mut net, &mut head_net, &reader, &rotary, last, (n - 1) as u32)?;
+        println!(
+            "  {label:<32} {:>7.0} ms (tail {tail_ms:.0} ms = {:.1} ms/token)  top10 {:?}",
+            tick.elapsed().as_secs_f64() * 1000.0,
+            tail_ms / tail.len().max(1) as f64,
+            top10(&logits)
+        );
+        Ok(logits)
+    };
+    println!("split check: {n} tokens, split at {k}");
+    // Widest batch first so the arena grows before anything it holds matters.
+    let reference = run("whole batched at 0", true, true, true)?;
+    let variants = [
+        ("all sequential", run("all sequential", false, false, true)?),
+        ("batched head + sequential tail", run("batched head + sequential tail", true, false, false)?),
+        ("batched head + batched tail", run("batched head + batched tail", true, true, false)?),
+    ];
+    let want = top10(&reference);
+    for (label, logits) in &variants {
+        let got = top10(logits);
+        let max_diff = logits.iter().zip(&reference).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+        let verdict = if got == want {
+            "SAME top10"
+        } else if got[0] == want[0] {
+            "same argmax, top10 reordered"
+        } else {
+            "ARGMAX DIFFERS"
+        };
+        println!("  {label:<32} {verdict}, max |logit diff| {max_diff:.4}");
+    }
+    Ok(())
 }
 
 /// Per-kind GPU table for one submit, plus its ten hottest dispatches.
