@@ -93,10 +93,8 @@ pub struct RoadTags<'a> {
 ///
 /// A slip road IS its parent class as far as drawing goes -- it is the same asphalt at
 /// the same width, and a map that omits interchange ramps has holes in every
-/// motorway junction. [`crate::tags::get_hw_id`] has no id for one, and cannot be
-/// given one: those numbers are an on-disk contract with
-/// `maps/src/main/rust/src/graph.rs` and renumbering them would reinterpret every
-/// edge in an already-built graph. So the suffix is dropped here instead.
+/// motorway junction. [`crate::tags::get_hw_id`] maps the five real `*_link` values
+/// itself; stripping here as well keeps the parent check for any other suffix.
 pub fn base_highway(value: Option<&str>) -> Option<&str> {
     let v = value?;
     Some(v.strip_suffix("_link").unwrap_or(v))

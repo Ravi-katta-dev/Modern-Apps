@@ -24,13 +24,18 @@ pub const LANE_MERGE_TO_RIGHT: u16 = 1 << 10;
 
 /// Road type number for a `highway=*` value; 0 means "not a routable road", and
 /// such ways are skipped entirely.
+///
+/// A `*_link` slip road takes its parent's number. Without that every motorway
+/// interchange ramp was dropped from the routing graph, so changing freeways
+/// meant leaving them on surface roads (I-15 to I-70 at Cove Fort routed over
+/// Fremont Canyon Road, 173 km instead of ~110 km).
 pub fn get_hw_id(value: Option<&str>) -> u8 {
     match value.unwrap_or("") {
-        "motorway" => 1,
-        "trunk" => 2,
-        "primary" => 3,
-        "secondary" => 4,
-        "tertiary" => 5,
+        "motorway" | "motorway_link" => 1,
+        "trunk" | "trunk_link" => 2,
+        "primary" | "primary_link" => 3,
+        "secondary" | "secondary_link" => 4,
+        "tertiary" | "tertiary_link" => 5,
         "unclassified" => 6,
         "residential" => 7,
         "service" => 8,
@@ -334,6 +339,10 @@ mod tests {
         assert_eq!(get_hw_id(Some("motorway")), 1);
         assert_eq!(get_hw_id(Some("steps")), 15);
         assert_eq!(get_hw_id(Some("residential")), 7);
+        // Slip roads are routable as their parent class.
+        assert_eq!(get_hw_id(Some("motorway_link")), 1);
+        assert_eq!(get_hw_id(Some("tertiary_link")), 5);
+        assert_eq!(get_hw_id(Some("raceway_link")), 0);
         // Unroutable / absent -> 0, which makes the caller skip the way.
         assert_eq!(get_hw_id(Some("proposed")), 0);
         assert_eq!(get_hw_id(Some("")), 0);
