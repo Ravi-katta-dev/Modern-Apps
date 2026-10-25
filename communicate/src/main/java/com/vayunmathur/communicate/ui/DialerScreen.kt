@@ -72,9 +72,6 @@ import kotlinx.coroutines.withContext
 @Composable
 fun DialerScreen() {
     val context = LocalContext.current
-    val clipboard = LocalClipboard.current
-    val scope = rememberCoroutineScope()
-    var number by remember { mutableStateOf("") }
     val lineChoices = rememberLineChoices()
     var selectedLine by remember { mutableStateOf<LineChoice?>(null) }
     var userSelectedLine by remember { mutableStateOf(false) }
@@ -135,13 +132,6 @@ fun DialerScreen() {
                     }
                     // Keyed on the contact list only: the query must never re-run the provider query.
                     val rows = contacts.value
-                    val entries = remember(rows) { rows.orEmpty().map { T9.entryFor(it.name, it.phoneNumber) } }
-                    val query = T9.normalizeQuery(number)
-                    val filtered = remember(rows, query) {
-                        val all = rows.orEmpty()
-                        if (query.isEmpty()) all
-                        else all.filterIndexed { index, _ -> T9.matches(entries[index], query) }
-                    }
                     when {
                         rows == null -> com.vayunmathur.library.ui.LoadingState(Modifier.weight(1f))
                         rows.isEmpty() -> EmptyState(
@@ -149,52 +139,95 @@ fun DialerScreen() {
                             icon = { IconContacts() },
                             modifier = Modifier.weight(1f),
                         )
-                        filtered.isEmpty() -> EmptyState(
-                            title = stringResource(R.string.empty_contacts_for_digits),
-                            icon = { IconContacts() },
-                            modifier = Modifier.weight(1f),
-                        )
-                        else -> LazyColumn(
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(bottom = 8.dp),
-                        ) {
-                            item {
-                                Text(
-                                    stringResource(UiR.string.contacts),
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                            }
-                            items(filtered, key = { "${it.id}-${it.phoneNumber}" }) { contact ->
-                                ContactRow(contact) {
-                                    place(contact.phoneNumber)
-                                }
-                            }
+                        else -> {
+                            DialerContent(
+                                contacts = rows,
+                                onPlace = ::place,
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                     }
                 }
-                DialPad(
-                    number = number,
-                    onAppend = { number += it },
-                    onBackspace = { number = number.dropLast(1) },
-                    onClear = { number = "" },
-                    onPaste = {
-                        scope.launch {
-                            val pasted = clipboard.getClipEntry()
-                                ?.clipData
-                                ?.getItemAt(0)
-                                ?.coerceToText(context)
-                                ?.toString()
-                                .orEmpty()
-                                .filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
-                            if (pasted.isNotBlank()) number = pasted
-                        }
-                    },
-                    onCall = { place(number) },
-                )
             }
         }
+    }
+}
+
+/**
+ * Dialer list plus pad, stateless apart from the entered number: contacts,
+ * lines and placement come in as parameters so screenshot previews can render
+ * without the SIM/session providers, the role and permission gates, or the
+ * contact content provider above.
+ */
+@Composable
+fun DialerContent(
+    contacts: List<CommunicateContact>,
+    onPlace: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var number by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    // Keyed on the contact list only: the query must never re-run the provider query.
+    val entries = remember(contacts) { contacts.map { T9.entryFor(it.name, it.phoneNumber) } }
+    val query = T9.normalizeQuery(number)
+    val filtered = remember(contacts, query) {
+        if (query.isEmpty()) contacts
+        else contacts.filterIndexed { index, _ -> T9.matches(entries[index], query) }
+    }
+    Column(modifier = modifier.fillMaxSize()) {
+        if (contacts.isEmpty()) {
+            EmptyState(
+                title = stringResource(R.string.empty_contacts),
+                icon = { IconContacts() },
+                modifier = Modifier.weight(1f),
+            )
+        } else if (filtered.isEmpty()) {
+            EmptyState(
+                title = stringResource(R.string.empty_contacts_for_digits),
+                icon = { IconContacts() },
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(bottom = 8.dp),
+            ) {
+                item {
+                    Text(
+                        stringResource(UiR.string.contacts),
+                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                items(filtered, key = { "${it.id}-${it.phoneNumber}" }) { contact ->
+                    ContactRow(contact) {
+                        onPlace(contact.phoneNumber)
+                    }
+                }
+            }
+        }
+        DialPad(
+            number = number,
+            onAppend = { number += it },
+            onBackspace = { number = number.dropLast(1) },
+            onClear = { number = "" },
+            onPaste = {
+                scope.launch {
+                    val pasted = clipboard.getClipEntry()
+                        ?.clipData
+                        ?.getItemAt(0)
+                        ?.coerceToText(context)
+                        ?.toString()
+                        .orEmpty()
+                        .filter { it.isDigit() || it == '+' || it == '*' || it == '#' }
+                    if (pasted.isNotBlank()) number = pasted
+                }
+            },
+            onCall = { onPlace(number) },
+        )
     }
 }
 

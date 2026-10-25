@@ -24,7 +24,11 @@ object SimManager {
 
     fun activeSims(context: Context): List<CommunicateSim> {
         if (!context.hasPhoneStatePermission()) return emptyList()
-        val sm = context.getSystemService(SubscriptionManager::class.java) ?: return emptyList()
+        // The service lookup itself can throw where no telephony stack exists
+        // (Layoutlib screenshot renders have no subscription service) — treat
+        // that like zero SIMs rather than crashing composition.
+        val sm = runCatching { context.getSystemService(SubscriptionManager::class.java) }
+            .getOrNull() ?: return emptyList()
         return runCatching {
             sm.activeSubscriptionInfoList?.map { info ->
                 CommunicateSim(

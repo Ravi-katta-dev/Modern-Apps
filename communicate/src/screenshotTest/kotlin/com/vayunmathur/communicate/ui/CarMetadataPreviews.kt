@@ -27,9 +27,9 @@ private const val CAR = "spec:width=1024dp,height=600dp,dpi=160"
 class CarMetadataPreviews {
 
     @PreviewTest
-    @Preview(name = "1-car-threads", device = CAR, group = "phone", showSystemUi = false)
+    @Preview(name = "4-car-threads", device = CAR, group = "phone", showSystemUi = false)
     @Composable
-    fun Preview1CarThreads() {
+    fun Preview4CarThreads() {
         DynamicTheme(darkTheme = true) {
             Surface(Modifier.fillMaxSize()) {
                 CarTemplateView(
@@ -84,9 +84,9 @@ class CarMetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "2-car-incall", device = CAR, group = "phone", showSystemUi = false)
+    @Preview(name = "5-car-incall", device = CAR, group = "phone", showSystemUi = false)
     @Composable
-    fun Preview2CarInCall() {
+    fun Preview5CarInCall() {
         DynamicTheme(darkTheme = true) {
             Surface(Modifier.fillMaxSize()) {
                 CarTemplateView(
@@ -105,9 +105,9 @@ class CarMetadataPreviews {
     }
 
     @PreviewTest
-    @Preview(name = "3-car-keypad", device = CAR, group = "phone", showSystemUi = false)
+    @Preview(name = "6-car-keypad", device = CAR, group = "phone", showSystemUi = false)
     @Composable
-    fun Preview3CarKeypad() {
+    fun Preview6CarKeypad() {
         DynamicTheme(darkTheme = true) {
             Surface(Modifier.fillMaxSize()) {
                 CarTemplateView(

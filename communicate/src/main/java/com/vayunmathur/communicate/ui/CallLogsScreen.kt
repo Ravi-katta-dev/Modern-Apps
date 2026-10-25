@@ -77,43 +77,67 @@ fun CallLogsScreen() {
                         icon = { IconHistory() },
                         modifier = Modifier.padding(padding),
                     )
-                    else -> LazyColumn(
-                        modifier = Modifier
-                            .padding(padding)
-                            .fillMaxSize(),
-                        contentPadding = PaddingValues(vertical = 8.dp),
-                    ) {
-                        items(rows, key = { it.id }) { entry ->
-                            CallLogRow(
-                                entry = entry,
-                                onClick = { CommunicateRepository.placeCall(context, entry.phoneNumber) },
-                                onDelete = { pendingDelete = entry },
-                            )
-                        }
+                    else -> {
+                        CallLogsContent(
+                            entries = rows,
+                            modifier = Modifier.padding(padding),
+                            onCall = { CommunicateRepository.placeCall(context, it.phoneNumber) },
+                            onDelete = { toDelete ->
+                                scope.launch {
+                                    val ok = withContext(Dispatchers.IO) { CommunicateRepository.deleteCallLog(
+                                        context,
+                                        toDelete) }
+                                    if (ok) tick++ else AppMessages.show(context.getString(R.string.delete_failed))
+                                }
+                            },
+                        )
                     }
-                }
-                val toDelete = pendingDelete
-                if (toDelete != null) {
-                    com.vayunmathur.library.ui.ConfirmDialog(
-                        title = stringResource(R.string.delete_call_log_title),
-                        message = stringResource(R.string.delete_call_log_message),
-                        confirmLabel = stringResource(com.vayunmathur.library.ui.R.string.delete),
-                        dismissLabel = stringResource(com.vayunmathur.library.ui.R.string.cancel),
-                        destructive = true,
-                        onConfirm = {
-                            pendingDelete = null
-                            scope.launch {
-                                val ok = withContext(Dispatchers.IO) { CommunicateRepository.deleteCallLog(
-                                    context,
-                                    toDelete) }
-                                if (ok) tick++ else AppMessages.show(context.getString(R.string.delete_failed))
-                            }
-                        },
-                        onDismiss = { pendingDelete = null },
-                    )
                 }
             }
         }
+    }
+}
+
+/**
+ * Call-log list, stateless: rows plus the delete-confirm dialog. Split out so
+ * screenshot previews can render entries without the call-log provider, the
+ * polling tick, or the permission gates above.
+ */
+@Composable
+fun CallLogsContent(
+    entries: List<CommunicateCallLogEntry>,
+    modifier: Modifier = Modifier,
+    onCall: (CommunicateCallLogEntry) -> Unit,
+    onDelete: (CommunicateCallLogEntry) -> Unit,
+) {
+    var pendingDelete by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<CommunicateCallLogEntry?>(null) }
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize(),
+        contentPadding = PaddingValues(vertical = 8.dp),
+    ) {
+        items(entries, key = { it.id }) { entry ->
+            CallLogRow(
+                entry = entry,
+                onClick = { onCall(entry) },
+                onDelete = { pendingDelete = entry },
+            )
+        }
+    }
+    val toDelete = pendingDelete
+    if (toDelete != null) {
+        com.vayunmathur.library.ui.ConfirmDialog(
+            title = stringResource(R.string.delete_call_log_title),
+            message = stringResource(R.string.delete_call_log_message),
+            confirmLabel = stringResource(com.vayunmathur.library.ui.R.string.delete),
+            dismissLabel = stringResource(com.vayunmathur.library.ui.R.string.cancel),
+            destructive = true,
+            onConfirm = {
+                pendingDelete = null
+                onDelete(toDelete)
+            },
+            onDismiss = { pendingDelete = null },
+        )
     }
 }
 
