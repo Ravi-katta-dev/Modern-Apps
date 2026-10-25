@@ -25,6 +25,7 @@
 pub mod archive;
 pub mod helpers;
 pub mod leaf_cache;
+pub mod overlay;
 
 // Private imports mirroring the original single-file module, so tests' `use super::*`
 // keeps resolving the same names. Pure moves; nothing here changed.
@@ -56,3 +57,4 @@ use std::cell::RefCell;
 pub use archive::MamapsArchive;
 pub use helpers::{decompress, open_prefix, read_all, MIN_FILE_LEN};
 pub use leaf_cache::{LeafCache, DEFAULT_LEAF_CACHE_CAPACITY};
+pub use overlay::{OverlayArchive, TileSource, base_matches, prune_tombstones};

@@ -9,7 +9,7 @@ use crate::tile::geometry;
 use crate::tile::select::TileId;
 use crate::tile::source::BASEMAP_ARCHIVE_URL;
 use crate::tile::source::{
-    basemap_origin, CachingRangeReader, FileRangeReader, JniRangeFetcher,
+    basemap_origin, discover, CachingRangeReader, FileRangeReader, JniRangeFetcher,
 };
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -60,6 +60,16 @@ pub(crate) fn spawn_worker(
             // republished-under-a-stable-name machinery applies.
             if let Some(path) = local_path.as_deref() {
                 if FileRangeReader::exists(path) {
+                    // A pinned overlay (segments + tombstones beside the base) serves
+                    // patch-first; any gap falls back to the base alone, silently.
+                    if let Some(found) = discover(std::path::Path::new(path)) {
+                        log(&format!(
+                            "worker {index} serving base plus overlay seq {}",
+                            found.seq,
+                        ));
+                        serve(index, found.overlay, &queue, &finished, &zoom_range, &toggles);
+                        return;
+                    }
                     let reader = match FileRangeReader::open(path) {
                         Ok(r) => r,
                         Err(e) => {
@@ -194,12 +204,12 @@ fn fetch_header_with_retry(archive_url: &str) -> Option<u64> {
 /// reaches every tile within one wave (each tile tessellates under its own snapshot below).
 const BATCH_TILES: usize = 4;
 
-/// Generic over the reader so the same loop drives both the URL-backed
-/// [`CachingRangeReader`] and the disk-backed [`FileRangeReader`]: only how the archive
+/// Generic over the tile source so the same loop drives the single archive,
+/// the patch-first overlay, and the URL-backed reader: only how the archive
 /// is opened differs, never how tiles are served from it.
-fn serve<R: RangeReader>(
+fn serve<T: tilecodec::mamaps::read::TileSource>(
     index: usize,
-    archive: MamapsArchive<R>,
+    archive: T,
     queue: &Arc<Mutex<Receiver<TileId>>>,
     finished: &Sender<(u64, TileResult)>,
     zoom_range: &Arc<ZoomRange>,
@@ -209,10 +219,10 @@ fn serve<R: RangeReader>(
     // a guess that is too high asks for a zoom the archive does not contain and
     // silently gets nothing back. The build id rides with it so the frame can clear
     // absences recorded against a previous publish (see `absent_build_id`).
-    zoom_range.set(archive.header.min_zoom, archive.header.max_zoom, archive.header.build_id);
+    zoom_range.set(archive.header().min_zoom, archive.header().max_zoom, archive.header().build_id);
     let layers = style::layers();
     // Read once from the header rather than per tile: it is a property of the archive.
-    let rings_validated = archive.header.rings_validated();
+    let rings_validated = archive.header().rings_validated();
 
     loop {
         // One blocking take, then drain whatever else is waiting without blocking: a wave of
@@ -260,7 +270,7 @@ fn serve<R: RangeReader>(
         let fetch_ms = fetch_start.elapsed().as_millis();
         // One durability pass per wave, not one fsync per range: order everything the wave
         // just wrote while it is still hot, before tessellation takes the worker elsewhere.
-        archive.reader().flush_pending();
+        archive.flush_pending();
         debug_assert_eq!(fetched.len(), batch.len());
         // Wash overzoom, wave 1.5: collect the DISTINCT z13 parents needed by
         // tiles whose bodies want underlay, and fetch them in one batch call.
@@ -384,8 +394,8 @@ fn serve<R: RangeReader>(
 /// other fetch — no new cache kind, no new request kind. Siblings share the
 /// parent through those caches; the batch path below additionally dedupes
 /// parent fetches within one wave (see `underlay_parents_for_batch`).
-fn underlay_wash<R: RangeReader>(
-    archive: &MamapsArchive<R>,
+fn underlay_wash<T: tilecodec::mamaps::read::TileSource>(
+    archive: &T,
     tile: TileId,
     body: tilecodec::mamaps::body::Body,
 ) -> Result<tilecodec::mamaps::body::Body, String> {
@@ -406,8 +416,8 @@ fn underlay_wash<R: RangeReader>(
 /// What the worker did before batching, unchanged: the single-tile fallback above keeps it
 /// for the one-deep queue, so its timing shape (`queue/fetch/tess` per tile) stays comparable
 /// in the logs.
-fn build_one<R: RangeReader>(
-    archive: &MamapsArchive<R>,
+fn build_one<T: tilecodec::mamaps::read::TileSource>(
+    archive: &T,
     tile: TileId,
     dequeue_at: std::time::Instant,
     layers: &[style::Layer],

@@ -21,6 +21,7 @@
 mod caching;
 mod fetch;
 mod file;
+mod overlay;
 mod retry;
 mod urls;
 
@@ -33,5 +34,6 @@ pub use caching::read_batch;
 pub use fetch::JniRangeFetcher;
 pub use fetch::{RangeFetcher, RangeResponse};
 pub use file::FileRangeReader;
+pub use overlay::discover;
 pub use retry::{retry_delay_ms, RETRY_BASE_MS, RETRY_MAX_MS};
 pub use urls::{basemap_origin, BASEMAP_ARCHIVE_URL, CACHE_FORMAT};

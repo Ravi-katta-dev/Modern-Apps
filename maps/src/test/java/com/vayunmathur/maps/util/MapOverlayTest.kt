@@ -98,7 +98,18 @@ class MapOverlayTest {
         assertNull(MapOverlay.pinned(dir))
         val text = manifestJson()
         MapOverlay.pin(dir, text)
-        assertEquals(7L, MapOverlay.pinned(dir)!!.overlaySeq)
+        val pinned = MapOverlay.pinned(dir)!!
+        assertEquals(7L, pinned.overlaySeq)
+        assertTrue(pinned.tombstones.isEmpty())
+    }
+
+    @Test
+    fun tombstones_parse_as_tile_ids() {
+        val withTombs = manifestJson().replace(
+            "\"sections\":[],",
+            "\"sections\":[],\"tombstones\":[85,86,104],",
+        )
+        assertEquals(listOf(85L, 86L, 104L), MapOverlay.parse(withTombs)!!.tombstones)
     }
 
     @Test

@@ -34,6 +34,11 @@ struct State {
 
 /// Parsed `.mamaps` leaves keyed by `leaf_offset`, shared across threads.
 ///
+/// One cache serves views of ONE archive: entries are keyed by `leaf_offset`
+/// alone, so two archives sharing a cache would collide (a segment's leaf 0
+/// is not the base's leaf 0). An overlay opens each archive over its own
+/// cache — the base views share one, each segment's views share one.
+///
 /// `Send + Sync` via interior mutability; construct once per surface and hand
 /// an `Arc` clone to every `MamapsArchive` with
 /// [`MamapsArchive::open_with_cache`](super::archive::MamapsArchive::open_with_cache).

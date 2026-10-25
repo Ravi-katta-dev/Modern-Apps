@@ -175,6 +175,7 @@ def publish_manifest(argv: list) -> int:
     if not segments:
         print(f"no overlay-*.mamaps in {overlay_dir}", flush=True)
         return 2
+    tombstones = descriptor.get("tombstones", [])
     manifest = {
         "version": MANIFEST_VERSION,
         "base": {
@@ -186,6 +187,7 @@ def publish_manifest(argv: list) -> int:
         "overlay_build_id": descriptor.get("overlay_build_id", "0x0"),
         "segments": segments,
         "sections": [],
+        "tombstones": tombstones,
         "min_client": MIN_CLIENT_COMPAT,
     }
     body = json.dumps(manifest, indent=1).encode()

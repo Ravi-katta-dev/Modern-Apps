@@ -80,6 +80,8 @@ pub struct Manifest {
     pub segments: Vec<SegmentRef>,
     /// Independently chunked sidecar sections, ascending `kind`.
     pub sections: Vec<SectionRef>,
+    /// Deleted tile ids (answered absent even though the base holds them).
+    pub tombstones: Vec<u64>,
     /// [`MIN_CLIENT_COMPAT`].
     pub min_client: u32,
 }
@@ -134,6 +136,13 @@ pub fn render(manifest: &Manifest) -> String {
             out.push_str(&json_string(h));
         }
         out.push_str("]}");
+    }
+    out.push_str("],\"tombstones\":[");
+    for (n, id) in manifest.tombstones.iter().enumerate() {
+        if n > 0 {
+            out.push(',');
+        }
+        out.push_str(&id.to_string());
     }
     out.push_str(&format!("],\"min_client\":{}}}", manifest.min_client));
     out

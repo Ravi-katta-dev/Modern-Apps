@@ -79,12 +79,22 @@ fn run(before: &std::path::Path, after: &std::path::Path, out_dir: &std::path::P
         println!("segment {name}: {len} bytes sha256={digest}");
     }
     // The tombstone + compat descriptor the publisher merges into the manifest.
+    // Tombstone ids ride inline: real month-over-month deletes number in the
+    // hundreds-to-thousands (a coverage-edge storm means the wrong pair), so
+    // this stays kilobytes. The client prunes ids the base does not hold.
+    let mut tombstone_list = String::from("[");
+    for (n, id) in overlay.tombstones.iter().enumerate() {
+        if n > 0 {
+            tombstone_list.push(',');
+        }
+        tombstone_list.push_str(&id.to_string());
+    }
+    tombstone_list.push(']');
     let descriptor = format!(
-        "{{\"overlay_build_id\":\"{:#018x}\",\"base_build_id\":\"{:#018x}\",\"segments\":{},\"tombstones\":{}}}",
+        "{{\"overlay_build_id\":\"{:#018x}\",\"base_build_id\":\"{:#018x}\",\"segments\":{},\"tombstones\":{tombstone_list}}}",
         overlay.overlay_build_id,
         overlay.header.base_build_id,
         overlay.segments.len(),
-        overlay.tombstones.len(),
     );
     std::fs::write(out_dir.join("overlay.json"), descriptor)
         .map_err(|e| format!("cannot write overlay.json: {e}"))?;

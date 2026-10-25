@@ -161,10 +161,11 @@ mod tests {
                 seq: 0,
             }],
             sections: vec![],
+            tombstones: vec![85, 86],
             min_client: tile_build::manifest::MIN_CLIENT_COMPAT,
         };
         let text = tile_build::manifest::render(&manifest);
-        for field in ["version", "base", "overlay_seq", "segments", "min_client", "sha256"] {
+        for field in ["version", "base", "overlay_seq", "segments", "tombstones", "min_client", "sha256"] {
             assert!(text.contains(field), "manifest names {field}");
         }
         assert!(text.contains("0x0000000000001234"), "build ids render hex");

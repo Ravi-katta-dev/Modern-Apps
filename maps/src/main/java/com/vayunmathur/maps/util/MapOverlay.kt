@@ -71,6 +71,8 @@ object MapOverlay {
         val overlayBuildId: Long,
         val segments: List<SegmentRef>,
         val sections: List<SectionRef>,
+        /** Deleted tile ids (answered absent even though the base holds them). */
+        val tombstones: List<Long>,
         val minClient: Int,
     )
 
@@ -88,6 +90,8 @@ object MapOverlay {
         val base = root.getValue("base").jsonObject
         val segments = root.getValue("segments").jsonArray.toSegments()
         val sections = root["sections"]?.jsonArray?.toSections().orEmpty()
+        val tombstones = root["tombstones"]?.jsonArray
+            ?.map { it.jsonPrimitive.long }.orEmpty()
         Manifest(
             version = version,
             baseUrl = base.getValue("url").jsonPrimitive.content,
@@ -97,6 +101,7 @@ object MapOverlay {
             overlayBuildId = parseBuildId(root.getValue("overlay_build_id").jsonPrimitive.content),
             segments = segments,
             sections = sections,
+            tombstones = tombstones,
             minClient = minClient,
         )
     }.getOrNull()
