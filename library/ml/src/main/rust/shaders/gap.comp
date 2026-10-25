@@ -35,9 +35,11 @@ void row_mode() {
     for (uint i = lane; i < elements; i += lanes) {
         total += float(arena[plane + i]);
     }
-
+    // Every lane reaches the workgroup reduction: `workgroup_sum` barriers,
+    // which a subset of lanes must never enter alone.
+    float sum = workgroup_sum(total);
     if (lane == 0u) {
-        arena[p.out_at + channel] = float16_t(workgroup_sum(total) / float(elements));
+        arena[p.out_at + channel] = float16_t(sum / float(elements));
     }
 }
 
