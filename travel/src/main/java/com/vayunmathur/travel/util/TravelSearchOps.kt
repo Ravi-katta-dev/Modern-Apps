@@ -32,16 +32,10 @@ private fun parseFirstLeg(slices: String): FirstLeg {
 }
 
 private fun TravelViewModel.recordFlightSearch(query: FlightQuery, leg: FirstLeg) {
-    val multiCity = query.legs.size > 2 ||
-        (query.legs.size == 2 && !query.isRoundTrip)
     recordRecent(
         RecentSearch(
             vertical = Vertical.FLIGHTS.name,
-            label = if (multiCity) {
-                "${leg.origin} → … · multi-city"
-            } else {
-                "${leg.origin} → ${leg.destination} · ${TravelViewModel.prettyDate(leg.depart)}"
-            },
+            label = "${leg.origin} → ${leg.destination} · ${TravelViewModel.prettyDate(leg.depart)}",
             origin = leg.origin,
             destination = leg.destination,
             depart = leg.depart,
@@ -90,6 +84,41 @@ fun TravelViewModel.searchFlights(query: FlightQuery) {
     }
 }
 
+/**
+ * Explore destination suggestions for the map pins: cached lowest fares from
+ * `find_destination` (exploration-only; the pin sheet re-searches live).
+ */
+fun TravelViewModel.searchExplore(
+    origin: String,
+    tripType: String,
+    depart: String,
+    returnDate: String? = null,
+    cabin: String = "economy",
+    adults: Int = 1,
+    children: String = "",
+    infants: Int = 0,
+    maxConnections: Int = -1,
+) {
+    exploreMutable.value = ExploreSearchState(loading = true, hasSearched = true)
+    viewModelScope.launch {
+        runCatching {
+            TravelApi.explore(
+                origins = origin,
+                tripType = tripType,
+                depart = depart,
+                returnDate = returnDate,
+                cabin = cabin,
+                adults = adults,
+                children = children,
+                infants = infants,
+                maxConnections = maxConnections,
+            )
+        }
+            .onSuccess { exploreMutable.value = ExploreSearchState(destinations = it.destinations, hasSearched = true) }
+            .onFailure { exploreMutable.value = ExploreSearchState(error = errorMessage(it), hasSearched = true) }
+    }
+}
+
 /** Change the on-device sort (no re-fetch). */
 fun TravelViewModel.setSort(sort: OfferSort) {
     flightsMutable.value = flightsMutable.value.copy(sort = sort)
@@ -133,8 +162,8 @@ fun TravelViewModel.selectOffer(offer: OfferDto) {
 }
 
 /**
- * Seed the review screen with several offers (multi-city: one per leg);
- * booking posts all ids in one trip.
+ * Seed the review screen with several offers (round-trip: outbound + inbound
+ * fares); booking posts all ids in one trip.
  */
 fun TravelViewModel.selectOffers(offers: List<OfferDto>) {
     val first = offers.firstOrNull()
@@ -235,67 +264,3 @@ fun TravelViewModel.loadPartialFares(outboundSignature: String, inboundSignature
 fun TravelViewModel.partialOfferById(offerId: String): OfferDto? =
     partialFlowMutable.value.allOffers.find { it.offerId == offerId }
         ?: partialFlowMutable.value.offers.find { it.offerId == offerId }
-
-// --- Multi-city: one one-way search per leg --------------------------------
-
-/** Start the multi-city flow: search the first leg (each leg is one-way). */
-fun TravelViewModel.startMultiCitySearch(query: FlightQuery) {
-    multiCityMutable.value = MultiCityState(loading = true)
-    searchMultiCityLeg(query, 0)
-}
-
-/** Search one leg of a multi-city trip as a one-way. */
-fun TravelViewModel.searchMultiCityLeg(query: FlightQuery, legIndex: Int) {
-    val legs = query.legs
-    val leg = legs.getOrNull(legIndex)
-    if (leg == null) {
-        multiCityMutable.value = multiCityMutable.value.copy(
-            loading = false,
-            error = "Unknown leg. Please restart your search."
-        )
-        return
-    }
-    currentQuery = query
-    multiCityMutable.value = multiCityMutable.value.copy(loading = true, error = null)
-    viewModelScope.launch {
-        val loyalty = loyaltyParam()
-        val parts = leg.split(':')
-        runCatching {
-            TravelApi.flights(
-                slices = leg,
-                adults = query.adults,
-                children = query.children,
-                infants = query.infants,
-                cabin = query.cabin,
-                maxConnections = query.maxConnections,
-                loyalty = loyalty,
-            )
-        }
-            .onSuccess { result ->
-                multiCityMutable.value = multiCityMutable.value.copy(
-                    loading = false,
-                    legOffers = multiCityMutable.value.legOffers + (legIndex to result.offers),
-                )
-            }
-            .onFailure {
-                multiCityMutable.value = multiCityMutable.value.copy(
-                    loading = false,
-                    error = errorMessage(it) + " (${parts.getOrNull(0).orEmpty()} → ${parts.getOrNull(1).orEmpty()})"
-                )
-            }
-    }
-}
-
-/** Pick one offer for a multi-city leg. */
-fun TravelViewModel.selectMultiCityOffer(legIndex: Int, offer: OfferDto) {
-    multiCityMutable.value = multiCityMutable.value.copy(
-        selectedOfferIds = multiCityMutable.value.selectedOfferIds + (legIndex to offer.offerId),
-    )
-}
-
-/** The chosen offer per leg, in leg order (nulls where unpicked). */
-fun TravelViewModel.multiCitySelection(legCount: Int): List<OfferDto?> =
-    (0 until legCount).map { legIndex ->
-        val id = multiCityMutable.value.selectedOfferIds[legIndex] ?: return@map null
-        multiCityMutable.value.legOffers[legIndex]?.find { it.offerId == id }
-    }

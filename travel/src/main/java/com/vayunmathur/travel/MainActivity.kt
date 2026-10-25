@@ -22,10 +22,10 @@ import com.vayunmathur.travel.ui.AncillariesPage
 import com.vayunmathur.travel.ui.CancellationPage
 import com.vayunmathur.travel.ui.ChangePage
 import com.vayunmathur.travel.ui.ConfirmationPage
+import com.vayunmathur.travel.ui.ExploreMapPage
 import com.vayunmathur.travel.ui.FlightResultsPage
 import com.vayunmathur.travel.ui.FareSelectPage
 import com.vayunmathur.travel.ui.HomePage
-import com.vayunmathur.travel.ui.MultiCityLegPage
 import com.vayunmathur.travel.ui.OfferReviewPage
 import com.vayunmathur.travel.ui.OrderDetailPage
 import com.vayunmathur.travel.ui.OutboundSelectPage
@@ -100,23 +100,29 @@ sealed interface Route : NavKey {
         val maxConnections: Int,
     ) : Route
 
+    /**
+     * Explore map: search params only (never the destination list — the page
+     * fetches via the ViewModel). [tripType] is `oneway` or `roundtrip`.
+     */
+    @Serializable
+    data class Explore(
+        val origin: String,
+        val tripType: String,
+        val depart: String,
+        val returnDate: String? = null,
+        val cabin: String = "economy",
+        val adults: Int = 1,
+        val children: String = "",
+        val infants: Int = 0,
+        val maxConnections: Int = -1,
+    ) : Route
+
     @Serializable
     data class OfferReview(val offerId: String) : Route
 
     @Serializable
     data class OutboundSelect(
         val slices: String,
-        val adults: Int,
-        val children: String,
-        val infants: Int,
-        val cabin: String,
-        val maxConnections: Int,
-    ) : Route
-
-    @Serializable
-    data class MultiCityLeg(
-        val slices: String,
-        val legIndex: Int,
         val adults: Int,
         val children: String,
         val infants: Int,
@@ -190,8 +196,8 @@ fun MainGraph(viewModel: TravelViewModel) {
         MainNavigation(backStack) {
             entry<Route.Home> { HomePage(backStack, viewModel) }
             entry<Route.FlightResults>(metadata = ListPage()) { FlightResultsPage(backStack, viewModel, it) }
+            entry<Route.Explore> { ExploreMapPage(backStack, viewModel, it) }
             entry<Route.OutboundSelect> { OutboundSelectPage(backStack, viewModel, it) }
-            entry<Route.MultiCityLeg> { MultiCityLegPage(backStack, viewModel, it) }
             entry<Route.ReturnSelect> { ReturnSelectPage(backStack, viewModel, it) }
             entry<Route.FareSelect> { FareSelectPage(backStack, viewModel, it) }
             entry<Route.OfferReview>(metadata = ListDetailPage() + MorphPage()) {

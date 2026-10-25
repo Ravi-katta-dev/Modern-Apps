@@ -36,12 +36,8 @@ import com.vayunmathur.travel.util.FlightQuery
 import com.vayunmathur.travel.util.TravelViewModel
 import com.vayunmathur.travel.util.loadPartialFares
 import com.vayunmathur.travel.util.loadPartialReturn
-import com.vayunmathur.travel.util.multiCitySelection
-import com.vayunmathur.travel.util.searchMultiCityLeg
-import com.vayunmathur.travel.util.selectMultiCityOffer
 import com.vayunmathur.travel.util.selectOffer
 import com.vayunmathur.travel.util.selectOffers
-import com.vayunmathur.travel.util.startMultiCitySearch
 import com.vayunmathur.travel.util.startPartialSearch
 import androidx.compose.ui.res.stringResource
 
@@ -119,63 +115,6 @@ fun FareSelectPage(
     }
 }
 
-/**
- * Multi-city: pick one offer for leg [Route.MultiCityLeg.legIndex] (each leg
- * searched as a one-way). When every leg has a pick, booking posts all ids in
- * one trip; otherwise advance to the next leg.
- */
-@Composable
-fun MultiCityLegPage(
-    backStack: NavBackStack<Route>,
-    viewModel: TravelViewModel,
-    route: Route.MultiCityLeg,
-) {
-    val query = remember(route) {
-        FlightQuery(
-            slices = route.slices,
-            adults = route.adults,
-            children = route.children,
-            infants = route.infants,
-            cabin = route.cabin,
-            maxConnections = route.maxConnections,
-        )
-    }
-    val legs = query.legs
-    LaunchedEffect(route) {
-        if (route.legIndex == 0) viewModel.startMultiCitySearch(query)
-        else viewModel.searchMultiCityLeg(query, route.legIndex)
-    }
-    val state by viewModel.multiCity.collectAsStateWithLifecycle()
-    val offers = state.legOffers[route.legIndex].orEmpty()
-    val pickedId = state.selectedOfferIds[route.legIndex]
-    val picked = offers.find { it.offerId == pickedId }
-    val legLabel = legs.getOrNull(route.legIndex).orEmpty()
-    val allPicked = (0 until legs.size).all { state.selectedOfferIds[it] != null }
-
-    MultiCityLegScaffold(
-        title = stringResource(R.string.choose_flight_leg, route.legIndex + 1, legs.size),
-        subtitle = legLabel.replace(':', ' ').trim(),
-        backStack = backStack,
-        loading = state.loading,
-        error = state.error,
-        offers = offers,
-        pickedId = pickedId,
-        allPicked = allPicked,
-        onPick = { viewModel.selectMultiCityOffer(route.legIndex, it) },
-        onNextLeg = {
-            backStack.add(route.copy(legIndex = route.legIndex + 1))
-        },
-        onFinish = {
-            val selection = viewModel.multiCitySelection(legs.size).filterNotNull()
-            if (selection.size == legs.size) {
-                viewModel.selectOffers(selection)
-                backStack.add(Route.OfferReview(selection.first().offerId))
-            }
-        },
-        pickedLabel = picked?.let { formatMoney(it.totalAmount, it.currency) },
-    )
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PartialLegScaffold(
@@ -218,73 +157,8 @@ private fun PartialLegScaffold(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MultiCityLegScaffold(
-    title: String,
-    subtitle: String,
-    backStack: NavBackStack<Route>,
-    loading: Boolean,
-    error: String?,
-    offers: List<OfferDto>,
-    pickedId: String?,
-    allPicked: Boolean,
-    onPick: (OfferDto) -> Unit,
-    onNextLeg: () -> Unit,
-    onFinish: () -> Unit,
-    pickedLabel: String?,
-) {
-    LazyListScaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(title)
-                        if (subtitle.isNotBlank()) {
-                            Text(
-                                subtitle,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
-                navigationIcon = { IconNavigation(backStack) },
-            )
-        },
-        scrollBehavior = appBarScrollBehavior(),
-    ) {
-        items(offers) { offer ->
-            PartialOfferCard(offer, selected = offer.offerId == pickedId) { onPick(offer) }
-        }
-        if (loading || error != null || offers.isEmpty()) {
-            item {
-                StatusBox(
-                    loading = loading,
-                    error = error,
-                    isEmpty = !loading && error == null && offers.isEmpty(),
-                    emptyMessage = stringResource(R.string.no_flights_for_leg),
-                )
-            }
-        }
-        if (pickedId != null) {
-            item {
-                Button(
-                    onClick = { if (allPicked) onFinish() else onNextLeg() },
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                ) {
-                    Text(
-                        if (allPicked) stringResource(R.string.review_picks, pickedLabel.orEmpty())
-                        else stringResource(R.string.continue_action)
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun PartialOfferCard(offer: OfferDto, selected: Boolean = false, onClick: () -> Unit) {
+private fun PartialOfferCard(offer: OfferDto, onClick: () -> Unit) {
     val is24 = rememberIs24Hour()
     ElevatedCard(
         modifier = Modifier
@@ -303,9 +177,6 @@ private fun PartialOfferCard(offer: OfferDto, selected: Boolean = false, onClick
                     Text(offer.owner.ifBlank { stringResource(R.string.flight) }, style = MaterialTheme.typography.titleMedium)
                     if (offer.fareBrand.isNotBlank()) {
                         AssistChip(onClick = {}, label = { Text(offer.fareBrand) })
-                    }
-                    if (selected) {
-                        AssistChip(onClick = {}, label = { Text(stringResource(R.string.picked)) })
                     }
                 }
                 offer.slices.forEach { slice ->

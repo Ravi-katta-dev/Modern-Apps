@@ -10,29 +10,22 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.ui.Button
-import com.vayunmathur.library.ui.FilterChip
-import com.vayunmathur.library.ui.HorizontalDivider
 import com.vayunmathur.library.ui.IconButton
-import com.vayunmathur.library.ui.IconClose
-import com.vayunmathur.library.ui.MaterialTheme
-import com.vayunmathur.library.ui.OutlinedButton
-import com.vayunmathur.library.ui.Switch
+import com.vayunmathur.library.ui.IconSwapLanguages
 import com.vayunmathur.library.ui.Text
 import com.vayunmathur.travel.util.FlightQuery
 import com.vayunmathur.travel.util.TravelViewModel
 import androidx.compose.ui.res.stringResource
 import androidx.annotation.StringRes
 import com.vayunmathur.travel.R
-import com.vayunmathur.library.ui.R as UiR
+import kotlinx.datetime.LocalDate
 
 /** The booking-provider cabin classes, with a display label. */
 enum class Cabin(val code: String, @StringRes val label: Int) {
@@ -42,177 +35,186 @@ enum class Cabin(val code: String, @StringRes val label: Int) {
     FIRST("first", R.string.first),
 }
 
-/** The three supported trip shapes. */
+/** The two supported trip shapes (multi-city was removed). */
 enum class TripType(@StringRes val label: Int) {
     ONE_WAY(R.string.one_way),
     ROUND_TRIP(R.string.round_trip),
-    MULTI_CITY(R.string.multi_city),
 }
 
-/** A single editable leg (origin/destination/date) used by the form. */
-private data class Leg(var origin: String = "", var destination: String = "", var date: String = "")
+/** Max-stops options for the dropdown, mapped to the API's maxStops values. */
+enum class MaxStops(val apiValue: Int, @StringRes val label: Int) {
+    NONSTOP(0, R.string.stops_nonstop),
+    ONE(1, R.string.stops_1),
+    TWO_PLUS(2, R.string.stops_2_plus),
+}
 
 /**
- * Flight search form: trip type (one-way / round-trip / multi-city), origin /
- * destination autocomplete, dates, cabin class, passenger mix (adults, children
- * with ages, infants) and a nonstop toggle. Calls [onSearch] with a normalized
- * [FlightQuery] when the user taps "Search flights".
+ * Flight search form (Google-Flights style): a dropdown row (trip type,
+ * passengers, cabin, max stops) above side-by-side From/To fields with a swap
+ * button, then dates. Calls [onSearch] with a normalized [FlightQuery] when
+ * the user taps "Search flights", or [onExplore] with the explore params when
+ * the To field is in Explore mode.
+ *
+ * Date rules: no date before today; return not before depart.
  */
 @Composable
 fun FlightSearchForm(
     viewModel: TravelViewModel,
     modifier: Modifier = Modifier,
     onSearch: (FlightQuery) -> Unit,
+    onExplore: (ExploreRequest) -> Unit = {},
 ) {
-    var tripType by remember { mutableStateOf(TripType.ONE_WAY) }
-
-    // One-way / round-trip fields.
+    var tripType by remember { mutableStateOf(TripType.ROUND_TRIP) }
     var origin by remember { mutableStateOf("") }
     var destination by remember { mutableStateOf("") }
     var depart by remember { mutableStateOf("") }
     var returnDate by remember { mutableStateOf("") }
-
-    // Multi-city legs.
-    val legs = remember { mutableStateListOf(Leg(), Leg()) }
-
-    // Passengers.
-    var adults by remember { mutableIntStateOf(1) }
-    val childAges = remember { mutableStateListOf<Int>() }
-    var infants by remember { mutableIntStateOf(0) }
-
+    var mix by remember { mutableStateOf(PassengerMix()) }
     var cabin by remember { mutableStateOf(Cabin.ECONOMY) }
-    var nonstop by remember { mutableStateOf(false) }
+    var maxStops by remember { mutableStateOf(MaxStops.TWO_PLUS) }
+    var exploreMode by remember { mutableStateOf(false) }
+    // Bumped on swap so the autocomplete fields re-init from the swapped codes
+    // (they own their display text internally).
+    var swapNonce by remember { mutableIntStateOf(0) }
+
+    val today = remember { todayUtc() }
+    val departDate = remember(depart) { runCatching { LocalDate.parse(depart) }.getOrNull() }
+    val returnLocalDate = remember(returnDate) { runCatching { LocalDate.parse(returnDate) }.getOrNull() }
 
     Column(modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            TripType.entries.forEach { t ->
-                FilterChip(selected = tripType == t, onClick = { tripType = t }, label = { Text(stringResource(t.label)) })
-            }
+            SearchDropdown(
+                display = stringResource(tripType.label),
+                options = TripType.entries.map { it.name to stringResource(it.label) },
+                selectedValue = tripType.name,
+                onSelect = { name -> tripType = TripType.valueOf(name) },
+            )
+            PassengerField(mix = mix, onMix = { mix = it })
+            SearchDropdown(
+                display = stringResource(cabin.label),
+                options = Cabin.entries.map { it.name to stringResource(it.label) },
+                selectedValue = cabin.name,
+                onSelect = { name -> cabin = Cabin.valueOf(name) },
+            )
+            SearchDropdown(
+                display = stringResource(maxStops.label),
+                options = MaxStops.entries.map { it.name to stringResource(it.label) },
+                selectedValue = maxStops.name,
+                onSelect = { name -> maxStops = MaxStops.valueOf(name) },
+            )
         }
-
-        when (tripType) {
-            TripType.MULTI_CITY -> {
-                legs.forEachIndexed { index, leg ->
-                    MultiCityLeg(
-                        index = index,
-                        viewModel = viewModel,
-                        onOrigin = { legs[index] = leg.copy(origin = it) },
-                        onDestination = { legs[index] = leg.copy(destination = it) },
-                        date = leg.date,
-                        onDate = { legs[index] = leg.copy(date = it) },
-                        removable = legs.size > 2,
-                        onRemove = { legs.removeAt(index) },
-                    )
-                }
-                if (legs.size < 5) {
-                    OutlinedButton(onClick = { legs.add(Leg()) }, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.add_another_flight))
-                    }
-                }
-            }
-            else -> {
-                PlaceAutocompleteField("From", viewModel, onCodeChange = { origin = it })
-                PlaceAutocompleteField("To", viewModel, onCodeChange = { destination = it })
-                DateField(stringResource(R.string.depart), depart, onDate = { depart = it })
-                if (tripType == TripType.ROUND_TRIP) {
-                    DateField(stringResource(R.string.return_label), returnDate, onDate = { returnDate = it })
-                }
-            }
-        }
-
-        HorizontalDivider()
-
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Cabin.entries.forEach { c ->
-                FilterChip(selected = cabin == c, onClick = { cabin = c }, label = { Text(stringResource(c.label)) })
-            }
-        }
-
-        CountStepper(stringResource(R.string.adults), adults, onCount = { adults = it }, min = 1)
-        CountStepper(stringResource(R.string.children), childAges.size, onCount = { count ->
-            while (childAges.size < count) childAges.add(8)
-            while (childAges.size > count) childAges.removeAt(childAges.size - 1)
-        }, min = 0, max = 6)
-        childAges.forEachIndexed { index, age ->
-            CountStepper(stringResource(R.string.child_age, index + 1), age, onCount = { childAges[index] = it }, min = 0, max = 17)
-        }
-        CountStepper(stringResource(R.string.infants_on_lap), infants, onCount = { infants = it }, min = 0, max = adults)
 
         Row(
             Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(stringResource(R.string.nonstop_only))
-            Switch(checked = nonstop, onCheckedChange = { nonstop = it })
+            androidx.compose.runtime.key(swapNonce) {
+                PlaceAutocompleteField(
+                    "From",
+                    viewModel,
+                    onCodeChange = { origin = it },
+                    modifier = Modifier.weight(1f),
+                    initialText = origin,
+                )
+            }
+            IconButton(onClick = {
+                val o = origin
+                origin = destination
+                destination = o
+                exploreMode = false
+                swapNonce++
+            }) { IconSwapLanguages() }
+            androidx.compose.runtime.key(swapNonce) {
+                PlaceAutocompleteField(
+                    "To",
+                    viewModel,
+                    onCodeChange = {
+                        destination = it
+                        // Typing a code exits Explore mode.
+                        if (it.isNotBlank()) exploreMode = false
+                    },
+                    modifier = Modifier.weight(1f),
+                    initialText = destination,
+                    showExploreRow = true,
+                    onExploreSelected = {
+                        destination = ""
+                        exploreMode = true
+                    },
+                )
+            }
         }
 
-        val valid = when (tripType) {
-            TripType.MULTI_CITY -> legs.all { it.origin.isNotBlank() && it.destination.isNotBlank() && it.date.isNotBlank() }
-            TripType.ROUND_TRIP -> origin.isNotBlank() && destination.isNotBlank() && depart.isNotBlank() && returnDate.isNotBlank()
-            TripType.ONE_WAY -> origin.isNotBlank() && destination.isNotBlank() && depart.isNotBlank()
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            DateField(
+                stringResource(R.string.depart),
+                depart,
+                onDate = { depart = it },
+                modifier = Modifier.weight(1f),
+                minDate = today,
+            )
+            if (tripType == TripType.ROUND_TRIP) {
+                DateField(
+                    stringResource(R.string.return_label),
+                    returnDate,
+                    onDate = { returnDate = it },
+                    modifier = Modifier.weight(1f),
+                    minDate = departDate ?: today,
+                )
+            }
         }
+
+        val departValid = departDate != null && departDate >= today
+        val returnValid = tripType == TripType.ONE_WAY ||
+            (returnLocalDate != null && departDate != null && returnLocalDate >= departDate)
+        val valid = origin.isNotBlank() && (destination.isNotBlank() || exploreMode) && departValid && returnValid
 
         Button(
             onClick = {
+                // Infants in seats fly as children (age 1) so they hold a seat;
+                // infants on lap use the infant bucket.
+                val childAges = mix.childAges + List(mix.infantsInSeat) { 1 }
+                if (exploreMode) {
+                    onExplore(
+                        ExploreRequest(
+                            origin = origin,
+                            tripType = if (tripType == TripType.ROUND_TRIP) "roundtrip" else "oneway",
+                            depart = depart,
+                            returnDate = returnDate.takeIf { tripType == TripType.ROUND_TRIP },
+                            cabin = cabin.code,
+                            adults = mix.adults,
+                            children = childAges.joinToString(","),
+                            infants = mix.infantsOnLap,
+                            maxConnections = maxStops.apiValue,
+                        )
+                    )
+                    return@Button
+                }
                 val slices = when (tripType) {
-                    TripType.MULTI_CITY -> legs.joinToString(",") { "${it.origin}:${it.destination}:${it.date}" }
                     TripType.ROUND_TRIP -> "$origin:$destination:$depart,$destination:$origin:$returnDate"
                     TripType.ONE_WAY -> "$origin:$destination:$depart"
                 }
                 onSearch(
                     FlightQuery(
                         slices = slices,
-                        adults = adults,
+                        adults = mix.adults,
                         children = childAges.joinToString(","),
-                        infants = infants,
+                        infants = mix.infantsOnLap,
                         cabin = cabin.code,
-                        maxConnections = if (nonstop) 0 else -1,
+                        maxConnections = maxStops.apiValue,
                         isRoundTrip = tripType == TripType.ROUND_TRIP,
                     )
                 )
             },
             enabled = valid,
             modifier = Modifier.fillMaxWidth(),
-        ) { Text(stringResource(R.string.search_flights)) }
-    }
-}
-
-@Composable
-private fun MultiCityLeg(
-    index: Int,
-    viewModel: TravelViewModel,
-    onOrigin: (String) -> Unit,
-    onDestination: (String) -> Unit,
-    date: String,
-    onDate: (String) -> Unit,
-    removable: Boolean,
-    onRemove: () -> Unit,
-) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                stringResource(R.string.flight_1, index + 1),
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            if (removable) {
-                IconButton(onClick = onRemove) { IconClose() }
-            }
-        }
-        PlaceAutocompleteField("From", viewModel, onCodeChange = onOrigin)
-        PlaceAutocompleteField("To", viewModel, onCodeChange = onDestination)
-        DateField(stringResource(UiR.string.date), date, onDate = onDate)
+        ) { Text(stringResource(if (exploreMode) R.string.explore_search else R.string.search_flights)) }
     }
 }

@@ -50,7 +50,7 @@ class TravelViewModel(
     /** The query backing the current results, kept so re-sort can re-fetch. */
     internal var currentQuery: FlightQuery? = null
 
-    /** Normal booking flow: one reviewed offer (or several for multi-city). */
+    /** Normal booking flow: one reviewed offer. */
     internal val selectedOfferIdsMutable = MutableStateFlow<List<String>>(emptyList())
     val selectedOfferIds: StateFlow<List<String>> = selectedOfferIdsMutable.asStateFlow()
 
@@ -59,9 +59,6 @@ class TravelViewModel(
 
     internal val partialFlowMutable = MutableStateFlow(PartialFlowState())
     val partialFlow: StateFlow<PartialFlowState> = partialFlowMutable.asStateFlow()
-
-    internal val multiCityMutable = MutableStateFlow(MultiCityState())
-    val multiCity: StateFlow<MultiCityState> = multiCityMutable.asStateFlow()
 
     internal val passengersMutable = MutableStateFlow<List<PassengerInputDto>>(emptyList())
     val passengers: StateFlow<List<PassengerInputDto>> = passengersMutable.asStateFlow()
@@ -134,6 +131,9 @@ class TravelViewModel(
 
     internal val stayBookingMutable = MutableStateFlow<StayBookingState>(StayBookingState.Idle)
     val stayBooking: StateFlow<StayBookingState> = stayBookingMutable.asStateFlow()
+
+    internal val exploreMutable = MutableStateFlow(ExploreSearchState())
+    val explore: StateFlow<ExploreSearchState> = exploreMutable.asStateFlow()
 
     /** The rate the user chose to book, plus context for persistence. */
     internal var selectedRate: StayRateDto? = null

@@ -1,13 +1,10 @@
 package com.vayunmathur.travel.ui
 
-import com.vayunmathur.library.ui.R as UiR
 import kotlin.time.Clock
 import kotlin.time.Instant
-import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
 import com.vayunmathur.library.ui.DateString
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.atStartOfDayIn
 import kotlinx.datetime.toLocalDateTime
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,9 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import com.vayunmathur.library.ui.IconAdd
-import com.vayunmathur.library.ui.IconCalendar
-import com.vayunmathur.library.ui.IconRemove
+import com.vayunmathur.library.ui.IconCompass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,17 +34,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.vayunmathur.library.ui.CircularProgressIndicator
-import com.vayunmathur.library.ui.DatePicker
-import com.vayunmathur.library.ui.DatePickerDialog
 import com.vayunmathur.library.ui.ElevatedCard
-import com.vayunmathur.library.ui.ExperimentalMaterial3Api
-import com.vayunmathur.library.ui.IconButton
 import com.vayunmathur.library.ui.ListItem
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.OutlinedTextField
 import com.vayunmathur.library.ui.Text
-import com.vayunmathur.library.ui.TextButton
-import com.vayunmathur.library.ui.rememberDatePickerState
 import com.vayunmathur.travel.network.PlaceDto
 import com.vayunmathur.travel.util.TravelViewModel
 import com.vayunmathur.travel.util.autocomplete
@@ -71,6 +60,10 @@ fun SectionHeader(text: String, modifier: Modifier = Modifier) {
  * Airport/city autocomplete field. Owns its own text; reports the chosen code
  * back via [onCodeChange] — either an IATA/city code when a suggestion is
  * tapped, or the raw typed text as a fallback so power users can type "LON".
+ *
+ * When [showExploreRow] is true (the flights To field), a pinned "Explore"
+ * row is always shown in the dropdown; tapping it calls [onExploreSelected]
+ * instead of reporting a code.
  */
 @Composable
 fun PlaceAutocompleteField(
@@ -79,6 +72,8 @@ fun PlaceAutocompleteField(
     onCodeChange: (String) -> Unit,
     modifier: Modifier = Modifier,
     initialText: String = "",
+    showExploreRow: Boolean = false,
+    onExploreSelected: () -> Unit = {},
 ) {
     var text by remember { mutableStateOf(initialText) }
     var suggestions by remember { mutableStateOf<List<PlaceDto>>(emptyList()) }
@@ -109,9 +104,22 @@ fun PlaceAutocompleteField(
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
             modifier = Modifier.fillMaxWidth(),
         )
-        if (suggestions.isNotEmpty()) {
+        if (suggestions.isNotEmpty() || showExploreRow) {
+            val exploreLabel = stringResource(R.string.explore)
             ElevatedCard(Modifier.fillMaxWidth().padding(top = 4.dp)) {
                 Column {
+                    if (showExploreRow) {
+                        ListItem(
+                            modifier = Modifier.clickable {
+                                onCodeChange("")
+                                text = exploreLabel
+                                justSelected = true
+                                suggestions = emptyList()
+                                onExploreSelected()
+                            },
+                            leadingContent = { IconCompass() },
+                        ) { Text(stringResource(R.string.explore_anywhere)) }
+                    }
                     suggestions.take(6).forEach { place ->
                         ListItem(
                             modifier = Modifier.clickable {
@@ -123,94 +131,6 @@ fun PlaceAutocompleteField(
                         ) { Text(place.label) }
                     }
                 }
-            }
-        }
-    }
-}
-
-/**
- * A read-only field that opens a Material date picker on tap. [value] is an ISO
- * `YYYY-MM-DD` string (empty when unset); [onDate] receives the picked ISO date.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun DateField(
-    label: String,
-    value: String,
-    onDate: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    dateFormat: (LocalDate) -> String = DateString::dateWeekdayNoYear,
-) {
-    var show by remember { mutableStateOf(false) }
-    val display = if (value.isBlank()) "" else runCatching {
-        dateFormat(LocalDate.parse(value))
-    }.getOrDefault(value)
-
-    Box(modifier) {
-        OutlinedTextField(
-            value = display,
-            onValueChange = {},
-            readOnly = true,
-            enabled = false,
-            label = { Text(label) },
-            leadingIcon = { IconCalendar() },
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Box(
-            Modifier
-                .matchParentSize()
-                .clickable { show = true }
-        )
-    }
-
-    if (show) {
-        val state = rememberDatePickerState(
-            initialSelectedDateMillis = runCatching { LocalDate.parse(value) }
-                .getOrNull()
-                ?.atStartOfDayIn(TimeZone.UTC)
-                ?.toEpochMilliseconds(),
-        )
-        DatePickerDialog(
-            onDismissRequest = { show = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    state.selectedDateMillis?.let { ms ->
-                        val date = Instant.fromEpochMilliseconds(ms).toLocalDateTime(TimeZone.UTC).date
-                        onDate(date.toString())
-                    }
-                    show = false
-                }) { Text(stringResource(UiR.string.ok)) }
-            },
-            dismissButton = { TextButton(onClick = { show = false }) { Text(stringResource(UiR.string.cancel)) } },
-        ) { DatePicker(state) }
-    }
-}
-
-/** A +/- stepper for a small integer count (passengers). */
-@Composable
-fun CountStepper(
-    label: String,
-    count: Int,
-    onCount: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-    min: Int = 1,
-    max: Int = 9,
-) {
-    Row(
-        modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { onCount((count - 1).coerceAtLeast(min)) }, enabled = count > min) {
-                IconRemove()
-            }
-            Text("$count", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(horizontal = 8.dp))
-            IconButton(onClick = { onCount((count + 1).coerceAtMost(max)) }, enabled = count < max) {
-                IconAdd()
             }
         }
     }

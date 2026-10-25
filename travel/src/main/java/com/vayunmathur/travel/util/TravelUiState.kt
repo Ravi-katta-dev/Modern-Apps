@@ -13,6 +13,14 @@ import com.vayunmathur.travel.network.StaySearchResultDto
 import com.vayunmathur.travel.network.TripAncillariesDto
 import com.vayunmathur.travel.network.TripDto
 
+/** State for the explore map: destination suggestions with cached fares. */
+data class ExploreSearchState(
+    val loading: Boolean = false,
+    val error: String? = null,
+    val destinations: List<com.vayunmathur.travel.network.ExploreDestinationDto> = emptyList(),
+    val hasSearched: Boolean = false,
+)
+
 /** Search state for the flight results list. */
 data class SearchUiState<T>(
     val loading: Boolean = false,
@@ -98,16 +106,6 @@ data class PartialFlowState(
     val outboundSignature: String = "",
     val inboundSignature: String = "",
     val offers: List<OfferDto> = emptyList(),
-)
-
-/** State for the multi-city flow: one offer picked per searched leg. */
-data class MultiCityState(
-    val loading: Boolean = false,
-    val error: String? = null,
-    /** leg index → search results for that leg. */
-    val legOffers: Map<Int, List<OfferDto>> = emptyMap(),
-    /** leg index → chosen offer id. */
-    val selectedOfferIds: Map<Int, String> = emptyMap(),
 )
 
 /** State for the trip ancillaries step (bags + seat maps off the trip). */

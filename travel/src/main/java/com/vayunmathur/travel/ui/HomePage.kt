@@ -80,44 +80,49 @@ fun HomePage(backStack: NavBackStack<Route>, viewModel: TravelViewModel) {
             }
 
             when (product) {
-                Product.FLIGHTS -> FlightSearchForm(viewModel) { query ->
-                    val legCount = query.legs.size
-                    if (query.isRoundTrip) {
+                Product.FLIGHTS -> FlightSearchForm(
+                    viewModel,
+                    onSearch = { query ->
+                        if (query.isRoundTrip) {
+                            backStack.add(
+                                Route.OutboundSelect(
+                                    slices = query.slices,
+                                    adults = query.adults,
+                                    children = query.children,
+                                    infants = query.infants,
+                                    cabin = query.cabin,
+                                    maxConnections = query.maxConnections,
+                                )
+                            )
+                        } else {
+                            backStack.add(
+                                Route.FlightResults(
+                                    slices = query.slices,
+                                    adults = query.adults,
+                                    children = query.children,
+                                    infants = query.infants,
+                                    cabin = query.cabin,
+                                    maxConnections = query.maxConnections,
+                                )
+                            )
+                        }
+                    },
+                    onExplore = { explore ->
                         backStack.add(
-                            Route.OutboundSelect(
-                                slices = query.slices,
-                                adults = query.adults,
-                                children = query.children,
-                                infants = query.infants,
-                                cabin = query.cabin,
-                                maxConnections = query.maxConnections,
+                            Route.Explore(
+                                origin = explore.origin,
+                                tripType = explore.tripType,
+                                depart = explore.depart,
+                                returnDate = explore.returnDate,
+                                cabin = explore.cabin,
+                                adults = explore.adults,
+                                children = explore.children,
+                                infants = explore.infants,
+                                maxConnections = explore.maxConnections,
                             )
                         )
-                    } else if (legCount > 1) {
-                        backStack.add(
-                            Route.MultiCityLeg(
-                                slices = query.slices,
-                                legIndex = 0,
-                                adults = query.adults,
-                                children = query.children,
-                                infants = query.infants,
-                                cabin = query.cabin,
-                                maxConnections = query.maxConnections,
-                            )
-                        )
-                    } else {
-                        backStack.add(
-                            Route.FlightResults(
-                                slices = query.slices,
-                                adults = query.adults,
-                                children = query.children,
-                                infants = query.infants,
-                                cabin = query.cabin,
-                                maxConnections = query.maxConnections,
-                            )
-                        )
-                    }
-                }
+                    },
+                )
                 Product.STAYS -> StaySearchForm(viewModel) { place, checkIn, checkOut, rooms, adults, lat, lng ->
                     backStack.add(
                         Route.StayResults(

@@ -14,8 +14,8 @@ _Install: ./install travel (dev by default)._
 ## Overview
 **Purpose:** Flight + hotel booking — search/comparison, seat maps, ancillaries/offers, trip management with hosted checkout; trips persist on-device so plans stay readable offline.
 **Key features:**
-- Flight search form → results → offer review → passengers → trip → ancillaries → hosted checkout → confirmation; change/cancel/manage on booked trips
-- Multi-city (one offer per leg, one trip) and round-trip step-by-step (grouped on-device); stays search → detail → guests → hosted checkout → confirmation; seat-map picker
+- Flight search form (one-way / round-trip) → results → offer review → passengers → trip → ancillaries → hosted checkout → confirmation; Explore map (find-destination price pins → live re-search) ; change/cancel/manage on booked trips
+- Round-trip step-by-step (grouped on-device); stays search → detail → guests → hosted checkout → confirmation; seat-map picker
 - `data/` Room (trips, local booking profiles, frequent-flyer, recent searches) + `domain/` on-device grouping/status + `network/` trip/stays DTOs + APIs
 **Architecture / data-flow:** `ui/` search/results/booking pages → `util/TravelViewModel` (+ `TravelUiContract`/`TravelUiState`, per-area `Travel*Ops`) → `domain/` grouping + `data/TravelRepository` over Room + `network/TravelApi`/`StaysApi`; booked trips stay readable from Room when offline.
 **Entry points + reading order:** `MainActivity.kt` → `ui/HomePage.kt` → `ui/FlightSearchForm.kt` → `util/TravelViewModel.kt` → `util/TravelSearchOps.kt` → `network/TravelApi.kt`.

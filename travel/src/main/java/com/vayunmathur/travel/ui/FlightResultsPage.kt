@@ -236,8 +236,9 @@ private fun OfferExpiryBanner(expiresAt: String, onExpired: () -> Unit) {
     }
 }
 
+/** A single bookable offer row; shared with the Explore pin sheet. */
 @Composable
-private fun OfferCard(offer: OfferDto, onClick: () -> Unit) {
+internal fun OfferCard(offer: OfferDto, onClick: () -> Unit) {
     ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()

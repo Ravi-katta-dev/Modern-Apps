@@ -59,6 +59,40 @@ object TravelApi {
         )
     )
 
+    /**
+     * Explore destination suggestions with cached lowest fares for the map
+     * pins: one entry per suggested destination. Fares are exploration-only;
+     * the app re-searches live via [flights] before booking.
+     */
+    suspend fun explore(
+        origins: String,
+        tripType: String,
+        depart: String,
+        returnDate: String? = null,
+        cabin: String = "economy",
+        adults: Int = 1,
+        children: String = "",
+        infants: Int = 0,
+        maxConnections: Int = -1,
+        maxTotal: Double? = null,
+        currency: String = "",
+    ): ExploreSearchDto = NetworkClient.getJson(
+        buildString {
+            append(BASE).append("/explore")
+            append("?origins=").append(enc(origins))
+            append("&trip_type=").append(enc(tripType))
+            append("&depart=").append(enc(depart))
+            if (!returnDate.isNullOrBlank()) append("&return_date=").append(enc(returnDate))
+            append("&cabin=").append(enc(cabin))
+            append("&adults=").append(adults)
+            if (children.isNotBlank()) append("&children=").append(enc(children))
+            if (infants > 0) append("&infants=").append(infants)
+            if (maxConnections >= 0) append("&max_connections=").append(maxConnections)
+            if (maxTotal != null) append("&max_total=").append(maxTotal)
+            if (currency.isNotBlank()) append("&currency=").append(enc(currency))
+        }
+    )
+
     private fun flightsUrl(
         path: String,
         origin: String,
