@@ -13,6 +13,9 @@
 #     form-factor bucket the collector routes it to; Triple-T spellings verbatim)
 #   - duplicate Preview<N> numbers inside one bucket (per-bucket 1.png… order
 #     comes from the function-name sort, so a clash reshuffles that bucket)
+#   - a chrome-owning screen rendered bare (a screen that ships under a tab bar,
+#     rail or drawer on device, shown without it — the listing misses the chrome
+#     users actually see; see CHROME_SCREENS below)
 #   - a leftover src/androidTest MetadataScreenshots.kt from the old on-device generator
 #   - a module that opted into previews but has no @Preview at all
 #
@@ -31,6 +34,50 @@ problems=0
 
 note() { printf '  %s\n' "$1"; }
 fail() { printf '  ✗ %s\n' "$1"; problems=$((problems + 1)); }
+
+# Screens that ship under tab/rail/drawer chrome on device: a preview calling one
+# outside chrome (a ChromePreview/Tabbed wrapper or drawer call in the same
+# function) renders chrome-less. Format: "module:Screen,Screen module:Screen ...".
+# Only screens with an existing chrome-wrapped precedent are listed — wrapping a
+# new module means adding its screens here. Drawer-closed shells (files) need no
+# entry: a closed drawer is invisible. Screens on pushed routes (no chrome on
+# device) are deliberately absent: app detail/trust, contact details, office
+# documents, hub Yuu, VPN now-playing/album/expanded, email conversation/compose.
+CHROME_SCREENS="calculator:CalculatorScreen,GraphScreen,UnitConverterScreen clock:AlarmScreen,ClockScreen,TimerScreen,StopwatchScreen appstore:HomeScreen,SearchScreen,UpdatesScreen,LibraryScreen contacts:ContactListScreen,GroupsScreen office:HomeScreen vpn:ConfigListContent,LoggingContent games/chess:ChessGameScreen,PuzzleBoardScreen games/hub:DashboardScreen,GamesListScreen,ProfileScreen health:TodayScreen,NutritionScreen,BarChartDetailsScreen youpipe:SearchScreen,SubscriptionVideosScreen securemail:InboxScreen"
+
+# True when every Preview in $1 that calls one of $2 (the module's chrome
+# screens) also hosts chrome in the same function body — a ChromePreview/Tabbed
+# wrapper or drawer call — i.e. the screen reaches the listing only through
+# chrome. A preview proving a pushed route (no chrome on device) opts out with
+# a `// CHROME EXEMPT: <reason>` comment above or inside its function. Prints
+# the offending preview's line and returns non-zero otherwise. POSIX awk only
+# (no gawk extensions — this also runs on macOS).
+chrome_wrapped() {
+    local file="$1" screens="$2"
+    local screen_pat
+    screen_pat=$(printf '%s' "$screens" | sed 's/,/|/g')
+    awk -v pat="($screen_pat)\\(" '
+        function flush() {
+            if (in_preview && has_screen && !has_chrome && !exempt) {
+                print FILENAME":"start": preview renders chrome screen without chrome"
+                failed = 1
+            }
+        }
+        /CHROME EXEMPT/ { exempt_next = 1; next }
+        /^[[:space:]]*((private|internal)[[:space:]]+)?fun / {
+            flush()
+            in_preview = ($0 ~ /fun Preview[0-9]/)
+            exempt = exempt_next; exempt_next = 0
+            start = FNR
+            has_screen = 0; has_chrome = 0
+            next
+        }
+        /CHROME EXEMPT/ { exempt = 1 }
+        /ChromePreview\(|TabbedPagerScaffold\(|ModalNavigationDrawer\(|MusicTabsBar\(/ { has_chrome = 1 }
+        $0 ~ pat { has_screen = 1 }
+        END { flush(); if (failed) exit 1 }
+    ' "$file"
+}
 
 echo "=== Compose preview metadata audit ==="
 echo
@@ -152,6 +199,19 @@ ${pending}:${n}"
     dupes=$(printf '%s\n' "$bucket_numbers" | grep . | sort | uniq -d || true)
     for d in $dupes; do
         show; fail "duplicate screenshot number in bucket \"${d%%:*}\" (${d##*:} twice); per-bucket order will be wrong"
+    done
+
+    # Chrome-owning screens must reach the listing through chrome, not bare.
+    for entry in $CHROME_SCREENS; do
+        entry_module="${entry%%:*}"
+        if [[ "$module" == "$entry_module" ]]; then
+            entry_screens="${entry#*:}"
+            for f in $files; do
+                if ! chrome_wrapped "$f" "$entry_screens"; then
+                    show; fail "chrome-owning screen rendered bare in ${f#"$module"/} (see line above); wrap it in ChromePreview"
+                fi
+            done
+        fi
     done
 
     if [[ "$n_preview" -eq 0 ]]; then

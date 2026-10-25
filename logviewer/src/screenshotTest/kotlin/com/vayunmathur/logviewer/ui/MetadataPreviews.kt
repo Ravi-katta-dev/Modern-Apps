@@ -48,9 +48,9 @@ private val SAMPLE_LINES = listOf(
     "    #01 pc 0000000000067890  /data/app/com.vayunmathur.weather/lib/arm64/libweather.so",
 )
 
-private const val SAMPLE_TRACE = """java.lang.NullPointerException: Attempt to invoke virtual method 'int java.lang.String.length()' on a null object reference
+private val SAMPLE_TRACE = """java.lang.NullPointerException: Attempt to invoke virtual method 'int java.lang.String.length()' on a null object reference
 	at com.vayunmathur.weather.platform.WeatherViewModel.refreshAll(WeatherViewModel.kt:42)
-	at com.vayunmathur.weather.ui.HomePageKt$HomePage$3.invokeSuspend(HomePage.kt:118)
+	at com.vayunmathur.weather.ui.HomePageKt${'$'}HomePage${'$'}3.invokeSuspend(HomePage.kt:118)
 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)"""
 
 /**

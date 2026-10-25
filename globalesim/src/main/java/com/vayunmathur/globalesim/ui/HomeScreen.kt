@@ -60,6 +60,13 @@ fun HomeScreen(
     onClearCryptoInvoice: () -> Unit,
     onClaim: (simId: String) -> Unit,
     onRefresh: () -> Unit,
+    /**
+     * Presents the Stripe payment sheet for a client secret. Hoisted so previews
+     * can render without it: Stripe's launcher holds a ViewModel, which needs a
+     * SavedStateRegistryOwner that Layoutlib does not provide. Production always
+     * takes the default (null = real sheet).
+     */
+    onPresentPaymentSheet: ((secret: String) -> Unit)? = null,
 ) {
     val messenger = rememberMessenger()
     val context = LocalContext.current
@@ -71,18 +78,26 @@ fun HomeScreen(
             sheetError = null
         }
     }
-    val paymentSheet = rememberPaymentSheet { result ->
-        when (result) {
-            is PaymentSheetResult.Completed -> {
-                messenger.show("Payment complete — credit lands shortly.")
-                onCardPurchaseDone(true)
-            }
-            is PaymentSheetResult.Canceled -> onCardPurchaseDone(false)
-            is PaymentSheetResult.Failed -> {
-                sheetError = result.error.localizedMessage ?: "Payment failed"
-                onCardPurchaseDone(false)
+    // The Stripe launcher holds a ViewModel, which Layoutlib cannot provide — so
+    // previews pass onPresentPaymentSheet and skip creating the real sheet
+    // entirely. rememberPaymentSheet itself would crash composition, not just
+    // presentation, so the branch has to be around the remember, not the call.
+    val paymentSheet = if (onPresentPaymentSheet == null) {
+        rememberPaymentSheet { result ->
+            when (result) {
+                is PaymentSheetResult.Completed -> {
+                    messenger.show("Payment complete — credit lands shortly.")
+                    onCardPurchaseDone(true)
+                }
+                is PaymentSheetResult.Canceled -> onCardPurchaseDone(false)
+                is PaymentSheetResult.Failed -> {
+                    sheetError = result.error.localizedMessage ?: "Payment failed"
+                    onCardPurchaseDone(false)
+                }
             }
         }
+    } else {
+        null
     }
     // Present each client secret once. Saved across recreation so a rotation
     // with the secret still pending doesn't present the sheet a second time.
@@ -91,7 +106,8 @@ fun HomeScreen(
     LaunchedEffect(pendingSecret) {
         if (pendingSecret != null && pendingSecret != presentedSecret) {
             presentedSecret = pendingSecret
-            paymentSheet.presentWithPaymentIntent(pendingSecret, PaymentSheet.Configuration("Global eSIM"))
+            onPresentPaymentSheet?.invoke(pendingSecret)
+                ?: paymentSheet?.presentWithPaymentIntent(pendingSecret, PaymentSheet.Configuration("Global eSIM"))
         }
     }
     AppScaffold(

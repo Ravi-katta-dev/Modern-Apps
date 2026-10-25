@@ -147,45 +147,7 @@ class MetadataPreviews {
     @Preview(name = "5-expanded-home", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview5ExpandedHome() {
-        DynamicTheme(darkTheme = true) {
-            SearchScreen(
-                state = SearchUiState(
-                    recommendations = listOf(
-                        VideoRowState(
-                            videoID = 1,
-                            title = "The Absurd Engineering Inside a Modern Camera Sensor",
-                            author = "Veritasium",
-                            stats = "4.1M views | 2 weeks ago",
-                            reason = "you watch a lot of optics",
-                            percentWatched = 0.42f,
-                        ),
-                        VideoRowState(
-                            videoID = 2,
-                            title = "I Rebuilt My Home Server Rack (Again)",
-                            author = "Linus Tech Tips",
-                            stats = "1.2M views | 3 days ago",
-                            reason = "from a channel you follow",
-                        ),
-                        VideoRowState(
-                            videoID = 3,
-                            title = "Why Bridges Don't Fall Down",
-                            author = "Practical Engineering",
-                            stats = "873K views | 1 month ago",
-                            reason = "similar to Structural Failures Explained",
-                            percentWatched = 1f,
-                        ),
-                        VideoRowState(
-                            videoID = 4,
-                            title = "Making Sourdough With No Starter",
-                            author = "Adam Ragusea",
-                            stats = "612K views | 5 days ago",
-                            reason = "new upload",
-                        ),
-                    ),
-                ),
-                actions = SearchActions.Noop,
-            )
-        }
+        ChromePreview(selectedTab = 0)
     }
 
     @PreviewTest
@@ -204,6 +166,7 @@ class MetadataPreviews {
     @PreviewTest
     @Preview(name = "7-expanded-subscriptions", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
+    // CHROME EXEMPT: pushed subscription-videos route renders with no tab chrome on device.
     fun Preview7ExpandedSubscriptions() {
         DynamicTheme(darkTheme = true) {
             SubscriptionVideosScreen(

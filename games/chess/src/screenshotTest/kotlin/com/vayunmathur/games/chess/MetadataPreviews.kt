@@ -103,7 +103,7 @@ class MetadataPreviews {
     @Preview(name = "4-game-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
     fun Preview4GameExpanded() {
-        DynamicTheme(darkTheme = true) {
+        ChromePreview(Route.Game) {
             ChessGameScreen(
                 state = ChessUiState(
                     board = grecoAttack,

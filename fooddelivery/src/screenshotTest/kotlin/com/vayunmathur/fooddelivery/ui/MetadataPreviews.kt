@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.vayunmathur.fooddelivery.data.CartItem
@@ -13,6 +14,7 @@ import com.vayunmathur.fooddelivery.data.Merchant
 import com.vayunmathur.fooddelivery.data.MerchantDetail
 import com.vayunmathur.fooddelivery.data.Modifier as DataModifier
 import com.vayunmathur.fooddelivery.data.ModifierGroup
+import com.vayunmathur.fooddelivery.data.SelectedModifier
 import com.vayunmathur.library.ui.DynamicTheme
 
 /** Phone-shaped, roughly 1080x2340 at xxhdpi — comfortably above the F-Droid minimum. */
@@ -204,7 +206,10 @@ class MetadataPreviews {
         CartItem(
             menuItem = carnitasTaco,
             quantity = 2,
-            selectedModifiers = listOf(DataModifier(id = 11, name = "Salsa verde"), DataModifier(id = 21, name = "Guacamole", price = 225)),
+            selectedModifiers = listOf(
+                SelectedModifier(modifierGroupId = 1, modifierId = 11, name = "Salsa verde"),
+                SelectedModifier(modifierGroupId = 2, modifierId = 21, name = "Guacamole", price = 225),
+            ),
             merchantId = 101,
             merchantName = "Taqueria del Sol",
         ),

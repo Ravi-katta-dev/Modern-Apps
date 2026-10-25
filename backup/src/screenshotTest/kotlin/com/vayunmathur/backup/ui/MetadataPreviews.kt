@@ -46,7 +46,6 @@ class MetadataPreviews {
                 onFileBackupToggle = {},
                 onBackupNow = {},
                 onRestoreNow = {},
-                onDismissMessages = {},
             )
         }
     }

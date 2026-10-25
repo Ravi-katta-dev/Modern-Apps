@@ -22,7 +22,7 @@ class MetadataPreviews {
     private val demoProfile = ProfileDto(
         iccid = "8999201200000000001",
         status = "active",
-        activationCode = "LPA:1$demo.example$CODE",
+        activationCode = "LPA:1\$demo.example\$CODE",
         smdpAddress = "demo.example",
         walletUsdCents = 1250,
     )
@@ -59,6 +59,8 @@ class MetadataPreviews {
                 onClearCryptoInvoice = {},
                 onClaim = {},
                 onRefresh = {},
+                // No Stripe launcher in Layoutlib (it needs a SavedStateRegistryOwner).
+                onPresentPaymentSheet = {},
             )
         }
     }
