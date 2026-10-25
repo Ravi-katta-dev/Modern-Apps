@@ -6,9 +6,11 @@ import com.vayunmathur.library.log.Log
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.os.BadParcelableException
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Parcel
 import android.os.ResultReceiver
 import androidx.activity.ComponentActivity
 import androidx.core.content.IntentCompat
@@ -38,7 +40,6 @@ abstract class AssistantIntent<Input : Any, Output : Any>(
 
         // 1. Get the incoming data + the channel to answer on.
         val inputString = intent.getStringExtra("DATA")
-        val receiver = IntentCompat.getParcelableExtra(intent, "RECEIVER", ResultReceiver::class.java)
 
         // 2. These activities are themed @android:style/Theme.NoDisplay, which
         // REQUIRES finish() to be called before onResume() completes. If we finish
@@ -50,6 +51,13 @@ abstract class AssistantIntent<Input : Any, Output : Any>(
         // activity, delivering the result over the ResultReceiver binder (which is
         // task/lifecycle independent).
         finish()
+
+        val receiver = try {
+            IntentCompat.getParcelableExtra(intent, "RECEIVER", ResultReceiver::class.java)
+        } catch (expected: BadParcelableException) {
+            Log.error(TAG, "Unreadable RECEIVER extra for ${javaClass.name}", expected)
+            return
+        }
 
         // Decode defensively: this activity runs in the caller's task, so an
         // exception escaping onCreate would crash and tear that task down.
@@ -142,7 +150,7 @@ class IntentLauncher(private val activity: ComponentActivity) {
                 val intent = Intent().apply {
                     setClassName(packageName, className)
                     putExtra("DATA", Json.encodeToString(serializer, input))
-                    putExtra("RECEIVER", receiver)
+                    putExtra("RECEIVER", receiver.forIpc())
                 }
 
                 // Not installed / not resolvable: report back so callers can raise a
@@ -178,6 +186,19 @@ class IntentLauncher(private val activity: ComponentActivity) {
         // Timed out: surface a recoverable error instead of blocking the
         // inference loop forever.
         result ?: throw TimeoutException("Timed out waiting for a response from $packageName")
+    }
+
+    // Strips the subclass name from the parcel so the target app (which lacks
+    // SecureResultReceiver, or has it R8-stripped) can unmarshal it.
+    private fun ResultReceiver.forIpc(): ResultReceiver {
+        val parcel = Parcel.obtain()
+        try {
+            writeToParcel(parcel, 0)
+            parcel.setDataPosition(0)
+            return ResultReceiver.CREATOR.createFromParcel(parcel)
+        } finally {
+            parcel.recycle()
+        }
     }
 
     companion object {
