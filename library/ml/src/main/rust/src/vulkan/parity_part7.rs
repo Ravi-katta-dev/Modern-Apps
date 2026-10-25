@@ -281,3 +281,38 @@ fn an_unblocked_prefill_gemm_agrees_with_the_reference() {
     // 100 taps is not a whole number of 32-tap blocks: the per-tap scalar path.
     int4_gemm_fixture("an unblocked prefill gemm", 40, 100, 9, Act::None);
 }
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_ragged_wide_int4_gemv_agrees_with_the_reference() {
+    // 1056 taps is 33 blocks, so one lane group takes a third pass the others skip; 20 channels
+    // leave four rows of the last workgroup to discard. Still the wide (`uvec4`) path.
+    let out_channels = 20u32;
+    let in_channels = 1056u32;
+    let blocks = in_channels.div_ceil(32);
+    let kernel: Vec<i8> =
+        (0..(out_channels * in_channels) as i32).map(|i| ((i * 5 + i / 3) % 16 - 8) as i8).collect();
+    let scales: Vec<f32> =
+        (0..out_channels * blocks).map(|i| 0.015_625 * (1.0 + (i % 4) as f32)).collect();
+    let blob = write_mixed(
+        graph::SUPERTONIC_VE,
+        &[
+            Fixture::I4(vec![out_channels, in_channels, 1, 1], kernel),
+            Fixture::F16(vec![out_channels, blocks], scales),
+            Fixture::F16(vec![out_channels], spread(out_channels as usize, 0.9)),
+        ],
+    );
+    let weights = Weights::parse(&blob, graph::SUPERTONIC_VE).expect("the int4 fixture parses");
+    let input = spread(in_channels as usize, 0.6);
+    let mut builder = Builder::new(&weights);
+    let first = builder.input(Shape::new(in_channels, 1, 1));
+    let last = builder.conv_int4(first, 0, out_channels, Act::None);
+    let plan = builder.finish(&[last]).expect("the ragged gemv fixture plan builds");
+    assert!(
+        plan.ops.iter().any(|op| matches!(
+            op,
+            crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvVecInt4, .. }
+        )),
+        "a single-position int4 convolution must lower to the gemv shader",
+    );
+    compare("a ragged wide int4 gemv", plan, weights.data().to_vec(), &[&input]);
+}
