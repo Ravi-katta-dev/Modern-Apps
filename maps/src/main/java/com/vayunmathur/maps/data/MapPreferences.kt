@@ -39,8 +39,16 @@ object MapPreferences {
     const val KEY_LAST_LON = "last_lon"
     const val KEY_LAST_LAT = "last_lat"
 
+    /**
+     * Auto-update map data on unmetered networks. On: [MapOverlayWorker]
+     * checks the manifest periodically over WiFi; off: updates only happen
+     * from the Settings row.
+     */
+    const val KEY_MAP_AUTO_UPDATE = "map_auto_update"
+
     const val DEFAULT_VOICE_GUIDANCE = true
     const val DEFAULT_GLOBE = false
+    const val DEFAULT_MAP_AUTO_UPDATE = true
     const val DEFAULT_LAYER_TRAFFIC = true
     const val DEFAULT_LAYER_SATELLITE = false
     const val DEFAULT_LAYER_SAFETY = false

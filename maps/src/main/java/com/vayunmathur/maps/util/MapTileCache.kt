@@ -21,6 +21,10 @@ object MapTileCache {
     const val BASEMAP_ARCHIVE_URL =
         "https://data.maproj.org/planet3.mamaps"
 
+    /** Where the incremental-update manifest lives (see `util/MapOverlay`). */
+    const val BASEMAP_MANIFEST_URL =
+        "https://data.maproj.org/planet3.manifest.json"
+
     /**
      * The single source of truth for the streamed basemap PMTiles URL.
      *

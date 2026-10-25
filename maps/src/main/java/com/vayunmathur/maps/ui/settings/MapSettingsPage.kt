@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.ExperimentalMaterial3Api
@@ -23,6 +24,7 @@ import com.vayunmathur.maps.R
 import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.maps.Route
 import com.vayunmathur.maps.data.ThemeMode
+import com.vayunmathur.maps.util.MapOverlayWorker
 import com.vayunmathur.maps.util.MapSettingsViewModel
 import com.vayunmathur.library.util.NavBackStack
 
@@ -47,6 +49,11 @@ fun MapSettingsPage(backStack: NavBackStack<Route>, viewModel: MapSettingsViewMo
     val voice by viewModel.voiceGuidance.collectAsState()
     val globe by viewModel.globeEnabled.collectAsState()
     val googleServices by viewModel.googleServices.collectAsState()
+    val autoUpdate by viewModel.mapAutoUpdate.collectAsState()
+    val appliedSeq by viewModel.overlayAppliedSeq.collectAsState()
+    val pendingBytes by viewModel.overlayPendingBytes.collectAsState()
+    val lastCheck by viewModel.overlayLastCheck.collectAsState()
+    val context = LocalContext.current
 
     // Pre-resolve option labels — the SettingsSelectRow `label` lambda is a plain
     // (non-@Composable) function, so stringResource can't be called inside it.
@@ -114,6 +121,42 @@ fun MapSettingsPage(backStack: NavBackStack<Route>, viewModel: MapSettingsViewMo
                     leadingContent = { IconStar() },
                 )
             }
+
+            SettingsSection(title = stringResource(R.string.settings_section_map_data)) {
+                com.vayunmathur.library.ui.SettingsRow(
+                    title = stringResource(R.string.settings_map_update),
+                    supportingText = updateSupportingText(appliedSeq, pendingBytes, lastCheck),
+                    onClick = { MapOverlayWorker.checkManual(context) },
+                    leadingContent = { IconStar() },
+                )
+                SettingsSwitchRow(
+                    title = stringResource(R.string.settings_map_auto_update),
+                    supportingText = stringResource(R.string.settings_map_auto_update_desc),
+                    checked = autoUpdate,
+                    onCheckedChange = { viewModel.setMapAutoUpdate(it) },
+                    leadingContent = { IconStar() },
+                )
+            }
         }
     }
+}
+
+/**
+ * One-line overlay status: applied sequence, pending bytes, or last check.
+ * Formatting lives here (not in strings.xml) because it composes three
+ * live values no single string template covers.
+ */
+@Composable
+private fun updateSupportingText(appliedSeq: Long, pendingBytes: Long, lastCheck: Long): String? {
+    if (pendingBytes > 0) {
+        val mb = pendingBytes / 1_000_000
+        return stringResource(R.string.settings_map_update_pending, mb)
+    }
+    if (appliedSeq > 0) {
+        return stringResource(R.string.settings_map_update_applied, appliedSeq)
+    }
+    if (lastCheck > 0) {
+        return stringResource(R.string.settings_map_update_current)
+    }
+    return null
 }

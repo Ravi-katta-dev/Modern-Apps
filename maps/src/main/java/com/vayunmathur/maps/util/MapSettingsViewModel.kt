@@ -57,6 +57,40 @@ class MapSettingsViewModel(application: Application) : AndroidViewModel(applicat
     fun setGlobeEnabled(enabled: Boolean) =
         launch { ds.setBoolean(MapPreferences.KEY_GLOBE, enabled) }
 
+    // --- Map updates ---------------------------------------------------------
+
+    /**
+     * Auto-update map data on unmetered networks. Drives the periodic
+     * [MapOverlayWorker] check; the Settings row checks manually regardless.
+     */
+    val mapAutoUpdate: StateFlow<Boolean> = boolPref(
+        MapPreferences.KEY_MAP_AUTO_UPDATE, MapPreferences.DEFAULT_MAP_AUTO_UPDATE,
+    )
+
+    /** Overlay sequence already stored on disk (0 = base only). */
+    val overlayAppliedSeq: StateFlow<Long> =
+        ds.longFlow(MapOverlayWorker.KEY_APPLIED_SEQ, 0L).stateIn(
+            viewModelScope, SharingStarted.Eagerly,
+            ds.getLong(MapOverlayWorker.KEY_APPLIED_SEQ) ?: 0L,
+        )
+
+    /** Bytes still to fetch for the pending overlay (0 = nothing pending). */
+    val overlayPendingBytes: StateFlow<Long> =
+        ds.longFlow(MapOverlayWorker.KEY_PENDING_BYTES, 0L).stateIn(
+            viewModelScope, SharingStarted.Eagerly,
+            ds.getLong(MapOverlayWorker.KEY_PENDING_BYTES) ?: 0L,
+        )
+
+    /** Last manifest check time (millis, 0 = never). */
+    val overlayLastCheck: StateFlow<Long> =
+        ds.longFlow(MapOverlayWorker.KEY_LAST_CHECK, 0L).stateIn(
+            viewModelScope, SharingStarted.Eagerly,
+            ds.getLong(MapOverlayWorker.KEY_LAST_CHECK) ?: 0L,
+        )
+
+    fun setMapAutoUpdate(enabled: Boolean) =
+        launch { ds.setBoolean(MapPreferences.KEY_MAP_AUTO_UPDATE, enabled) }
+
     // --- Layers sheet ------------------------------------------------------
 
     val trafficLayer: StateFlow<Boolean> = boolPref(
