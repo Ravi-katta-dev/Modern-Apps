@@ -66,6 +66,21 @@ fun AutoScreen(viewModel: AutoViewModel, onPairing: () -> Unit, onPinnedApps: ()
         inputDropped = viewModel.inputDropped.collectAsStateWithLifecycle().value,
         musicBytesCaptured = viewModel.musicBytesCaptured.collectAsStateWithLifecycle().value,
     )
+    AutoScreen(state = state, session = session, onPairing = onPairing, onPinnedApps = onPinnedApps)
+}
+
+/**
+ * Stateless status screen: connection row, pin-picker entry, session stats and
+ * consent cards. The ViewModel overload collects the flows and delegates here;
+ * metadata previews render this directly with literals.
+ */
+@Composable
+fun AutoScreen(
+    state: AutoConnectionState,
+    session: SessionSnapshot,
+    onPairing: () -> Unit,
+    onPinnedApps: () -> Unit,
+) {
     val scrollBehavior = appBarScrollBehavior()
     AppScaffold(
         title = stringResource(R.string.app_name),

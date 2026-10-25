@@ -54,6 +54,29 @@ fun PinnedAppsScreen(
             viewModel.consumeRejected()
         }
     }
+    PinnedAppsScreen(
+        onNavigateBack = onNavigateBack,
+        rows = rows,
+        onToggle = { viewModel.toggle(it) },
+        onMoveUp = { viewModel.moveUp(it) },
+        onMoveDown = { viewModel.moveDown(it) },
+    )
+}
+
+/**
+ * Stateless pin picker: every row with a check plus up/down reorder. The
+ * ViewModel overload collects the flows and reports dock-full rejections on
+ * the shared snackbar host, then delegates here; metadata previews render
+ * this directly with literals.
+ */
+@Composable
+fun PinnedAppsScreen(
+    onNavigateBack: () -> Unit,
+    rows: List<PinnedAppRow>,
+    onToggle: (String) -> Unit,
+    onMoveUp: (String) -> Unit,
+    onMoveDown: (String) -> Unit,
+) {
     val scrollBehavior = appBarScrollBehavior()
     AppScaffold(
         title = stringResource(R.string.pinned_apps_title),
@@ -74,9 +97,9 @@ fun PinnedAppsScreen(
             items(rows, key = { it.app.id }) { row ->
                 PinnedAppRowCard(
                     row = row,
-                    onToggle = { viewModel.toggle(row.app.id) },
-                    onMoveUp = { viewModel.moveUp(row.app.id) },
-                    onMoveDown = { viewModel.moveDown(row.app.id) },
+                    onToggle = { onToggle(row.app.id) },
+                    onMoveUp = { onMoveUp(row.app.id) },
+                    onMoveDown = { onMoveDown(row.app.id) },
                 )
             }
         }

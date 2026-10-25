@@ -75,6 +75,36 @@ fun PairingScreen(viewModel: PairingViewModel, onNavigateBack: () -> Unit) {
             if (granted) WifiDirectConnector.start(context)
         },
     )
+    PairingScreen(
+        usbState = usbState,
+        usbLabel = usbLabel,
+        wirelessState = wirelessState,
+        roleHeld = roleHeld,
+        selected = selected,
+        onNavigateBack = onNavigateBack,
+        onUsbRetry = remember(context) { { UsbConnector.retryPermission(context) } },
+        onWirelessSearch = requestNearby,
+        onWirelessCancel = remember { { WifiDirectConnector.cancel() } },
+    )
+}
+
+/**
+ * Stateless pairing screen: USB + wireless rows, transport and role rows. The
+ * ViewModel overload collects the flows and wires the connector calls, then
+ * delegates here; metadata previews render this directly with literals.
+ */
+@Composable
+fun PairingScreen(
+    usbState: UsbSessionState,
+    usbLabel: String?,
+    wirelessState: WirelessSessionState,
+    roleHeld: Boolean,
+    selected: TransportKind?,
+    onNavigateBack: () -> Unit,
+    onUsbRetry: () -> Unit,
+    onWirelessSearch: () -> Unit,
+    onWirelessCancel: () -> Unit,
+) {
     val scrollBehavior = appBarScrollBehavior()
     AppScaffold(
         title = stringResource(R.string.pairing_title),
@@ -90,13 +120,13 @@ fun PairingScreen(viewModel: PairingViewModel, onNavigateBack: () -> Unit) {
             UsbRow(
                 state = usbState,
                 label = usbLabel,
-                onRetry = remember(context) { { UsbConnector.retryPermission(context) } },
+                onRetry = onUsbRetry,
                 modifier = Modifier.padding(top = 16.dp),
             )
             WirelessRow(
                 state = wirelessState,
-                onSearch = requestNearby,
-                onCancel = remember { { WifiDirectConnector.cancel() } },
+                onSearch = onWirelessSearch,
+                onCancel = onWirelessCancel,
                 modifier = Modifier.padding(top = 16.dp),
             )
             TransportRow(selected = selected, modifier = Modifier.padding(top = 16.dp))
