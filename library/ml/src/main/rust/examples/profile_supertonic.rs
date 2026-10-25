@@ -26,7 +26,6 @@ use modelrunner::nets::{
 use modelrunner::post::supertonic::{self, Voice, STEPS};
 use modelrunner::vulkan::context;
 use modelrunner::vulkan::reshape::Reshaped;
-use modelrunner::vulkan::run::Net;
 use modelrunner::weights::{graph, Offsets, Weights};
 
 /// A typical sentence, already NFKD (plain ASCII is stable under NFKD, which is what the
@@ -115,6 +114,10 @@ struct Timed {
     text: Reshaped<u32>,
     sampler: Reshaped<(u32, u32)>,
     vocoder: Reshaped<u32>,
+    duration_times: Vec<(String, f64, f64)>,
+    text_times: Vec<(String, f64, f64)>,
+    sampler_times: Vec<(String, f64, f64)>,
+    vocoder_times: Vec<(String, f64, f64)>,
     duration_ms: f64,
     text_ms: f64,
     sampler_ms: Vec<f64>,
@@ -140,6 +143,12 @@ impl supertonic::Stages for Timed {
         let running = Instant::now();
         let out = net.infer_raw_many(&[lanes, style])?;
         self.duration_ms += ms(running);
+        // Captured here rather than after the utterance: `Reshaped::at` may
+        // re-record later and a fresh pool without a fresh submit reads back
+        // garbage. Errors (timestamps off) just leave the previous table.
+        if let Ok(times) = net.op_times() {
+            self.duration_times = times;
+        }
         let [_encoded, log_seconds] = <[Vec<f32>; 2]>::try_from(out).map_err(|other| {
             format!("the duration predictor returned {} tensors, not two", other.len())
         })?;
@@ -161,6 +170,9 @@ impl supertonic::Stages for Timed {
         let running = Instant::now();
         let out = one_output(net.infer_raw_many(&[lanes, style])?);
         self.text_ms += ms(running);
+        if let Ok(times) = net.op_times() {
+            self.text_times = times;
+        }
         out
     }
 
@@ -222,6 +234,10 @@ impl supertonic::Stages for Timed {
             key_angles,
         ])?;
         self.sampler_ms.push(ms(running));
+        // One step's table stands for all sixteen: same plan, same shape.
+        if let Ok(times) = net.op_times() {
+            self.sampler_times = times;
+        }
         let [conditional, unconditional] =
             <[Vec<f32>; 2]>::try_from(out).map_err(|other| {
                 format!("the dual sampler returned {} tensors, not two", other.len())
@@ -241,6 +257,9 @@ impl supertonic::Stages for Timed {
         let running = Instant::now();
         let channelled = one_output(net.infer_raw(&unpacked)?)?;
         self.vocoder_ms += ms(running);
+        if let Ok(times) = net.op_times() {
+            self.vocoder_times = times;
+        }
         let interleaving = Instant::now();
         let out = supertonic_vocoder::interleave(&channelled);
         self.interleave_ms += ms(interleaving);
@@ -284,6 +303,10 @@ fn run() -> Result<(), String> {
         text: Reshaped::new(context.clone(), &ttl, SMALLEST, text_plan)?,
         sampler: Reshaped::new(context.clone(), &ve, (SMALLEST, SMALLEST), sampler_plan)?,
         vocoder: Reshaped::new(context, &voc, SMALLEST, vocoder_plan)?,
+        duration_times: Vec::new(),
+        text_times: Vec::new(),
+        sampler_times: Vec::new(),
+        vocoder_times: Vec::new(),
         duration_ms: 0.0,
         text_ms: 0.0,
         sampler_ms: Vec::new(),
@@ -339,12 +362,13 @@ fn run() -> Result<(), String> {
     let (sum, sum_sq, peak) = checksum(&samples);
     println!("checksum  len {} sum {sum:.6} sum_sq {sum_sq:.6} peak {peak:.6}", samples.len());
 
-    // Per-kind GPU tables, from the last submit on each net (the utterance above) — only with
+    // Per-kind GPU tables, captured after each stage's own submit above — only with
     // MODELRUNNER_TIMESTAMPS=1, and in a separate run from the wall times.
-    print_kinds("duration", stages.duration.at(chars - 1)?);
-    print_kinds("text", stages.text.at(chars)?);
-    print_kinds("sampler dual step", stages.sampler.at((frames, chars))?);
-    print_kinds("vocoder", stages.vocoder.at(frames)?);
+    let _ = (chars, frames);
+    print_kinds("duration", &stages.duration_times);
+    print_kinds("text", &stages.text_times);
+    print_kinds("sampler dual step", &stages.sampler_times);
+    print_kinds("vocoder", &stages.vocoder_times);
 
     assert_eq!(stages.sampler_ms.len(), STEPS as usize, "one dual submit per step");
     Ok(())
@@ -357,17 +381,14 @@ fn checksum(samples: &[f32]) -> (f64, f64, f32) {
     (sum, sum_sq, peak)
 }
 
-fn print_kinds(label: &str, net: &Net) {
-    let times = match net.op_times() {
-        Ok(times) => times,
-        Err(why) => {
-            println!("{label}: {why}");
-            return;
-        }
-    };
+fn print_kinds(label: &str, times: &[(String, f64, f64)]) {
+    if times.is_empty() {
+        println!("{label}: no timestamps recorded: set MODELRUNNER_TIMESTAMPS=1");
+        return;
+    }
     let mut kinds: BTreeMap<String, (usize, f64)> = BTreeMap::new();
     let (mut total, mut gaps) = (0.0, 0.0);
-    for (name, us, gap) in &times {
+    for (name, us, gap) in times {
         let kind = name.split(": ").nth(1).unwrap_or(name).to_string();
         let entry = kinds.entry(kind).or_default();
         entry.0 += 1;
@@ -382,6 +403,12 @@ fn print_kinds(label: &str, net: &Net) {
     println!("  {:<22} {:>6} {:>10} {:>10}", "kind", "count", "total ms", "mean us");
     for (kind, (count, us)) in rows {
         println!("  {kind:<22} {count:>6} {:>10.3} {:>10.1}", us / 1e3, us / count as f64);
+    }
+    let mut by_time: Vec<_> = times.iter().collect();
+    by_time.sort_by(|a, b| b.1.total_cmp(&a.1));
+    println!("  top dispatches:");
+    for (name, us, _) in by_time.iter().take(12) {
+        println!("    {name:<28} {us:>10.1} us");
     }
 }
 
