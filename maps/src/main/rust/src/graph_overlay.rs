@@ -160,6 +160,11 @@ impl Graph {
         self.overlay.as_ref()
     }
 
+    /// Drop the overlay so long routes use the plain full-graph search.
+    pub fn detach_overlay(&mut self) {
+        self.overlay = None;
+    }
+
     /// Attach an overlay from a standalone `overlay.bin` (the graph-dir layout).
     /// Returns false, leaving any current overlay in place, when it does not
     /// parse or was built for a different graph.

@@ -73,10 +73,10 @@ fn main() -> std::process::ExitCode {
 const USAGE: &str = "\
 usage:
   route_diff gen-pairs --graph DIR --out FILE [--count N]
-  route_diff report    --graph DIR --pairs FILE --out FILE [--overlay FILE]
+  route_diff report    --graph DIR --pairs FILE --out FILE [--overlay FILE | --no-overlay]
   route_diff compare   --baseline FILE --candidate FILE [--tol-mm N] [--tol-10ms N]
   route_diff geometry  --baseline DIR --candidate DIR
-  route_diff bench     --graph DIR --pairs FILE [--passes N] [--cold] [--verbose] [--overlay FILE]
+  route_diff bench     --graph DIR --pairs FILE [--passes N] [--cold] [--verbose] [--overlay FILE | --no-overlay]
   route_diff dump 
   route_diff dump         --graph DIR --out FILE
   route_diff dump-compare --baseline FILE --candidate FILE [--limit N]
@@ -128,9 +128,13 @@ fn load(dir: &str) -> Result<Graph, String> {
     })
 }
 
-/// [`load`], then attach `--overlay FILE` when given.
+/// [`load`], then attach `--overlay FILE` when given, or drop the archive's own
+/// overlay with `--no-overlay`.
 fn load_with_overlay(dir: &str, args: &[String]) -> Result<Graph, String> {
     let mut g = load(dir)?;
+    if args.iter().any(|a| a == "--no-overlay") {
+        g.detach_overlay();
+    }
     if let Some(path) = flag(args, "--overlay") {
         if !g.attach_overlay_file(&path) {
             return Err(format!("{path}: not an overlay for this graph"));
