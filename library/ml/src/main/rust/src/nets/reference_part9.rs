@@ -132,8 +132,7 @@
                 .expect("the whisper asset parses");
             let plan = whisper::build(&weights, whisper::Mode::Encode).expect("the encoder builds");
             let outputs = run_multi(&plan, weights.data(), &[&input]).expect("the encoder runs");
-            // Output 0 is the hidden states; the twelve cross-attention caches follow and are not
-            // what the export's own output is.
+            // The one output is the hidden states; the cross-attention caches stay on the device.
             let hidden = outputs.first().expect("the hidden states");
             write(&dir.join("reference.f32"), hidden);
             println!("whisper encoder: wrote {} values", hidden.len());

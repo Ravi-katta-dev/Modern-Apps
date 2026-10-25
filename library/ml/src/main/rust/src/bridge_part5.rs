@@ -39,15 +39,15 @@ pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_destroyMu
 ///
 /// # One net, two plans, and two kinds of cache
 ///
-/// [`Reshaped`] keyed by [`whisper::Mode`]. The encoder runs once per utterance; a decode step is
-/// re-recorded every token because its self-attention cache grows by one position, which is a
-/// `device_wait_idle` and a re-record per token — the same known cost the translation handle
-/// documents.
+/// [`Reshaped`] keyed by [`whisper::Mode`]. The encoder runs once per utterance and the decode step
+/// is recorded once - its key carries no step number, which reaches the plan through
+/// [`StepParams`] - so a transcription pays one re-record on each switch between the two.
 ///
-/// The **cross-attention** caches are the difference. Whisper's decoder cross-attends over 1500
-/// encoder positions through each layer's own key and value projections, so recomputing them per
-/// step would be 4.7 GMAC against the logits head's 26.5 MMAC. [`whisper::Mode::Encode`] computes
-/// them once, they are held here, and each step passes them back in. See `nets::whisper`.
+/// The **cross-attention** caches are the difference from a plain decoder. Whisper's decoder
+/// cross-attends over 1500 encoder positions through each layer's own key and value projections,
+/// so recomputing them per step would be 4.7 GMAC against the logits head's 26.5 MMAC.
+/// [`whisper::Mode::Encode`] computes them once into tensors that stay on the device, at offsets
+/// both plans agree on. See `nets::whisper`.
 ///
 /// # The weights file stays open
 ///
@@ -64,24 +64,21 @@ fn whisper_plan(offsets: &Offsets, mode: whisper::Mode) -> Result<Plan, String> 
     whisper::build(offsets, mode)
 }
 
-/// Cross-attention caches per decoder layer, K then V. See [`WhisperHandle`].
-const WHISPER_CROSS: usize = whisper::DECODER_LAYERS * 2;
-
-/// The two GPU passes, as [`whisper_post::Nets`] wants them, plus the cross-attention caches.
+/// The two GPU passes, as [`whisper_post::Nets`] wants them.
 ///
-/// Built per transcription and dropped with it. The **self-attention** caches are not here at all
-/// any more: the decode plan holds them in the arena and writes to them in place.
+/// Built per transcription and dropped with it. Neither kind of cache is here: the encoder pass
+/// leaves the cross-attention K and V in the arena and the decode plan writes its self-attention
+/// rows there too.
 struct WhisperNets<'a> {
     net: &'a mut Reshaped<whisper::Mode>,
     weights: &'a Streamed,
-    /// Each layer's cross-attention K then V, `[512 * 1500]` each, channel-major and constant for
-    /// the whole transcript.
-    cross: Vec<Vec<f32>>,
+    /// Whether this transcription's encoder has run, so a step cannot read last utterance's caches.
+    encoded: bool,
 }
 
 impl WhisperNets<'_> {
     fn new<'a>(handle: &'a mut WhisperHandle) -> WhisperNets<'a> {
-        WhisperNets { net: &mut handle.net, weights: &handle.weights, cross: Vec::new() }
+        WhisperNets { net: &mut handle.net, weights: &handle.weights, encoded: false }
     }
 }
 
@@ -92,18 +89,15 @@ impl whisper_post::Nets for WhisperNets<'_> {
             return Err(format!("{} mel values, not {expected}", mel.len()));
         }
         let net = self.net.at(whisper::Mode::Encode)?;
-        let mut out = net.infer_raw_many(&[mel])?;
-        // Output 0 is the hidden states, which only the parity script reads; the twelve cross
-        // caches follow, in layer order.
-        if out.len() != 1 + WHISPER_CROSS {
-            return Err(format!("the encoder returned {} tensors, not {}", out.len(), 1 + WHISPER_CROSS));
-        }
-        self.cross = out.split_off(1);
+        // The one output is the hidden states, which only the parity script reads. The twelve
+        // cross caches it also computed stay on the device.
+        net.infer_raw_many(&[mel])?;
+        self.encoded = true;
         Ok(())
     }
 
     fn decode_step(&mut self, token: u32, step: usize) -> Result<Vec<f32>, String> {
-        if self.cross.len() != WHISPER_CROSS {
+        if !self.encoded {
             return Err("a decode step before the encoder ran".into());
         }
         let cache_len = u32::try_from(step).map_err(|_| "a step past u32")?;
@@ -119,13 +113,7 @@ impl whisper_post::Nets for WhisperNets<'_> {
         // One key for every step, so this re-records once - leaving `Encode` - and never again.
         let net = self.net.at(whisper::Mode::DecodeStep)?;
         net.set_params(StepParams { prefix: cache_len, window_start: 0 })?;
-        // Declaration order: the token, then the twelve cross caches.
-        let mut inputs: Vec<&[f32]> = Vec::with_capacity(1 + WHISPER_CROSS);
-        inputs.push(&embedded);
-        for held in &self.cross {
-            inputs.push(held);
-        }
-        let out = net.infer_raw_many(&inputs)?;
+        let out = net.infer_raw_many(&[&embedded])?;
 
         // The logits, and nothing else: the self-attention rows went into the device-side cache.
         if out.len() != 1 {

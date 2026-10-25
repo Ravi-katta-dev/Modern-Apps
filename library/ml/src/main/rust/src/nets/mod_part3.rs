@@ -58,6 +58,23 @@ fn row_reduce(rows: u32, len: u32) -> (u32, u32) {
     }
 }
 
+/// Rows at least this long reduce one workgroup per row however many there are - for a softmax.
+///
+/// A softmax row is contiguous, so lanes splitting it read consecutive elements and the row mode
+/// costs nothing in access pattern; a norm's row is strided by the sequence length, which is why
+/// [`row_reduce`] keeps many-position norms on the per-position shader. Whisper's encoder has
+/// 12,000 score rows of 1,500 keys: one thread each made its six softmaxes 420 ms on a Pixel 8.
+const ROW_REDUCE_LONG_ROW: u32 = 512;
+
+/// [`row_reduce`] for a softmax, whose rows are contiguous. See [`ROW_REDUCE_LONG_ROW`].
+fn row_reduce_contiguous(rows: u32, len: u32) -> (u32, u32) {
+    if len >= ROW_REDUCE_LONG_ROW {
+        (1, rows * ROW_REDUCE_LANES)
+    } else {
+        row_reduce(rows, len)
+    }
+}
+
 #[cfg(test)]
 fn gemv_rows_of(shader: &str) -> u32 {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders").join(shader);

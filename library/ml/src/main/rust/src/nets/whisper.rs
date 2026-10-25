@@ -51,12 +51,15 @@
 //! step*, against the 26.5 MMAC of the logits head. That is 177 times the head, and at 224 tokens it
 //! is a thousand GMAC.
 //!
-//! So [`Mode::Encode`] runs them once and hands back **twelve** `[512, 1, 1500]` tensors, and
-//! [`Mode::DecodeStep`] takes them as inputs. The host then re-uploads 18.4 MB per step, which at a
-//! few GB/s is an order of magnitude cheaper than recomputing them — measured against arithmetic, not
-//! on a device, and flagged for the device. Nothing is transposed: a single-query cross-attention
-//! reads a channel-major sequence through the ordinary [`Builder::attn_scores`] pair, exactly as
-//! `nets::nllb`'s does.
+//! So [`Mode::Encode`] runs them once and copies them into **twelve** persistent `[512, 1, 1500]`
+//! tensors that [`Mode::DecodeStep`] reads in place. Nothing comes back to the host and nothing is
+//! re-uploaded: an earlier version handed them to the host and back in, 18.4 MB per token.
+//!
+//! Both passes declare those tensors first, through [`declare_cross_caches`], because
+//! [`Builder::finish`] gives pinned tensors their arena offsets in declaration order, and that is
+//! what puts them in the same place in both plans. Nothing is transposed: a single-query
+//! cross-attention reads a channel-major sequence through the ordinary [`Builder::attn_scores`]
+//! pair, exactly as `nets::nllb`'s does.
 //!
 //! # The two position tables go opposite ways
 //!
@@ -187,12 +190,9 @@ pub const INT8_CONVS: usize = 2 + ENCODER_LAYERS * 6 + DECODER_LAYERS * 10 + 1;
 pub enum Mode {
     /// The audio encoder, and every decoder layer's cross-attention K and V.
     ///
-    /// `[80, 1, 3000]` in — the log-mel window. **Thirteen** outputs: the `[512, 1, 1500]` hidden
-    /// states, then layer 0's cross K and V, layer 1's, and so on, all the same shape.
-    ///
-    /// The hidden states are not needed by [`Mode::DecodeStep`] — the caches are what it reads — but
-    /// they are what `scripts/ml/onnx_parity.py` compares against the reference export, and the
-    /// readback is 1.5 MB once per utterance.
+    /// `[80, 1, 3000]` in — the log-mel window. One output, the `[512, 1, 1500]` hidden states,
+    /// which only `scripts/ml/onnx_parity.py` reads. The cross K and V stay on the device for
+    /// [`Mode::DecodeStep`]; see [`declare_cross_caches`].
     Encode,
     /// One decoder step against the self-attention cache.
     ///
@@ -268,12 +268,27 @@ pub fn build(weights: &dyn WeightSource, mode: Mode) -> Result<Plan, String> {
     }
 }
 
+/// Every decoder layer's cross-attention K and V, `[512, 1, 1500]` each, held on the device.
+///
+/// Must be the first pinned tensors either pass declares, so both plans give them the same arena
+/// offsets. See the module docs.
+fn declare_cross_caches(b: &mut Builder) -> Vec<(Id, Id)> {
+    (0..DECODER_LAYERS)
+        .map(|_| {
+            let k = b.persistent(Shape::new(D_MODEL, 1, SOURCE_POSITIONS));
+            let v = b.persistent(Shape::new(D_MODEL, 1, SOURCE_POSITIONS));
+            (k, v)
+        })
+        .collect()
+}
+
 /// The audio encoder over one 30-second window, plus the twelve cross-attention caches.
 fn encode(weights: &dyn WeightSource) -> Result<Plan, String> {
     let mut builder = Builder::new(weights);
     let b = &mut builder;
     name_host_tensors(b, &device_tensors(Mode::Encode));
 
+    let caches = declare_cross_caches(b);
     let mel = b.input(Shape::new(MELS, 1, MEL_FRAMES));
     // `1 x 3` same-padded, GELU, stride 1 then stride 2. The second stride is what turns 3000 mel
     // frames into the 1500 positions the decoder cross-attends over.
@@ -321,31 +336,30 @@ fn encode(weights: &dyn WeightSource) -> Result<Plan, String> {
     }
     let encoded = b.layer_norm(x, ENC_NORM, EPSILON);
 
-    // Each decoder layer's cross-attention key and value, computed once for the whole transcript.
-    let mut outputs = Vec::with_capacity(1 + DECODER_LAYERS * 2);
-    outputs.push(encoded);
-    for layer in 0..DECODER_LAYERS {
+    // Each decoder layer's cross-attention key and value, computed once for the whole transcript
+    // and left on the device.
+    for (layer, &(cache_k, cache_v)) in caches.iter().enumerate() {
         let cross = &mut Layers { next: cross_kv(layer) };
-        outputs.push(point(b, cross, encoded, D_MODEL, Act::None));
-        outputs.push(point(b, cross, encoded, D_MODEL, Act::None));
+        let k = point(b, cross, encoded, D_MODEL, Act::None);
+        let v = point(b, cross, encoded, D_MODEL, Act::None);
         if cross.next != cross_kv(layer) + 6 {
             return Err(format!("layer {layer}'s cross cache ends at {}", cross.next));
         }
+        b.copy_into(k, cache_k);
+        b.copy_into(v, cache_v);
     }
-    builder.finish(&outputs)
+    builder.finish(&[encoded])
 }
 
 /// One decoder step.
 ///
-/// # Inputs, in declaration order
+/// # Inputs
 ///
-/// | | shape | |
-/// | :--- | :--- | :--- |
-/// | 0 | `[512, 1, 1]` | the current token, after [`embed_positions`] at `past = prefix` |
-/// | 1..13 | `[512, 1, 1500]` | each layer's cross-attention K then V, from [`Mode::Encode`] |
+/// One: the current token, `[512, 1, 1]`, after [`embed_positions`] at `past = prefix`.
 ///
-/// The self-attention caches are **not** inputs: they live in the arena across steps and this
-/// plan writes into them at the row the step names. See [`Builder::persistent`].
+/// The cross-attention K and V are not inputs: [`Mode::Encode`] left them in persistent tensors at
+/// the offsets this plan declares them at. The self-attention caches live in the arena too, and
+/// this plan writes into them at the row the step names. See [`Builder::persistent`].
 ///
 /// # Outputs, in declaration order
 ///
@@ -357,15 +371,9 @@ fn decode_step(weights: &dyn WeightSource) -> Result<Plan, String> {
     let b = &mut builder;
     name_host_tensors(b, &device_tensors(Mode::DecodeStep));
 
+    // First, so the offsets match the encode pass's.
+    let cross = declare_cross_caches(b);
     let mut x = b.input(Shape::new(D_MODEL, 1, 1));
-    // Declared up front, in layer order, so the host uploads them as one block.
-    let cross: Vec<(Id, Id)> = (0..DECODER_LAYERS)
-        .map(|_| {
-            let k = b.input(Shape::new(D_MODEL, 1, SOURCE_POSITIONS));
-            let v = b.input(Shape::new(D_MODEL, 1, SOURCE_POSITIONS));
-            (k, v)
-        })
-        .collect();
     // Sized for the longest transcript of one window rather than for this step, so the plan does
     // not mention the step number and is recorded once.
     let past: Vec<(Id, Id)> = (0..DECODER_LAYERS)
@@ -400,7 +408,8 @@ fn decode_step(weights: &dyn WeightSource) -> Result<Plan, String> {
         // uses the ordinary pair rather than the cached one, and needs no transpose.
         let normed = b.layer_norm(x, l.take(), EPSILON);
         let q = point(b, l, normed, D_MODEL, Act::None);
-        // The key and value projections were run by `Mode::Encode`; their results are the inputs.
+        // The key and value projections were run by `Mode::Encode`; their results are on the
+        // device.
         l.skip3(2);
         let scores = b.attn_scores(q, cross_k, HEADS);
         let probs = b.softmax(scores);

@@ -343,7 +343,7 @@ impl<'a> Builder<'a> {
                 let rows = so.c * so.h;
                 let (kw, invocations) = match mode {
                     SoftmaxMode::Causal => (0, rows),
-                    SoftmaxMode::Full | SoftmaxMode::Prefix => row_reduce(rows, so.w),
+                    SoftmaxMode::Full | SoftmaxMode::Prefix => row_reduce_contiguous(rows, so.w),
                 };
                 ops.push(Op::Dispatch {
                     kind: match mode {

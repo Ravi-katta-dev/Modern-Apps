@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 use std::time::Instant;
 
-use modelrunner::nets::nllb;
+use modelrunner::nets::{nllb, whisper};
 use modelrunner::vulkan::context;
 use modelrunner::vulkan::reshape::Reshaped;
 use modelrunner::vulkan::run::{Net, StepParams};
@@ -27,7 +27,8 @@ fn main() {
     let model = args.first().map(String::as_str).unwrap_or("nllb");
     let result = match model {
         "nllb" => nllb_profile(args.get(1).map(String::as_str)),
-        other => Err(format!("unknown model {other:?}; known: nllb")),
+        "whisper" => whisper_profile(args.get(1).map(String::as_str)),
+        other => Err(format!("unknown model {other:?}; known: nllb, whisper")),
     };
     if let Err(why) = result {
         println!("failed: {why}");
@@ -92,6 +93,84 @@ fn nllb_profile(path: Option<&str>) -> Result<(), String> {
     print_kinds("decode step", decode);
     let encode = net.at(nllb::Mode::Encode { len: SRC_LEN })?;
     encode.infer_raw(&embedded)?;
+    print_kinds("encode", encode);
+    Ok(())
+}
+
+/// Whisper over a synthetic window: the real prompt, then a fixed number of greedy steps.
+///
+/// Prints the ids and a logits checksum so two builds can be compared for identical output, which
+/// is the regression check here - there is no recorded reference transcript to match.
+fn whisper_profile(path: Option<&str>) -> Result<(), String> {
+    const STEPS: u32 = 32;
+    // `<|startoftranscript|> <|en|> <|transcribe|> <|notimestamps|>`.
+    const PROMPT: [u32; 4] = [50_258, 50_259, 50_359, 50_363];
+    let path = path
+        .map(str::to_owned)
+        .or_else(|| std::env::var("MODELRUNNER_WHISPER").ok())
+        .ok_or("pass the whisper_base.maml path or set MODELRUNNER_WHISPER")?;
+    let bytes = std::fs::read(&path).map_err(|e| format!("cannot read {path}: {e}"))?;
+    let weights = Weights::parse(&bytes, graph::WHISPER)?;
+    let context = context::shared()?;
+
+    let started = Instant::now();
+    let mut net = Reshaped::new(context, &weights, whisper::Mode::Encode, |offsets, mode| {
+        whisper::build(offsets, mode)
+    })?;
+    println!("load      {:>8.1} ms (upload + first record)", ms(started));
+
+    // A deterministic log-mel-like window: smooth in time, varied across bins.
+    let mel: Vec<f32> = (0..whisper::MELS * whisper::MEL_FRAMES)
+        .map(|i| {
+            let (bin, frame) = (i / whisper::MEL_FRAMES, i % whisper::MEL_FRAMES);
+            ((frame as f32 * 0.013 + bin as f32 * 0.37).sin() * 0.6 - 0.2).clamp(-1.0, 1.0)
+        })
+        .collect();
+
+    let mut encode_ms = Vec::new();
+    let mut step_ms = Vec::new();
+    let mut ids = Vec::new();
+    let mut checksum = 0.0f64;
+    for round in 0..2 {
+        let t = Instant::now();
+        let encoder = net.at(whisper::Mode::Encode)?;
+        let encoded = encoder.infer_raw_many(&[&mel])?;
+        encode_ms.push(ms(t));
+        // HEAD's encoder hands its twelve cross caches back; the decode step there takes them in.
+        let cross: Vec<Vec<f32>> = encoded.into_iter().skip(1).collect();
+
+        let mut token = PROMPT[0];
+        for step in 0..PROMPT.len() as u32 + STEPS {
+            let row = whisper::embed_positions(weights.reader(), &[token], step)?;
+            let at = net.at(whisper::Mode::DecodeStep)?;
+            at.set_params(StepParams { prefix: step, window_start: 0 })?;
+            let mut inputs: Vec<&[f32]> = vec![&row];
+            inputs.extend(cross.iter().map(Vec::as_slice));
+            let t = Instant::now();
+            let out = at.infer_raw_many(&inputs)?;
+            step_ms.push(ms(t));
+            let logits = out.first().ok_or("no logits")?;
+            token = if let Some(&next) = PROMPT.get(step as usize + 1) {
+                next
+            } else {
+                let next = greedy(&out).unwrap_or(50_257);
+                if round == 0 {
+                    ids.push(next);
+                    checksum += logits.iter().map(|&v| f64::from(v)).sum::<f64>();
+                }
+                next
+            };
+        }
+    }
+    println!("encode    {}", stats(&encode_ms));
+    println!("step      {}", stats(&step_ms));
+    println!("ids       {ids:?}");
+    println!("checksum  {checksum:.3}");
+
+    let decode = net.at(whisper::Mode::DecodeStep)?;
+    print_kinds("decode step", decode);
+    let encode = net.at(whisper::Mode::Encode)?;
+    encode.infer_raw_many(&[&mel])?;
     print_kinds("encode", encode);
     Ok(())
 }

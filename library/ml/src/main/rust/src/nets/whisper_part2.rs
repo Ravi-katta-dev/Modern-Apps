@@ -155,12 +155,38 @@ mod tests {
         assert_eq!(counts.len(), 7, "{counts:?}");
 
         assert_eq!(plan.input().unwrap().shape, Shape::new(MELS, 1, MEL_FRAMES));
-        // The hidden states, then twelve caches in layer order — all the same shape.
-        assert_eq!(plan.outputs.len(), 1 + DECODER_LAYERS * 2);
-        for binding in &plan.outputs {
-            assert_eq!(binding.shape, Shape::new(D_MODEL, 1, SOURCE_POSITIONS));
-        }
+        // The hidden states only: the twelve caches stay on the device.
+        assert_eq!(plan.outputs.len(), 1);
+        assert_eq!(plan.outputs[0].shape, Shape::new(D_MODEL, 1, SOURCE_POSITIONS));
         assert_no_aliasing(&plan);
+    }
+
+    #[test]
+    fn the_encode_pass_leaves_the_cross_caches_where_the_decode_step_reads_them() {
+        // Two plans agreeing on where twelve persistent tensors live. If they disagree the decoder
+        // attends over the other plan's activations and still transcribes something plausible.
+        let encode = plan(Mode::Encode);
+        let step = plan(Mode::DecodeStep);
+        let caches = DECODER_LAYERS * 2;
+        assert_eq!(encode.pinned[..caches], step.pinned[..caches]);
+        let starts: Vec<u32> = encode.pinned[..caches].iter().map(|b| b.at).collect();
+        // The encode pass fills every one of them, whole.
+        for &at in &starts {
+            let filled = encode.ops.iter().any(|op| {
+                matches!(*op, Op::Copy { dst, elems, .. }
+                    if dst == at && elems == D_MODEL * SOURCE_POSITIONS)
+            });
+            assert!(filled, "the encode pass never fills the cache at {at}");
+        }
+        // And every cross-attention read in the decode step is one of them.
+        let mut reads = 0;
+        for op in &step.ops {
+            if let Op::Dispatch { kind: Kind::AttnScores | Kind::AttnApply, push, .. } = op {
+                assert!(starts.contains(&push.in1), "a cross-attention read from {}", push.in1);
+                reads += 1;
+            }
+        }
+        assert_eq!(reads, caches);
     }
 
     #[test]
@@ -229,16 +255,12 @@ mod tests {
     }
 
     #[test]
-    fn a_decode_step_takes_the_token_and_the_cross_caches_only() {
+    fn a_decode_step_takes_only_the_token() {
         let plan = plan(Mode::DecodeStep);
-        // The token and twelve cross caches. The self-attention caches are on the device now, so
-        // they are neither uploaded nor read back - which was 18.4 MB per step.
-        assert_eq!(plan.inputs.len(), 1 + DECODER_LAYERS * 2);
+        // The token alone. Both kinds of cache are on the device: the cross caches used to be
+        // uploaded here every step, 18.4 MB a token.
+        assert_eq!(plan.inputs.len(), 1);
         assert_eq!(plan.inputs[0].shape, Shape::new(D_MODEL, 1, 1));
-        for binding in &plan.inputs[1..] {
-            // Channel-major, because a single-query cross-attention reads a sequence directly.
-            assert_eq!(binding.shape, Shape::new(D_MODEL, 1, SOURCE_POSITIONS));
-        }
         // The logits, and nothing else.
         assert_eq!(plan.outputs.len(), 1);
         assert_eq!(plan.outputs[0].shape, Shape::new(VOCAB, 1, 1));
