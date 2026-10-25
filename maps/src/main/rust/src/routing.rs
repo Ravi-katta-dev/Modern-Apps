@@ -10,8 +10,10 @@
 //! (step building, path reconstruction, elevation, lane guidance). Pure moves;
 //! this module only declares the submodules and re-exports the public surface.
 
+pub mod astar;
 pub mod search;
 pub mod steps;
 
-pub use search::{Direct, RoutingContext, SnappedEdge, find_nearest_edge, perform_search_loop, prepare_routing};
+pub use astar::perform_search_loop;
+pub use search::{Direct, RoutingContext, SnappedEdge, find_nearest_edge, prepare_routing};
 pub use steps::{StepData, ascent_descent, reconstruct_path, route_ascent_descent};
