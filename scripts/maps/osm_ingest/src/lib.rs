@@ -30,6 +30,7 @@ pub mod mem;
 pub mod names;
 pub mod nodeloc;
 pub mod osm;
+pub mod overlay;
 pub mod par;
 pub mod pbf;
 pub(crate) mod progress;

@@ -39,6 +39,9 @@ path = "src/lib.rs"
 [[bin]]
 name = "road_graph"
 path = "src/bin/road_graph.rs"
+[[bin]]
+name = "road_overlay"
+path = "src/bin/road_overlay.rs"
 
 [[bin]]
 name = "poi_extract"

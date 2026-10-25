@@ -386,6 +386,37 @@ pub fn write_shape_sample(
     write_pbf(tag, &pbf_from_block(&block))
 }
 
+/// [`write_shape_sample`] with a `highway=*` value per way.
+pub fn write_highway_sample(
+    tag: &str,
+    nodes: &[(i64, i32, i32)],
+    ways: &[(i64, &str, &[i64])],
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let mut st = StringTable::new();
+    let k_hw = st.id("highway");
+    let values: Vec<u32> = ways.iter().map(|(_, hw, _)| st.id(hw)).collect();
+
+    let fixture: Vec<FixtureNode> = nodes
+        .iter()
+        .map(|(id, lat, lon)| (*id, *lat, *lon, Vec::new()))
+        .collect();
+    let dense = dense_group(&fixture);
+
+    let mut node_group = Vec::new();
+    bytes_field(2, &dense, &mut node_group);
+    let mut way_group = Vec::new();
+    for ((id, _, refs), v) in ways.iter().zip(values) {
+        bytes_field(3, &way(*id, &[(k_hw, v)], refs), &mut way_group);
+    }
+
+    let mut block = Vec::new();
+    bytes_field(1, &st.encode(), &mut block);
+    bytes_field(2, &node_group, &mut block);
+    bytes_field(2, &way_group, &mut block);
+    varint_field(17, 100, &mut block); // granularity
+    write_pbf(tag, &pbf_from_block(&block))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

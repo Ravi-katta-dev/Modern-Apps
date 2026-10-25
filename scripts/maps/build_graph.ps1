@@ -323,7 +323,7 @@ $null = Switch-Phase "tools"
 Write-Host "[1/7] Building the host tools ($Region)"
 # PS1-owned subphases: no Rust timer covers cargo itself, so each crate build
 # is one subphase named for the binary it produces.
-$crates = @(@("osm_ingest", "road_graph"), @("osm_ingest", "poi_extract"), @("mamaps_build", "mamaps_build"))
+$crates = @(@("osm_ingest", "road_graph"), @("osm_ingest", "road_overlay"), @("osm_ingest", "poi_extract"), @("mamaps_build", "mamaps_build"))
 if (-not $NoTransit) { $crates += ,@("gtfs_ingest", "transit_shapes") }
 foreach ($crate in $crates) {
     Switch-Subphase $crate[1] | Out-Null
@@ -336,6 +336,7 @@ foreach ($bin in @("mamaps_dump", "mamaps_pack")) {
     if ($LASTEXITCODE -ne 0) { throw "cargo build tile_build/$bin failed with exit code $LASTEXITCODE" }
 }
 $roadGraph  = Find-Built "osm_ingest" "road_graph"
+$roadOverlay = Find-Built "osm_ingest" "road_overlay"
 $poiExtract = Find-Built "osm_ingest" "poi_extract"
 if (-not $NoTransit) { $shapes = Find-Built "gtfs_ingest" "transit_shapes" } else { $shapes = $null }
 $build      = Find-Built "mamaps_build" "mamaps_build"
@@ -366,6 +367,10 @@ if ($LASTEXITCODE -ne 0) { throw "road_graph failed with exit code $LASTEXITCODE
 if (-not (Test-Path (Join-Path $graphDir "metadata.bin"))) {
     throw "graph build produced no metadata.bin at $graphDir -- refusing to run stage A against an empty graph"
 }
+# Highway overlay: the arterial subgraph long routes search on device.
+# mamaps_pack stages graphDir/overlay.bin as an optional section.
+& $roadOverlay --graph $graphDir | Tee-Object -FilePath $graphLog -Append
+if ($LASTEXITCODE -ne 0) { throw "road_overlay failed with exit code $LASTEXITCODE" }
 
 # --- [3/7] transit routes from the world-transit feeds --------------------
 # -NoTransit skips every feed: an empty routes file, as if 0 feeds existed.

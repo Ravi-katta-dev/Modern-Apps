@@ -26,10 +26,11 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use tile_build::mamaps::archive::{
-    unified_build_id, ArchiveEntry, ArchiveFooter, ARCHIVE_ALIGN,
+    unified_build_id, is_known_kind, ArchiveEntry, ArchiveFooter, ARCHIVE_ALIGN,
     ARCHIVE_KIND_GRAPH_EDGES, ARCHIVE_KIND_GRAPH_ELEVATION, ARCHIVE_KIND_GRAPH_INTERMEDIATE,
     ARCHIVE_KIND_GRAPH_LANES, ARCHIVE_KIND_GRAPH_META, ARCHIVE_KIND_GRAPH_NAMES,
-    ARCHIVE_KIND_GRAPH_NODES, ARCHIVE_KIND_POI_ATTRS, ARCHIVE_KIND_POI_INDEX, ARCHIVE_KIND_POI_NAMES,
+    ARCHIVE_KIND_GRAPH_NODES, ARCHIVE_KIND_GRAPH_OVERLAY, ARCHIVE_KIND_POI_ATTRS, ARCHIVE_KIND_POI_INDEX,
+    ARCHIVE_KIND_POI_NAMES,
     ARCHIVE_KIND_POI_SPATIAL, ARCHIVE_KIND_POI_WORDS, ARCHIVE_KIND_TRANSIT,
 };
 use tile_build::mamaps::header::Header;
@@ -129,6 +130,16 @@ fn load_sidecars_impl(
             .map_err(|e| format!("cannot read {}: {e}", t.display()))?;
         transit_prefix = buf;
     }
+    // The highway overlay (`road_overlay`) is optional and sorts after transit.
+    let overlay = graph.join("overlay.bin");
+    match std::fs::metadata(&overlay) {
+        Ok(m) if m.len() > 0 => {
+            staged.push(Staged { kind: ARCHIVE_KIND_GRAPH_OVERLAY, path: overlay, len: m.len(), extra: 0 })
+        }
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("cannot stat {}: {e}", overlay.display())),
+    }
     // Validate every sidecar's magic/version/count BEFORE anything is written: each section's
     // check is the same one its loader runs, and a mismatch fails closed with a non-zero exit
     // and no partial output. Only the small files are read whole; the large graph payloads
@@ -182,6 +193,26 @@ fn validate_sidecars(
         return Err("the graph has 0 nodes -- road_graph wrote nothing?".to_string());
     }
     let len_of = |kind: u8| staged.iter().find(|s| s.kind == kind).map(|s| s.len);
+    // Overlay: `MOVL` v1, built for exactly this graph's node and edge counts.
+    // The router re-checks and ignores a mismatch, but a stale overlay in a
+    // fresh pack is a build mistake worth failing on.
+    if len_of(ARCHIVE_KIND_GRAPH_OVERLAY).is_some() {
+        let path = graph.join("overlay.bin");
+        let mut head = [0u8; 56];
+        std::fs::File::open(&path)
+            .and_then(|mut f| f.read_exact(&mut head))
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        if u32_at(&head, 0) != 0x4C56_4F4D || u32_at(&head, 4) != 1 {
+            return Err("overlay.bin is not a MOVL v1 overlay".to_string());
+        }
+        if (u64_at(&head, 8), u64_at(&head, 16)) != (node_count, edge_count) {
+            return Err(format!(
+                "overlay.bin was built for {} nodes / {} edges, the graph has {node_count} / {edge_count} -- rerun road_overlay",
+                u64_at(&head, 8),
+                u64_at(&head, 16),
+            ));
+        }
+    }
     // Nodes: (N+1) 12-byte records (the sentinel) — or a ZBLK section
     // unpacking to exactly that under v7. Length-checked only (nodes.bin is
     // ~5 GB on planet): the packed archive is re-validated by `ArchiveView`.
@@ -537,6 +568,10 @@ fn verify_packed(tmp: &Path, entry_count: usize) -> Result<(), String> {
         let at = ARCHIVE_DIR_HEADER_LEN + i * ARCHIVE_ENTRY_LEN;
         let e = ArchiveEntry::parse(&dir[at..at + ARCHIVE_ENTRY_LEN])
             .map_err(|e| format!("packed directory entry {i}: {e:?}"))?;
+        // Readers skip unknown kinds; the writer must never emit one.
+        if !is_known_kind(e.kind) {
+            return Err(format!("packed directory entry {i} has unknown kind {}", e.kind));
+        }
         if previous_kind.is_some_and(|p| e.kind <= p) {
             return Err("packed directory is not ordered by section kind".to_string());
         }
@@ -777,7 +812,55 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let _ = id;
     }
-
+    /// The round-trip fixture's 4-node, 2-edge graph dir plus POI dir.
+    fn overlay_fixture(tag: &str) -> (PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("mamaps_pack_{}_{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("poi")).expect("fixture dir");
+        std::fs::write(dir.join("tiles.mamaps"), v7_tiles()).expect("fixture tiles");
+        std::fs::write(dir.join("metadata.bin"), graph_meta(4, 2)).expect("fixture meta");
+        std::fs::write(dir.join("nodes.bin"), vec![0u8; 5 * 12]).expect("fixture nodes");
+        std::fs::write(dir.join("edges.bin"), vec![0u8; 41]).expect("fixture edges");
+        let mut inter = vec![0u8; 8];
+        inter.extend_from_slice(&1u64.to_le_bytes());
+        std::fs::write(dir.join("intermediate.bin"), inter).expect("fixture intermediate");
+        std::fs::write(dir.join("poi").join("poi_index.bin"), vec![0u8; 14]).expect("fixture poi index");
+        std::fs::write(dir.join("poi").join("poi_names.bin"), vec![0u8; 8]).expect("fixture poi names");
+        let poi = dir.join("poi");
+        (dir, poi)
+    }
+    fn overlay_head(nodes: u64, edges: u64) -> Vec<u8> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&0x4C56_4F4Du32.to_le_bytes());
+        out.extend_from_slice(&1u32.to_le_bytes());
+        for v in [nodes, edges, 0, 0, 0, 0] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out
+    }
+    #[test]
+    fn an_overlay_is_packed_as_the_last_section() {
+        let (dir, poi) = overlay_fixture("overlay");
+        let overlay = overlay_head(4, 2);
+        std::fs::write(dir.join("overlay.bin"), &overlay).expect("fixture overlay");
+        let validated = load_sidecars(&dir, &poi, None).expect("stage fixtures");
+        assert_eq!(validated.staged.last().map(|s| s.kind), Some(ARCHIVE_KIND_GRAPH_OVERLAY));
+        let out = dir.join("packed.mamaps");
+        pack_streaming(&dir.join("tiles.mamaps"), &validated, 0xBEEF, &out).expect("pack");
+        let packed = std::fs::read(&out).expect("read packed");
+        let header = Header::parse(&packed).expect("packed header");
+        let view = ArchiveView::parse(&packed, &header).expect("packed archive opens");
+        assert_eq!(view.section(&packed, ARCHIVE_KIND_GRAPH_OVERLAY), Some(&overlay[..]));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn a_stale_overlay_fails_the_pack() {
+        let (dir, poi) = overlay_fixture("stale_overlay");
+        std::fs::write(dir.join("overlay.bin"), overlay_head(5, 2)).expect("fixture overlay");
+        let err = load_sidecars(&dir, &poi, None).expect_err("an overlay for another graph");
+        assert!(err.contains("rerun road_overlay"), "{err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     #[test]
     fn pack_fails_closed_on_bad_magic() {
         let dir = std::env::temp_dir().join(format!(

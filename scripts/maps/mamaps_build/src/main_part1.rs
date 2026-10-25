@@ -28,6 +28,9 @@ fn run(
         opts.bbox = run.region.bbox();
         osm_ingest::graph_build::build_with(input, dir, opts)
             .map_err(|e| format!("graph build: {e}"))?;
+        let ov = osm_ingest::overlay::build(dir, &dir.join("overlay.bin"))
+            .map_err(|e| format!("overlay build: {e}"))?;
+        println!("highway overlay: {} nodes, {} edges, {} bytes", ov.nodes, ov.edges, ov.bytes);
         dir.clone()
     } else {
         check_required(&run.graph, "--graph")?;
