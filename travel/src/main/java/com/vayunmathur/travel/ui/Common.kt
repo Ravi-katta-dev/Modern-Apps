@@ -93,7 +93,7 @@ fun PlaceAutocompleteField(
             suggestions = emptyList()
             return@LaunchedEffect
         }
-        kotlinx.coroutines.delay(250)
+        kotlinx.coroutines.delay(100)
         suggestions = viewModel.autocomplete(text)
     }
 

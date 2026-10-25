@@ -2,7 +2,6 @@ package com.vayunmathur.travel.util
 
 import com.vayunmathur.travel.network.OfferDto
 import com.vayunmathur.travel.network.OrderDetailDto
-import com.vayunmathur.travel.network.OrderEventDto
 import com.vayunmathur.travel.network.SeatElementDto
 import com.vayunmathur.travel.network.StaySearchResultDto
 
@@ -21,16 +20,15 @@ import com.vayunmathur.travel.network.StaySearchResultDto
  */
 
 /**
- * Everything the order-detail screen draws. Unlike the other screens here it merges three
- * ViewModel flows (the order, its webhook alerts, and the pay-later action), so it gets its
- * own state rather than reusing [OrderDetailState].
+ * Everything the order-detail screen draws: the booked trip, plus refresh and
+ * complete-payment actions while the payment is still pending.
  */
 data class OrderDetailUiState(
     val loading: Boolean = false,
     val error: String? = null,
     val order: OrderDetailDto? = null,
-    val events: List<OrderEventDto> = emptyList(),
-    val payment: PaymentActionState = PaymentActionState.Idle,
+    val refreshing: Boolean = false,
+    val checkout: CheckoutState = CheckoutState.Idle,
 )
 
 /**
@@ -43,7 +41,7 @@ interface FlightResultsActions {
     fun toggleAirlineFilter(iata: String) {}
     fun setFareBrandFilter(fareBrand: String?) {}
 
-    /** Re-run the current search, which is how a lapsed price hold is refreshed. */
+    /** Re-run the current search, which is how lapsed offers are refreshed. */
     fun refreshOffers() {}
 
     fun openOffer(offer: OfferDto) {}
@@ -80,7 +78,9 @@ interface StayResultsActions {
 
 /** Order-detail callbacks. Same no-op-default arrangement as [FlightResultsActions]. */
 interface OrderDetailActions {
-    fun payOrder(orderId: String) {}
+    fun refresh() {}
+    fun completePayment() {}
+    fun acceptNewPrice() {}
     fun openChange(orderId: String) {}
     fun openCancel(orderId: String) {}
     fun back() {}

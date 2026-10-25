@@ -29,20 +29,19 @@ import com.vayunmathur.library.ui.ElevatedCard
 import com.vayunmathur.library.ui.ExperimentalMaterial3Api
 import com.vayunmathur.library.ui.HorizontalDivider
 import com.vayunmathur.library.ui.IconCheckCircle
-import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.OutlinedCard
-import com.vayunmathur.library.ui.Scaffold
 import com.vayunmathur.library.ui.Text
-import com.vayunmathur.library.ui.TopAppBar
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.travel.Route
+import com.vayunmathur.travel.intents.openCheckout
 import com.vayunmathur.travel.network.ChangeOfferDto
 import com.vayunmathur.travel.network.SliceDto
 import com.vayunmathur.travel.util.TravelViewModel
 import com.vayunmathur.travel.util.confirmChange
-import com.vayunmathur.travel.util.loadOrderDetail
+import com.vayunmathur.travel.util.loadBookingDetail
+import com.vayunmathur.travel.util.priceChange
 import com.vayunmathur.travel.util.requestChange
 import com.vayunmathur.travel.util.resetChange
 import androidx.compose.ui.res.stringResource
@@ -59,11 +58,12 @@ fun ChangePage(
 
     LaunchedEffect(route.orderId) {
         viewModel.resetChange()
-        if (detail.order?.orderId != route.orderId) viewModel.loadOrderDetail(route.orderId)
+        viewModel.loadBookingDetail(route.orderId)
     }
 
     var selectedSliceIndex by remember { mutableStateOf(0) }
     var newDate by remember { mutableStateOf("") }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     AppScaffold(
         title = stringResource(R.string.change_flights),
@@ -127,10 +127,30 @@ fun ChangePage(
                     Text(stringResource(R.string.no_change_options_available), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     Text(stringResource(R.string.change_options), style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth())
+                    change.checkoutUrl?.let { url ->
+                        LaunchedEffect(url) { openCheckout(context, url) }
+                        Text(
+                            stringResource(R.string.change_payment_needed),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (change.polling) {
+                        Text(
+                            stringResource(R.string.change_processing),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     change.offers.forEach { offer ->
-                        ChangeOfferCard(offer, confirming = change.confirming) {
-                            viewModel.confirmChange(route.orderId, offer.id)
-                        }
+                        ChangeOfferCard(
+                            offer = offer,
+                            price = if (change.pricingOfferId == offer.id) change.price else null,
+                            pricing = change.loading && change.pricingOfferId == offer.id,
+                            confirming = change.confirming,
+                            onPrice = { viewModel.priceChange(route.orderId, offer.id) },
+                            onConfirm = { viewModel.confirmChange(route.orderId, offer.id) },
+                        )
                     }
                     change.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
@@ -165,7 +185,14 @@ private fun SliceChoice(slice: SliceDto, selected: Boolean, onClick: () -> Unit)
 }
 
 @Composable
-private fun ChangeOfferCard(offer: ChangeOfferDto, confirming: Boolean, onSelect: () -> Unit) {
+private fun ChangeOfferCard(
+    offer: ChangeOfferDto,
+    price: com.vayunmathur.travel.network.ChangePriceDto?,
+    pricing: Boolean,
+    confirming: Boolean,
+    onPrice: () -> Unit,
+    onConfirm: () -> Unit,
+) {
     ElevatedCard(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             offer.slices.forEach { slice ->
@@ -174,20 +201,48 @@ private fun ChangeOfferCard(offer: ChangeOfferDto, confirming: Boolean, onSelect
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+            if (!offer.description.isBlank()) {
+                Text(
+                    offer.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             HorizontalDivider()
-            val diff = offer.changeTotalAmount.toDoubleOrNull() ?: 0.0
+            val priced = price != null
+            val amount = price?.amount ?: offer.changeTotalAmount
+            val currency = price?.currency?.ifBlank { null } ?: offer.changeTotalCurrency
+            val diff = amount.toDoubleOrNull() ?: 0.0
             Text(
                 when {
-                    diff > 0 -> stringResource(R.string.extra_to_pay, formatMoney(offer.changeTotalAmount, offer.changeTotalCurrency))
-                    diff < 0 -> stringResource(R.string.refund_1, formatMoney((-diff).toString(), offer.changeTotalCurrency))
+                    !priced && offer.changeTotalAmount.isBlank() -> stringResource(R.string.pricing_change)
+                    diff > 0 -> stringResource(R.string.extra_to_pay, formatMoney(amount, currency))
+                    diff < 0 -> stringResource(R.string.refund_1, formatMoney((-diff).toString(), currency))
                     else -> stringResource(R.string.no_price_change)
                 },
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary,
             )
-            Button(onClick = onSelect, enabled = !confirming, modifier = Modifier.fillMaxWidth()) {
-                Text(if (confirming) stringResource(R.string.confirming) else stringResource(R.string.select_confirm))
+            if (priced && price.outcome.isNotBlank()) {
+                Text(
+                    when (price.outcome) {
+                        "pay" -> stringResource(R.string.extra_to_pay, formatMoney(price.amount, price.currency))
+                        "refund" -> stringResource(R.string.refund_1, formatMoney(price.amount, price.currency))
+                        else -> stringResource(R.string.no_price_change)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (!priced) {
+                Button(onClick = onPrice, enabled = !pricing, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (pricing) stringResource(R.string.pricing_change) else stringResource(R.string.price_and_select))
+                }
+            } else {
+                Button(onClick = onConfirm, enabled = !confirming, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (confirming) stringResource(R.string.confirming) else stringResource(R.string.select_confirm))
+                }
             }
         }
     }

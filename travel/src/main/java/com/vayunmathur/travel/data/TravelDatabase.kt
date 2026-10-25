@@ -44,6 +44,9 @@ interface BookedTripDao {
     @Query("SELECT * FROM BookedTrip ORDER BY createdAt DESC")
     fun observeAll(): Flow<List<BookedTrip>>
 
+    @Query("SELECT * FROM BookedTrip ORDER BY createdAt DESC")
+    suspend fun getAll(): List<BookedTrip>
+
     @Query("SELECT * FROM BookedTrip WHERE orderId = :orderId")
     suspend fun byId(orderId: String): BookedTrip?
 
@@ -86,7 +89,7 @@ interface CustomerDao {
 
 @Database(
     entities = [RecentSearch::class, BookedTrip::class, FrequentFlyer::class, Customer::class],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class TravelDatabase : RoomDatabase() {
@@ -126,6 +129,14 @@ abstract class TravelDatabase : RoomDatabase() {
                             "phoneNumber TEXT NOT NULL DEFAULT '')"
                     )
                     connection.execSQL("ALTER TABLE BookedTrip ADD COLUMN customerId TEXT NOT NULL DEFAULT ''")
+                }
+            },
+            object : androidx.room3.migration.Migration(4, 5) {
+                override suspend fun migrate(connection: SQLiteConnection) {
+                    connection.execSQL("ALTER TABLE BookedTrip ADD COLUMN tripId TEXT NOT NULL DEFAULT ''")
+                    connection.execSQL("ALTER TABLE BookedTrip ADD COLUMN checkoutExpiresAt TEXT NOT NULL DEFAULT ''")
+                    connection.execSQL("ALTER TABLE BookedTrip ADD COLUMN lastName TEXT NOT NULL DEFAULT ''")
+                    connection.execSQL("ALTER TABLE BookedTrip ADD COLUMN failureMessage TEXT NOT NULL DEFAULT ''")
                 }
             },
         )

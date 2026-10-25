@@ -3,12 +3,14 @@ package com.vayunmathur.travel.network
 import com.vayunmathur.library.network.NetworkClient
 
 /**
- * Thin wrapper over the shared [NetworkClient] for the `/api/travel` search and
- * reference endpoints on the self-hosted proxy (`api.maproj.org`). The proxy
- * holds the Duffel token server-side, so the app ships no secret; it just does
- * URL/body construction + delegation to the shared client.
+ * Thin wrapper over the shared [NetworkClient] for the `/api/travel` search,
+ * trip, ancillary and checkout endpoints on the self-hosted proxy
+ * (`api.maproj.org`). The proxy holds the booking token server-side, so the
+ * app ships no secret; it just does URL/body construction + delegation to the
+ * shared client.
  *
- * Order management lives in [TravelOrderApi]; customers in [TravelCustomerApi].
+ * Booking servicing (bookings/changes/cancellations) lives in
+ * [TravelOrderApi]; stays in [StaysApi].
  *
  * Each call throws on network/parse failure; callers (the ViewModel) wrap in
  * try/catch and surface an error state.
@@ -19,18 +21,14 @@ object TravelApi {
 
     private fun enc(s: String): String = travelEnc(s)
 
-    /** Airport/city autocomplete. Returns empty for a blank query. */
-    suspend fun places(query: String): List<PlaceDto> {
-        if (query.isBlank()) return emptyList()
-        return NetworkClient.getJson("$BASE/places?q=${enc(query)}")
-    }
-
     /**
-     * Search bookable flight offers. Either pass a single-leg / round-trip via
-     * [origin]/[destination]/[depart]/[ret], or a multi-city [slices] string
-     * (`"LHR:JFK:2026-09-01,JFK:LAX:2026-09-05"`) which overrides them.
-     * [children] is comma-separated ages (`"5,11"`); [maxConnections] < 0 means
-     * no cap. [cabin] is `economy`/`premium_economy`/`business`/`first`.
+     * Search bookable flight offers synchronously: returns every offer (one per
+     * fare). Either pass a single leg / round trip via
+     * [origin]/[destination]/[depart]/[ret] (`slices` with one slice, or two
+     * where slice 2 reverses slice 1), or one leg of a multi-city trip as a
+     * one-way [slices] string (`"LHR:JFK:2026-09-01"`). [children] is
+     * comma-separated ages (`"5,11"`); [maxConnections] < 0 means no cap.
+     * [cabin] is `economy`/`premium_economy`/`business`/`first`.
      */
     suspend fun flights(
         origin: String = "",
@@ -47,39 +45,6 @@ object TravelApi {
     ): OfferSearchDto = NetworkClient.getJson(
         flightsUrl(
             "/flights",
-            origin,
-            destination,
-            depart,
-            ret,
-            slices,
-            adults,
-            children,
-            infants,
-            cabin,
-            maxConnections,
-            loyalty
-        )
-    )
-
-    /**
-     * Kick off an incremental (batch) search: returns quickly with just the
-     * [OfferSearchDto.offerRequestId] (no offers). Poll [offers] for results.
-     */
-    suspend fun flightsAsync(
-        origin: String = "",
-        destination: String = "",
-        depart: String = "",
-        ret: String? = null,
-        slices: String? = null,
-        adults: Int = 1,
-        children: String = "",
-        infants: Int = 0,
-        cabin: String = "economy",
-        maxConnections: Int = -1,
-        loyalty: String = "",
-    ): OfferSearchDto = NetworkClient.getJson(
-        flightsUrl(
-            "/flights-async",
             origin,
             destination,
             depart,
@@ -126,97 +91,55 @@ object TravelApi {
     }
 
     /**
-     * Server-sorted/filtered listing of a prior search's offers. [sort] is
-     * `total_amount` or `total_duration`; [maxConnections] < 0 means no cap.
+     * Read a cached offer right before booking (offers expire), or to restore
+     * the review screen after process death.
      */
-    suspend fun offers(
-        offerRequestId: String,
-        sort: String? = null,
-        maxConnections: Int = -1,
-    ): List<OfferDto> {
-        val url = buildString {
-            append(BASE).append("/offers")
-            append("?offer_request_id=").append(enc(offerRequestId))
-            if (!sort.isNullOrBlank()) append("&sort=").append(enc(sort))
-            if (maxConnections >= 0) append("&max_connections=").append(maxConnections)
-        }
-        return NetworkClient.getJson(url)
-    }
+    suspend fun offer(id: String): OfferDto =
+        travelGetJson("$BASE/offer?id=${enc(id)}", "Offer no longer available")
+
+    /** Create a trip from the chosen offer ids + travelers. */
+    suspend fun createTrip(request: TripRequestDto): TripDto =
+        travelPostJson("$BASE/trips", request, "Could not start booking")
+
+    /** Current trip state (polled while pending/processing). */
+    suspend fun trip(id: String): TripDto =
+        travelGetJson("$BASE/trips/${enc(id)}", "Could not load booking status")
 
     /**
-     * Start a step-by-step (partial) offer request; returns the first leg's
-     * offers plus the request id used for the following steps.
+     * Ancillaries for a trip. While the server prices it answers 202
+     * `{"status":"pricing","retryAfterSeconds":N}`; this surfaces as
+     * [StillPricingException] carrying the hint so the caller retries. 503
+     * raises [StillPricingException] too, via [travelHttpError].
      */
-    suspend fun createPartialOffers(
-        slices: String? = null,
-        origin: String = "",
-        destination: String = "",
-        depart: String = "",
-        ret: String? = null,
-        adults: Int = 1,
-        children: String = "",
-        infants: Int = 0,
-        cabin: String = "economy",
-        maxConnections: Int = -1,
-        loyalty: String = "",
-    ): PartialOfferDto {
-        val url = flightsUrl(
-            "/partial-offers",
-            origin,
-            destination,
-            depart,
-            ret,
-            slices,
-            adults,
-            children,
-            infants,
-            cabin,
-            maxConnections,
-            loyalty
-        )
+    suspend fun ancillaries(id: String): TripAncillariesDto {
         val res = NetworkClient.performRequest(
-            url = url,
-            method = "POST",
-            headers = mapOf("Content-Type" to "application/json"),
+            url = "$BASE/trips/${enc(id)}/ancillaries",
+            method = "GET",
         )
-        if (!res.isSuccess) {
-            throw IllegalStateException(
-                travelExtractError(res.body).ifBlank { "Search failed (HTTP ${res.status})." }
-            )
+        if (!res.isSuccess) throw travelHttpError(res.status, res.body, "Could not load extras")
+        val data: TripAncillariesDto = travelJson.decodeFromString(res.body)
+        if (data.status == "pricing") {
+            val retryAfter = runCatching {
+                travelJson.decodeFromString<TripPricingDto>(res.body).retryAfterSeconds
+            }.getOrDefault(5)
+            throw StillPricingException(retryAfter, "Extras are still loading.")
         }
-        return travelJson.decodeFromString(res.body)
+        return data
     }
 
-    /** The next leg's offers, given the already-selected partial-offer ids. */
-    suspend fun selectPartialOffer(requestId: String, selected: List<String>): PartialOfferDto {
-        val ids = enc(selected.joinToString(","))
-        return NetworkClient.getJson("$BASE/partial-offers/${enc(requestId)}/select?selected=$ids")
-    }
+    /** Save ancillary selections (replaces all), returning the new totals. */
+    suspend fun selectAncillaries(id: String, selections: List<ServiceSelectionDto>): AncillariesSelectionResultDto =
+        travelPostJson(
+            "$BASE/trips/${enc(id)}/ancillaries",
+            AncillariesSelectionRequestDto(services = selections),
+            "Could not save extras"
+        )
 
-    /** The final orderable fares for the fully-selected combination. */
-    suspend fun partialOfferFares(requestId: String, selected: List<String>): PartialOfferDto {
-        val ids = enc(selected.joinToString(","))
-        return NetworkClient.getJson("$BASE/partial-offers/${enc(requestId)}/fares?selected=$ids")
-    }
-
-    /** Reference list of airlines with logo URLs (cache client-side). */
-    suspend fun airlines(): List<AirlineDto> = NetworkClient.getJson("$BASE/airlines")
-
-    /** Reference list of aircraft types (cache client-side). */
-    suspend fun aircraft(): List<AircraftDto> = NetworkClient.getJson("$BASE/aircraft")
-
-    /** Reference list of cities (cache client-side). */
-    suspend fun cities(): List<CityDto> = NetworkClient.getJson("$BASE/cities")
-
-    /** Reference data for a single airport by IATA code. */
-    suspend fun airport(code: String): AirportDto =
-        NetworkClient.getJson("$BASE/airport?code=${enc(code)}")
-
-    /** Re-price/confirm a single offer right before booking (offers expire). */
-    suspend fun offer(id: String): OfferDto =
-        NetworkClient.getJson("$BASE/offer?id=${enc(id)}")
-
-    /** Per-segment seat maps for an offer. */
-    suspend fun seatMap(offerId: String): List<SeatCabinDto> =
-        NetworkClient.getJson("$BASE/seat-map?id=${enc(offerId)}")
+    /**
+     * Start hosted checkout for a trip. Raises [MissingDetailsException] (422)
+     * when traveler details are missing and [StillPricingException] (503)
+     * while the server is still pricing.
+     */
+    suspend fun checkout(id: String): CheckoutDto =
+        travelPostJson("$BASE/trips/${enc(id)}/checkout", "", "Could not start payment")
 }

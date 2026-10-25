@@ -1,14 +1,18 @@
 package com.vayunmathur.travel.util
 
 import androidx.lifecycle.viewModelScope
+import com.vayunmathur.travel.data.AirportCatalog
 import com.vayunmathur.travel.data.BookedTrip
 import com.vayunmathur.travel.data.RecentSearch
+import com.vayunmathur.travel.data.TRIP_STATUS_PENDING_PAYMENT
+import com.vayunmathur.travel.data.TRIP_TYPE_STAY
 import com.vayunmathur.travel.network.StayBookingRequestDto
 import com.vayunmathur.travel.network.StayBookingResultDto
 import com.vayunmathur.travel.network.StayGuestInputDto
 import com.vayunmathur.travel.network.StayRateDto
 import com.vayunmathur.travel.network.StaySuggestionDto
 import com.vayunmathur.travel.network.StaysApi
+import com.vayunmathur.travel.network.TravelApi
 import kotlinx.coroutines.launch
 
 fun TravelViewModel.searchStays(
@@ -50,9 +54,11 @@ fun TravelViewModel.searchStays(
     }
 }
 
-/** Accommodation/location suggestions for the stays search box. */
-suspend fun TravelViewModel.staySuggestions(query: String): List<StaySuggestionDto> =
-    runCatching { StaysApi.suggestions(query) }.getOrDefault(emptyList())
+/** Accommodation/location suggestions for the stays search box (offline catalog). */
+suspend fun TravelViewModel.staySuggestions(query: String): List<StaySuggestionDto> {
+    AirportCatalog.ensureLoaded(getApplication())
+    return runCatching { AirportCatalog.staySuggestions(query) }.getOrDefault(emptyList())
+}
 
 fun TravelViewModel.loadStayRates(searchResultId: String, accommodationName: String) {
     selectedStayName = accommodationName
@@ -92,6 +98,11 @@ fun TravelViewModel.stayTotal(): Pair<String, String> {
     }
 }
 
+/**
+ * Book a stay: upserts guests, starts hosted checkout, persists a pending
+ * `stay` trip immediately, and hands the checkout URL to the UI for the
+ * Custom Tab. Status then polls via the shared trip endpoint.
+ */
 fun TravelViewModel.bookStay(guest: StayGuestInputDto, email: String, phone: String) {
     val quoteId = stayQuote?.id
     if (quoteId == null) {
@@ -111,7 +122,14 @@ fun TravelViewModel.bookStay(guest: StayGuestInputDto, email: String, phone: Str
             )
         }
             .onSuccess { result ->
-                persistStay(result)
+                persistStay(result, guest, email, phone)
+                stayCheckout = com.vayunmathur.travel.network.CheckoutDto(
+                    checkoutUrl = result.checkoutUrl,
+                    totalAmount = result.totalAmount,
+                    currency = result.totalCurrency,
+                    expiresAt = result.expiresAt,
+                )
+                currentTrip = currentTrip?.copy() // stays poll by trip id below
                 stayBookingMutable.value = StayBookingState.Success(result)
             }
             .onFailure { stayBookingMutable.value = StayBookingState.Error(errorMessage(it)) }
@@ -122,13 +140,37 @@ fun TravelViewModel.resetStayBooking() {
     stayBookingMutable.value = StayBookingState.Idle
 }
 
-private suspend fun TravelViewModel.persistStay(result: StayBookingResultDto) {
+/** Poll the stay's trip after checkout (same ~3s loop as flights). */
+fun TravelViewModel.pollStayTrip() {
+    val tripId = stayQuote?.id ?: return
+    pollTrip(tripId)
+}
+
+private suspend fun TravelViewModel.persistStay(
+    result: StayBookingResultDto,
+    guest: StayGuestInputDto,
+    email: String,
+    phone: String,
+) {
     val name = result.accommodationName.ifBlank { selectedStayName }
     val checkIn = result.checkInDate.ifBlank { selectedCheckIn }
     // Stay bookings don't carry a total; fall back to the confirmed quote.
     val (quoteAmount, quoteCurrency) = stayTotal()
     val amount = result.totalAmount.takeIf { it.isNotBlank() && it != "0" } ?: quoteAmount
     val currency = result.totalCurrency.takeIf { it.isNotBlank() } ?: quoteCurrency
+    val passengers = runCatching {
+        bookingJson.encodeToString(
+            listOf(
+                com.vayunmathur.travel.network.PassengerInputDto(
+                    givenName = guest.givenName,
+                    familyName = guest.familyName,
+                    bornOn = guest.bornOn,
+                    email = email,
+                    phoneNumber = phone,
+                )
+            )
+        )
+    }.getOrDefault("")
     repository.upsertBookedTrip(
         BookedTrip(
             orderId = result.id,
@@ -137,11 +179,29 @@ private suspend fun TravelViewModel.persistStay(result: StayBookingResultDto) {
             departDate = checkIn.take(ISO_DATE_LENGTH),
             amount = amount,
             currency = currency,
-            status = result.status.ifBlank { "confirmed" },
-            type = "stay",
-            customerId = activeCustomerId.value,
+            passengersJson = passengers,
+            status = result.status.ifBlank { TRIP_STATUS_PENDING_PAYMENT },
+            type = TRIP_TYPE_STAY,
+            awaitingPayment = result.status != "confirmed",
+            tripId = result.id,
+            checkoutExpiresAt = result.expiresAt,
+            lastName = guest.familyName,
         )
     )
+    // Prime the shared poll loop with the stay trip id.
+    currentTrip = com.vayunmathur.travel.network.TripDto(
+        tripId = result.id,
+        status = result.status.ifBlank { TRIP_STATUS_PENDING_PAYMENT },
+        bookingReference = result.reference,
+        totalAmount = amount,
+        currency = currency,
+    )
+    // Refresh the canonical state from the server (same shape as flights).
+    runCatching { TravelApi.trip(result.id) }
+        .onSuccess { trip ->
+            currentTrip = trip
+            updateStoredTrip(trip)
+        }
 }
 
 fun TravelViewModel.clearRecents() {

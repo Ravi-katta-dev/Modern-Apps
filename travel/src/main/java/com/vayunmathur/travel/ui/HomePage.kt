@@ -81,10 +81,23 @@ fun HomePage(backStack: NavBackStack<Route>, viewModel: TravelViewModel) {
 
             when (product) {
                 Product.FLIGHTS -> FlightSearchForm(viewModel) { query ->
+                    val legCount = query.legs.size
                     if (query.isRoundTrip) {
                         backStack.add(
                             Route.OutboundSelect(
                                 slices = query.slices,
+                                adults = query.adults,
+                                children = query.children,
+                                infants = query.infants,
+                                cabin = query.cabin,
+                                maxConnections = query.maxConnections,
+                            )
+                        )
+                    } else if (legCount > 1) {
+                        backStack.add(
+                            Route.MultiCityLeg(
+                                slices = query.slices,
+                                legIndex = 0,
                                 adults = query.adults,
                                 children = query.children,
                                 infants = query.infants,

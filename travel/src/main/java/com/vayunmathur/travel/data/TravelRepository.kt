@@ -21,6 +21,7 @@ class TravelRepository private constructor(context: Context) :
 
     // BookedTrip
     fun observeBookedTrips(): Flow<List<BookedTrip>> = bookedTripDao.observeAll()
+    suspend fun getAllBookedTrips(): List<BookedTrip> = bookedTripDao.getAll()
     suspend fun getBookedTrip(orderId: String): BookedTrip? = bookedTripDao.byId(orderId)
     suspend fun upsertBookedTrip(value: BookedTrip) = bookedTripDao.upsert(value)
     suspend fun deleteBookedTripById(orderId: String) = bookedTripDao.deleteById(orderId)

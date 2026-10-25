@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -26,16 +27,19 @@ import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.travel.Route
+import com.vayunmathur.travel.domain.isCheckoutUnexpired
+import com.vayunmathur.travel.intents.openCheckout
 import com.vayunmathur.travel.network.OrderDetailDto
 import com.vayunmathur.travel.network.SliceDto
+import com.vayunmathur.travel.util.CheckoutState
 import com.vayunmathur.travel.util.OrderDetailActions
 import com.vayunmathur.travel.util.OrderDetailUiState
-import com.vayunmathur.travel.util.PaymentActionState
 import com.vayunmathur.travel.util.TravelViewModel
-import com.vayunmathur.travel.util.loadOrderDetail
-import com.vayunmathur.travel.util.loadOrderEvents
-import com.vayunmathur.travel.util.payOrder
-import com.vayunmathur.travel.util.resetPaymentAction
+import com.vayunmathur.travel.util.acceptNewPrice
+import com.vayunmathur.travel.util.loadBookingDetail
+import com.vayunmathur.travel.util.pollTrip
+import com.vayunmathur.travel.util.recheckoutForStoredTrip
+import com.vayunmathur.travel.util.refreshBookingDetail
 import androidx.compose.ui.res.stringResource
 
 /** Binds [TravelViewModel] and the back stack to the stateless [OrderDetailScreen]. */
@@ -46,24 +50,31 @@ fun OrderDetailPage(
     route: Route.OrderDetail,
 ) {
     val state by viewModel.orderDetail.collectAsStateWithLifecycle()
-    val paymentAction by viewModel.payment.collectAsStateWithLifecycle()
-    val orderEvents by viewModel.orderEvents.collectAsStateWithLifecycle()
-    val events = orderEvents[route.orderId].orEmpty()
+    val trips by viewModel.bookedTrips.collectAsStateWithLifecycle()
+    val checkout by viewModel.checkout.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val stored = trips.find { it.orderId == route.orderId }
 
     LaunchedEffect(route.orderId) {
-        viewModel.loadOrderDetail(route.orderId)
-        viewModel.loadOrderEvents(route.orderId)
-    }
-    LaunchedEffect(paymentAction) {
-        if (paymentAction is PaymentActionState.Success) {
-            viewModel.resetPaymentAction()
-            viewModel.loadOrderDetail(route.orderId)
-        }
+        viewModel.loadBookingDetail(route.orderId)
     }
 
-    val actions = remember(viewModel, backStack) {
+    val actions = remember(viewModel, backStack, route) {
         object : OrderDetailActions {
-            override fun payOrder(orderId: String) = viewModel.payOrder(orderId)
+            override fun refresh() = viewModel.refreshBookingDetail(route.orderId)
+            override fun completePayment() {
+                val fresh = (viewModel.checkout.value as? CheckoutState.Ready)?.checkout
+                if (fresh != null) {
+                    openCheckout(context, fresh.checkoutUrl)
+                    // The payment result lands on the trip: show confirmation,
+                    // which polls to the final status.
+                    backStack.add(Route.Confirmation(route.orderId))
+                    viewModel.pollTrip(stored?.tripId?.ifBlank { route.orderId } ?: route.orderId)
+                } else {
+                    viewModel.recheckoutForStoredTrip(route.orderId)
+                }
+            }
+            override fun acceptNewPrice() = viewModel.acceptNewPrice()
             override fun openChange(orderId: String) = backStack.add(Route.Change(orderId))
             override fun openCancel(orderId: String) = backStack.add(Route.Cancel(orderId))
             override fun back() = backStack.pop()
@@ -75,21 +86,27 @@ fun OrderDetailPage(
             loading = state.loading,
             error = state.error,
             order = state.order,
-            events = events,
-            payment = paymentAction,
+            refreshing = state.loading,
+            checkout = checkout,
         ),
+        pendingCheckout = stored?.status == "pending_payment" &&
+            isCheckoutUnexpired(stored.checkoutExpiresAt),
         actions = actions,
     )
 }
 
 /**
- * A booked order, with no dependency on the ViewModel or the back stack so it can be
+ * A booked trip, with no dependency on the ViewModel or the back stack so it can be
  * rendered from a `@Preview` — see `src/screenshotTest`, which is where the store listing
  * images come from.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun OrderDetailScreen(state: OrderDetailUiState, actions: OrderDetailActions) {
+fun OrderDetailScreen(
+    state: OrderDetailUiState,
+    actions: OrderDetailActions,
+    pendingCheckout: Boolean = false,
+) {
     DetailScaffold(
         title = stringResource(R.string.order),
         onNavigateBack = { actions.back() },
@@ -101,73 +118,135 @@ fun OrderDetailScreen(state: OrderDetailUiState, actions: OrderDetailActions) {
                 loading = state.loading,
                 error = state.error,
                 isEmpty = !state.loading && state.error == null,
-                emptyMessage = "Order not found.",
+                emptyMessage = stringResource(R.string.order_not_found),
             )
             return@DetailScaffold
         }
-        state.events.forEach { event -> OrderEventBanner(event.message) }
 
         ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OrderRow("Booking reference", order.bookingReference, emphasize = true)
+                    OrderRow(stringResource(R.string.booking_reference), order.bookingReference, emphasize = true)
                     HorizontalDivider()
-                    OrderRow("Status", order.status.replaceFirstChar(Char::uppercase))
-                    OrderRow(
-                        "Payment",
-                        if (order.paymentStatus == "awaiting_payment") "Awaiting payment" else "Paid",
-                    )
-                    OrderRow("Total", formatMoney(order.totalAmount, order.currency))
+                    OrderRow(stringResource(R.string.status_label), order.status.replaceFirstChar(Char::uppercase))
+                    OrderRow(stringResource(R.string.total), formatMoney(order.totalAmount, order.currency))
                     if (order.passengerNames.isNotEmpty()) {
-                        OrderRow("Passengers", order.passengerNames.joinToString(", "))
+                        OrderRow(stringResource(R.string.passengers_label), order.passengerNames.joinToString(", "))
+                    }
+                    if (order.ticketNumbers.isNotEmpty()) {
+                        OrderRow(stringResource(R.string.ticket_numbers), order.ticketNumbers.joinToString(", "))
+                    }
+                }
+            }
+
+            order.hotel?.let { hotel ->
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(hotel.name, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                        if (hotel.address.isNotBlank()) {
+                            Text(hotel.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (hotel.checkIn.isNotBlank() || hotel.checkOut.isNotBlank()) {
+                            Text(
+                                "${hotel.checkIn} → ${hotel.checkOut}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (hotel.roomName.isNotBlank() || hotel.boardName.isNotBlank()) {
+                            Text(
+                                listOf(hotel.roomName, hotel.boardName).filter { it.isNotBlank() }.joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
 
             order.slices.forEachIndexed { index, slice ->
                 OrderSliceCard(
-                    title = if (order.slices.size > 1) "Flight ${index + 1}" else "Itinerary",
+                    title = if (order.slices.size > 1) stringResource(R.string.flight_n, index + 1) else stringResource(R.string.itinerary),
                     slice = slice,
                 )
             }
 
-            if (order.paymentStatus == "awaiting_payment" && order.status != "cancelled") {
-                val paying = state.payment is PaymentActionState.Loading
-                (state.payment as? PaymentActionState.Error)?.let {
+            if (pendingCheckout) {
+                val loading = state.checkout is CheckoutState.Loading
+                (state.checkout as? CheckoutState.Error)?.let {
                     Text(it.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
+                val fresh = (state.checkout as? CheckoutState.Ready)
+                if (fresh?.checkout?.priceChanged == true) {
+                    PriceChangeNotice(
+                        original = fresh.checkout.originalAmount.orEmpty(),
+                        current = fresh.checkout.totalAmount,
+                        currency = fresh.checkout.currency,
+                        accepted = fresh.acceptedNewPrice,
+                        onAccept = { actions.acceptNewPrice() },
+                    )
+                }
                 Button(
-                    onClick = { actions.payOrder(order.orderId) },
-                    enabled = !paying,
+                    onClick = { actions.completePayment() },
+                    enabled = !loading && (fresh == null || !fresh.checkout.priceChanged || fresh.acceptedNewPrice),
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (paying) stringResource(R.string.paying) else stringResource(R.string.pay_now_with_test_balance)) }
+                ) { Text(stringResource(R.string.complete_payment)) }
             }
 
+            OutlinedButton(
+                onClick = { actions.refresh() },
+                enabled = !state.refreshing,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(stringResource(R.string.refresh_status)) }
+
             if (order.status != "cancelled") {
-                OutlinedButton(
-                    onClick = { actions.openChange(order.orderId) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(stringResource(R.string.change_flights)) }
-                OutlinedButton(
-                    onClick = { actions.openCancel(order.orderId) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text(stringResource(R.string.cancel_order)) }
+                if (order.canChange) {
+                    OutlinedButton(
+                        onClick = { actions.openChange(order.orderId) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.change_flights)) }
+                }
+                if (order.canCancel) {
+                    OutlinedButton(
+                        onClick = { actions.openCancel(order.orderId) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.cancel_order)) }
+                }
             }
     }
 }
 
 @Composable
-private fun OrderEventBanner(message: String) {
-    com.vayunmathur.library.ui.Surface(
-        color = MaterialTheme.colorScheme.errorContainer,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Text(
-            message,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onErrorContainer,
-            modifier = Modifier.padding(12.dp),
-        )
+private fun PriceChangeNotice(
+    original: String,
+    current: String,
+    currency: String,
+    accepted: Boolean,
+    onAccept: () -> Unit,
+) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.price_changed_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                stringResource(
+                    R.string.price_changed_summary,
+                    if (original.isNotBlank()) formatMoney(original, currency) else "—",
+                    formatMoney(current, currency)
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                com.vayunmathur.library.ui.Checkbox(checked = accepted, onCheckedChange = { if (it) onAccept() })
+                Text(
+                    stringResource(R.string.accept_new_price),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
     }
 }
 

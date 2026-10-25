@@ -16,9 +16,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pins ancillary/baggage service selection and upstream error shaping:
- * seat selectability, baggage quantity rules, service tagging and the
- * Duffel/proxy error extraction.
+ * Pins ancillary/baggage service selection and error shaping: seat
+ * selectability, baggage quantity rules, service tagging and the server error
+ * extraction (`{"message": ...}`).
  *
  * travelExtractError, SeatElementDto and the stay DTOs are pure and
  * called directly; selection maps mirror the booking-ops rules
@@ -118,30 +118,33 @@ class AncillaryErrorTest {
     }
 
     @Test
-    fun duffelErrorExtractsTitleAndMessage() {
+    fun serverErrorReadsMessage() {
+        val body = """{"message":"This fare is no longer available. Please search again."}"""
+        assertEquals(
+            "This fare is no longer available. Please search again.",
+            travelExtractError(body)
+        )
+    }
+
+    @Test
+    fun legacyErrorsShapeFallsBackToGeneric() {
         val body = """{"errors":[{"title":"Invalid request","message":"origin is required"}]}"""
-        assertEquals("Invalid request: origin is required", travelExtractError(body))
+        assertEquals("Something went wrong. Please try again.", travelExtractError(body))
     }
 
     @Test
-    fun duffelErrorWithOnlyTitleUsesTitle() {
-        val body = """{"errors":[{"title":"Gone"}]}"""
-        assertEquals("Gone", travelExtractError(body))
+    fun plainTextBodyFallsBackToGeneric() {
+        assertEquals("Something went wrong. Please try again.", travelExtractError("upstream 500: boom"))
     }
 
     @Test
-    fun proxyTextErrorFallsBackToRawBody() {
-        assertEquals("upstream 500: boom", travelExtractError("upstream 500: boom"))
-    }
-
-    @Test
-    fun blankBodyStaysBlank() {
-        assertEquals("", travelExtractError("   "))
+    fun blankBodyFallsBackToGeneric() {
+        assertEquals("Something went wrong. Please try again.", travelExtractError("   "))
     }
 
     @Test
     fun errorIsTruncatedToSnippetLength() {
-        val body = "x".repeat(500)
+        val body = """{"message":"${"x".repeat(500)}"}"""
         assertEquals(300, travelExtractError(body).length)
     }
 

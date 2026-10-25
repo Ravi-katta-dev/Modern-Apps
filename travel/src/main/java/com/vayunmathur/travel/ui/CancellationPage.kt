@@ -33,6 +33,10 @@ import com.vayunmathur.travel.util.quoteCancellation
 import com.vayunmathur.travel.util.resetCancellation
 import androidx.compose.ui.res.stringResource
 
+/**
+ * Shared flight/hotel cancellation: preview (refund, penalty,
+ * commitable/message) → confirm → poll until succeeded/failed.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CancellationPage(
@@ -63,7 +67,7 @@ fun CancellationPage(
                     Text(stringResource(R.string.order_cancelled), style = MaterialTheme.typography.headlineSmall)
                     state.quote?.let {
                         Text(
-                            stringResource(R.string.refund_of_issued_to_your, formatMoney(it.refundAmount, it.refundCurrency), it.refundTo.ifBlank { stringResource(R.string.balance) }),
+                            stringResource(R.string.refund_of_issued_to_your, formatMoney(it.refundAmount, it.refundCurrency), it.refundTo.ifBlank { stringResource(R.string.original_payment) }),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -91,19 +95,42 @@ fun CancellationPage(
                                     fontWeight = FontWeight.SemiBold,
                                 )
                             }
+                            if (!quote.penaltyAmount.isNullOrBlank()) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text(stringResource(R.string.penalty), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(
+                                        formatMoney(quote.penaltyAmount, quote.refundCurrency),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+                                }
+                            }
                             Text(
-                                stringResource(R.string.refunded_to_your, quote.refundTo.ifBlank { stringResource(R.string.balance) }),
+                                stringResource(R.string.refunded_to_your, quote.refundTo.ifBlank { stringResource(R.string.original_payment) }),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                            if (!quote.message.isNullOrBlank()) {
+                                Text(
+                                    quote.message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                     state.error?.let {
                         Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
+                    if (state.polling) {
+                        Text(
+                            stringResource(R.string.cancellation_processing),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Button(
                         onClick = { viewModel.confirmCancellation(route.orderId) },
-                        enabled = !state.confirming,
+                        enabled = !state.confirming && !state.polling && quote.commitable,
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text(if (state.confirming) stringResource(R.string.cancelling) else stringResource(R.string.confirm_cancellation)) }
                 }

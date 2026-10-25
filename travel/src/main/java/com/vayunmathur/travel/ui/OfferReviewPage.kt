@@ -24,12 +24,9 @@ import com.vayunmathur.library.ui.CircularProgressIndicator
 import com.vayunmathur.library.ui.ElevatedCard
 import com.vayunmathur.library.ui.ExperimentalMaterial3Api
 import com.vayunmathur.library.ui.HorizontalDivider
-import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.rememberIs24Hour
-import com.vayunmathur.library.ui.Scaffold
 import com.vayunmathur.library.ui.Text
-import com.vayunmathur.library.ui.TopAppBar
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.library.util.sharedContainer
@@ -38,6 +35,8 @@ import com.vayunmathur.travel.Route
 import com.vayunmathur.travel.network.OfferDto
 import com.vayunmathur.travel.network.SliceDto
 import com.vayunmathur.travel.util.TravelViewModel
+import com.vayunmathur.travel.util.airlineName
+import com.vayunmathur.travel.util.initPassengers
 import com.vayunmathur.travel.util.loadAircraft
 import com.vayunmathur.travel.util.loadCities
 import com.vayunmathur.travel.util.refreshOffer
@@ -52,7 +51,11 @@ fun OfferReviewPage(
 ) {
     val review by viewModel.review.collectAsStateWithLifecycle()
 
-    LaunchedEffect(route.offerId) { viewModel.refreshOffer(route.offerId) }
+    // The offer is seeded by the results screen; only re-read it from the
+    // server when there is nothing in memory (process-death restore).
+    LaunchedEffect(route.offerId) {
+        if (review.offer?.offerId != route.offerId) viewModel.refreshOffer(route.offerId)
+    }
     LaunchedEffect(Unit) {
         viewModel.loadAircraft()
         viewModel.loadCities()
@@ -127,6 +130,9 @@ fun OfferReviewPage(
                 )
             }
 
+            OfferPoliciesCard(offer)
+            OperatingCarrierCard(offer, viewModel)
+
             PriceSummaryCard(offer, review.loading)
 
             if (review.error != null) {
@@ -138,10 +144,74 @@ fun OfferReviewPage(
             }
 
             Button(
-                onClick = { backStack.add(Route.Ancillaries(offer.offerId)) },
+                onClick = {
+                    viewModel.initPassengers(offer)
+                    backStack.add(Route.Passengers(offer.offerId))
+                },
                 enabled = !review.loading,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.continue_action)) }
+        }
+    }
+}
+
+@Composable
+private fun OfferPoliciesCard(offer: OfferDto) {
+    val baggage = offer.baggageSummary
+    if (offer.refundPolicy.isBlank() && offer.changePolicy.isBlank() && baggage.isBlank()) return
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.fare_policies),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            if (baggage.isNotBlank()) {
+                Text(
+                    stringResource(R.string.bags, baggage),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            if (offer.refundPolicy.isNotBlank()) {
+                Text(
+                    stringResource(R.string.refund_policy, offer.refundPolicy),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (offer.changePolicy.isNotBlank()) {
+                Text(
+                    stringResource(R.string.change_policy, offer.changePolicy),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OperatingCarrierCard(offer: OfferDto, viewModel: TravelViewModel) {
+    val operated = offer.slices.flatMap { it.segments }
+        .filter { it.operatingCarrierIata.isNotBlank() && it.operatingCarrierIata != it.carrierIata }
+        .distinctBy { it.operatingCarrierIata to it.carrierIata }
+    if (operated.isEmpty()) return
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            operated.forEach { seg ->
+                val operating = viewModel.airlineName(seg.operatingCarrierIata)
+                val flight = listOf(seg.carrierIata + seg.flightNumber).filter { it.isNotBlank() }
+                    .joinToString(" ")
+                Text(
+                    if (flight.isNotBlank()) {
+                        stringResource(R.string.operated_by_flight, operating, flight)
+                    } else {
+                        stringResource(R.string.operated_by, operating)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

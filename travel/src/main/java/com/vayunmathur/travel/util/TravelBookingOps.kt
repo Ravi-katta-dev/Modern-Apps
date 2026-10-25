@@ -1,22 +1,31 @@
 package com.vayunmathur.travel.util
 
 import androidx.lifecycle.viewModelScope
+import com.vayunmathur.travel.data.AirportCatalog
 import com.vayunmathur.travel.data.BookedTrip
+import com.vayunmathur.travel.data.TRIP_STATUS_PENDING_PAYMENT
+import com.vayunmathur.travel.data.TRIP_STATUS_PROCESSING
+import com.vayunmathur.travel.data.TRIP_TYPE_FLIGHT
+import com.vayunmathur.travel.domain.isTripPollingStatus
+import com.vayunmathur.travel.network.AncillariesSelectionResultDto
+import com.vayunmathur.travel.network.CheckoutDto
 import com.vayunmathur.travel.network.LoyaltyAccountDto
+import com.vayunmathur.travel.network.MissingDetailsException
 import com.vayunmathur.travel.network.OfferDto
-import com.vayunmathur.travel.network.OrderResultDto
 import com.vayunmathur.travel.network.PassengerInputDto
-import com.vayunmathur.travel.network.PaymentInputDto
-import com.vayunmathur.travel.network.OrderRequestDto
 import com.vayunmathur.travel.network.SeatElementDto
 import com.vayunmathur.travel.network.ServiceSelectionDto
-import com.vayunmathur.travel.network.TravelOrderApi
+import com.vayunmathur.travel.network.StillPricingException
 import com.vayunmathur.travel.network.TravelApi
+import com.vayunmathur.travel.network.TripContactDto
+import com.vayunmathur.travel.network.TripDto
+import com.vayunmathur.travel.network.TripRequestDto
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
 /**
- * Initialize one blank passenger per Duffel passenger id on the offer,
+ * Initialize one blank passenger per booking passenger id on the offer,
  * unless a matching set is already present (so returning to the form keeps
  * entered values).
  */
@@ -41,6 +50,23 @@ fun TravelViewModel.initPassengers(offer: OfferDto) {
     }
 }
 
+/**
+ * Prefill the lead passenger's contact fields from a saved booking profile
+ * (local-only): email/phone/name fill blanks only, never overwrite typing.
+ */
+fun TravelViewModel.prefillFromProfile(email: String, givenName: String, familyName: String, phone: String) {
+    if (passengersMutable.value.isEmpty()) return
+    passengersMutable.value = passengersMutable.value.toMutableList().also { list ->
+        val lead = list.firstOrNull() ?: return@also
+        list[0] = lead.copy(
+            email = lead.email.ifBlank { email },
+            phoneNumber = lead.phoneNumber.ifBlank { phone },
+            givenName = lead.givenName.ifBlank { givenName },
+            familyName = lead.familyName.ifBlank { familyName },
+        )
+    }
+}
+
 fun TravelViewModel.updatePassenger(index: Int, passenger: PassengerInputDto) {
     passengersMutable.value = passengersMutable.value.toMutableList().also {
         if (index in it.indices) it[index] = passenger
@@ -61,22 +87,130 @@ fun TravelViewModel.setExtraQuantity(serviceId: String, quantity: Long) {
     }
 }
 
-/** Fetch seat maps for the given offer. */
-fun TravelViewModel.loadSeatMaps(offerId: String) {
-    seatMapMutable.value = SeatMapState(loading = true)
+// --- Trip creation ----------------------------------------------------------
+
+/**
+ * Create the trip (`POST /trips` with the chosen offer ids + passengers +
+ * contact). On success the flow moves to ancillaries; on 422 the UI routes
+ * back to passengers with the missing fields.
+ */
+fun TravelViewModel.createTrip() {
+    val offerIds = selectedOfferIdsMutable.value
+    val pax = passengersMutable.value
+    if (offerIds.isEmpty() || pax.isEmpty()) return
+    val lead = pax.firstOrNull()
+    bookingMutable.value = BookingState.Loading
     viewModelScope.launch {
-        runCatching { TravelApi.seatMap(offerId) }
-            .onSuccess { seatMapMutable.value = SeatMapState(cabins = it) }
-            .onFailure { seatMapMutable.value = SeatMapState(error = errorMessage(it)) }
+        runCatching {
+            TravelApi.createTrip(
+                TripRequestDto(
+                    offerIds = offerIds,
+                    passengers = pax,
+                    contact = lead?.let {
+                        TripContactDto(email = it.email, phoneNumber = it.phoneNumber)
+                    },
+                )
+            )
+        }
+            .onSuccess { trip ->
+                currentTrip = trip
+                bookingMutable.value = BookingState.TripReady(trip)
+                loadAncillaries(trip.tripId)
+            }
+            .onFailure { t ->
+                bookingMutable.value = if (t is MissingDetailsException) {
+                    BookingState.MissingDetails(t.missingFields, errorMessage(t))
+                } else {
+                    BookingState.Error(errorMessage(t))
+                }
+            }
     }
+}
+
+fun TravelViewModel.resetBooking() {
+    bookingMutable.value = BookingState.Idle
+}
+
+// --- Ancillaries ------------------------------------------------------------
+
+private const val ANCILLARY_POLL_ROUNDS = 10
+
+/**
+ * Load trip ancillaries; retries while the server prices (202 `pricing` with
+ * `retryAfterSeconds`, or 503). Bag services render immediately; the seat
+ * section shows "still loading" with a retry while pending.
+ */
+fun TravelViewModel.loadAncillaries(tripId: String) {
+    ancillariesMutable.value = AncillariesState(loading = true)
+    viewModelScope.launch {
+        var attempt = 0
+        while (attempt < ANCILLARY_POLL_ROUNDS) {
+            val result = runCatching { TravelApi.ancillaries(tripId) }
+            val data = result.getOrNull()
+            if (data != null && data.status != "pricing") {
+                ancillariesMutable.value = AncillariesState(
+                    ancillaries = data,
+                    seatMapsLoading = data.seatMapsPending,
+                )
+                if (data.seatMaps.isNotEmpty()) seatMapMutable.value = SeatMapState(cabins = data.seatMaps)
+                return@launch
+            }
+            val failure = result.exceptionOrNull()
+            if (failure != null && failure !is StillPricingException) {
+                ancillariesMutable.value = AncillariesState(error = errorMessage(failure))
+                return@launch
+            }
+            // Still pricing: honor the server's hint, then retry.
+            val waitSecs = (failure as? StillPricingException)?.retryAfterSeconds ?: 5
+            delay(waitSecs.coerceIn(1, 30) * 1_000L)
+            attempt++
+        }
+        ancillariesMutable.value = AncillariesState(
+            error = "Extras are taking too long to load. You can continue without them."
+        )
+    }
+}
+
+/** Retry loading the seat maps only (keeps already-loaded bag services). */
+fun TravelViewModel.retrySeatMaps() {
+    val tripId = currentTrip?.tripId ?: return
+    ancillariesMutable.value = ancillariesMutable.value.copy(seatMapsLoading = true, error = null)
+    viewModelScope.launch {
+        runCatching { TravelApi.ancillaries(tripId) }
+            .onSuccess { data ->
+                ancillariesMutable.value = ancillariesMutable.value.copy(
+                    ancillaries = data,
+                    seatMapsLoading = data.seatMapsPending,
+                )
+                if (data.seatMaps.isNotEmpty()) seatMapMutable.value = SeatMapState(cabins = data.seatMaps)
+            }
+            .onFailure { t ->
+                if (t is StillPricingException) {
+                    // Still pricing: stay in the loading state; the user can retry again.
+                    ancillariesMutable.value = ancillariesMutable.value.copy(seatMapsLoading = false)
+                    loadAncillaries(tripId)
+                } else {
+                    ancillariesMutable.value = ancillariesMutable.value.copy(
+                        seatMapsLoading = false,
+                        error = errorMessage(t)
+                    )
+                }
+            }
+    }
+}
+
+/** Use the trip's seat maps directly for the picker (no separate fetch). */
+fun TravelViewModel.loadSeatMaps() {
+    val cabins = ancillariesMutable.value.ancillaries?.seatMaps.orEmpty()
+    seatMapMutable.value = SeatMapState(cabins = cabins)
 }
 
 /** Load the airline reference list once (for the frequent-flyer picker). */
 fun TravelViewModel.loadAirlines() {
     if (airlinesMutable.value.isNotEmpty()) return
     viewModelScope.launch {
-        runCatching { TravelApi.airlines() }
-            .onSuccess { list -> airlinesMutable.value = list.filter { it.iataCode.isNotBlank() }.sortedBy { it.name } }
+        AirportCatalog.ensureLoaded(getApplication())
+        airlinesMutable.value = AirportCatalog.airlines()
     }
 }
 
@@ -84,7 +218,8 @@ fun TravelViewModel.loadAirlines() {
 fun TravelViewModel.loadAircraft() {
     if (aircraftMutable.value.isNotEmpty()) return
     viewModelScope.launch {
-        runCatching { TravelApi.aircraft() }.onSuccess { aircraftMutable.value = it }
+        AirportCatalog.ensureLoaded(getApplication())
+        aircraftMutable.value = AirportCatalog.aircraft()
     }
 }
 
@@ -92,17 +227,20 @@ fun TravelViewModel.loadAircraft() {
 fun TravelViewModel.loadCities() {
     if (citiesMutable.value.isNotEmpty()) return
     viewModelScope.launch {
-        runCatching { TravelApi.cities() }.onSuccess { citiesMutable.value = it }
+        AirportCatalog.ensureLoaded(getApplication())
+        citiesMutable.value = AirportCatalog.cities()
     }
 }
 
 /** Human aircraft name for an IATA aircraft code, falling back to the code. */
-fun TravelViewModel.aircraftName(iataCode: String): String =
-    aircraftMutable.value.firstOrNull { it.iataCode == iataCode }?.name?.ifBlank { iataCode } ?: iataCode
+fun TravelViewModel.aircraftName(iataCode: String): String = AirportCatalog.aircraftName(iataCode)
 
 /** City name for an IATA city code, falling back to the code. */
-fun TravelViewModel.cityName(iataCode: String): String =
-    citiesMutable.value.firstOrNull { it.iataCode == iataCode }?.name?.ifBlank { iataCode } ?: iataCode
+fun TravelViewModel.cityName(iataCode: String): String = AirportCatalog.cityName(iataCode)
+
+/** Airline name for an IATA code (operating-carrier disclosure), falling back to the code. */
+fun TravelViewModel.airlineName(iataCode: String): String =
+    AirportCatalog.airlineName(iataCode).ifBlank { iataCode }
 
 /** Toggle selection of a (selectable) seat on a segment. */
 fun TravelViewModel.toggleSeat(segmentId: String, seat: SeatElementDto) {
@@ -113,112 +251,208 @@ fun TravelViewModel.toggleSeat(segmentId: String, seat: SeatElementDto) {
     }
 }
 
-/** Combined selected services (baggage + extras + seats) for the order body,
- *  tagged with the passenger each service belongs to when known. */
+/** Combined selected services (baggage + extras + seats) for the trip body. */
 internal fun TravelViewModel.selectedServices(): List<ServiceSelectionDto> {
-    val available = reviewMutable.value.offer?.availableServices.orEmpty()
-    fun passengerFor(id: String): String? =
-        available.firstOrNull { it.id == id }?.passengerIds?.firstOrNull()
+    val available = ancillariesMutable.value.ancillaries?.services.orEmpty()
     val bags = selectedBaggageMutable.value.map { (id, qty) ->
-        ServiceSelectionDto(id = id, quantity = qty, passengerId = passengerFor(id))
+        ServiceSelectionDto(id = id, quantity = qty)
     }
     val extras = selectedExtrasMutable.value.map { (id, qty) ->
-        ServiceSelectionDto(id = id, quantity = qty, passengerId = passengerFor(id))
+        ServiceSelectionDto(id = id, quantity = qty)
     }
     val seats = selectedSeatsMutable.value.values.mapNotNull { seat ->
         seat.serviceId?.let { ServiceSelectionDto(id = it, quantity = 1) }
     }
-    return bags + extras + seats
+    // Include the selected passenger when the service is per-passenger.
+    fun withPassenger(sel: ServiceSelectionDto): ServiceSelectionDto {
+        val passengerId = available.firstOrNull { it.id == sel.id }?.passengerIds?.firstOrNull()
+        return if (passengerId != null) sel.copy(passengerId = passengerId) else sel
+    }
+    return (bags + extras + seats).map(::withPassenger)
 }
 
-/** Book the reviewed offer with the collected passengers via test balance. */
-fun TravelViewModel.createOrder(hold: Boolean = false) {
-    val offer = reviewMutable.value.offer ?: return
-    val pax = passengersMutable.value
-    val customerId = activeCustomerId.value.ifBlank { null }
-    bookingMutable.value = BookingState.Loading
+/**
+ * Save ancillary selections (`POST /trips/:id/ancillaries`); skipped when
+ * nothing is selected. Then moves to checkout.
+ */
+fun TravelViewModel.saveAncillariesAndContinue() {
+    val tripId = currentTrip?.tripId ?: return
+    val selections = selectedServices()
+    if (selections.isEmpty()) {
+        startCheckout()
+        return
+    }
+    ancillariesMutable.value = ancillariesMutable.value.copy(loading = true, error = null)
     viewModelScope.launch {
-        runCatching {
-            TravelOrderApi.createOrder(
-                OrderRequestDto(
-                    offerId = offer.offerId,
-                    passengers = pax,
-                    payment = PaymentInputDto(type = "balance"),
-                    services = selectedServices(),
-                    hold = hold,
-                    customerUserId = customerId,
-                )
-            )
-        }
-            .onSuccess { result ->
-                persistTrip(offer, pax, result, customerId.orEmpty())
-                bookingMutable.value = BookingState.Success(result)
+        runCatching { TravelApi.selectAncillaries(tripId, selections) }
+            .onSuccess { _: AncillariesSelectionResultDto ->
+                ancillariesMutable.value = ancillariesMutable.value.copy(loading = false)
+                startCheckout()
             }
-            .onFailure { bookingMutable.value = BookingState.Error(errorMessage(it)) }
+            .onFailure {
+                ancillariesMutable.value = ancillariesMutable.value.copy(loading = false, error = errorMessage(it))
+            }
     }
 }
 
-/** Settle a hold order later; updates the stored trip on success. */
-fun TravelViewModel.payOrder(orderId: String) {
-    paymentMutable.value = PaymentActionState.Loading
+// --- Checkout ---------------------------------------------------------------
+
+/**
+ * Start hosted checkout (`POST /trips/:id/checkout`). On 422 routes back to
+ * passengers with the missing fields; on 503 retries briefly server-side is
+ * already bounded, so surface the message.
+ */
+fun TravelViewModel.startCheckout() {
+    val tripId = currentTrip?.tripId ?: return
+    checkoutMutable.value = CheckoutState.Loading
     viewModelScope.launch {
-        runCatching { TravelOrderApi.payOrder(orderId) }
-            .onSuccess { result ->
-                repository.getBookedTrip(orderId)?.let { trip ->
-                    repository.upsertBookedTrip(
-                        trip.copy(
-                            awaitingPayment = result.awaitingPayment,
-                            paymentRequiredBy = result.paymentRequiredBy.orEmpty(),
-                            amount = result.totalAmount,
-                            currency = result.currency,
-                        )
-                    )
+        runCatching { TravelApi.checkout(tripId) }
+            .onSuccess { checkout ->
+                checkoutMutable.value = CheckoutState.Ready(checkout)
+                persistPendingTrip(checkout)
+            }
+            .onFailure { t ->
+                if (t is MissingDetailsException) {
+                    bookingMutable.value = BookingState.MissingDetails(t.missingFields, errorMessage(t))
+                } else {
+                    checkoutMutable.value = CheckoutState.Error(errorMessage(t))
                 }
-                paymentMutable.value = PaymentActionState.Success
             }
-            .onFailure { paymentMutable.value = PaymentActionState.Error(errorMessage(it)) }
     }
 }
 
-fun TravelViewModel.resetPaymentAction() {
-    paymentMutable.value = PaymentActionState.Idle
+/** The user accepted a changed price: allow "Pay securely". */
+fun TravelViewModel.acceptNewPrice() {
+    val ready = checkoutMutable.value as? CheckoutState.Ready ?: return
+    checkoutMutable.value = ready.copy(acceptedNewPrice = true)
 }
 
-fun TravelViewModel.tripById(orderId: String): BookedTrip? = bookedTrips.value.find { it.orderId == orderId }
+fun TravelViewModel.resetCheckout() {
+    checkoutMutable.value = CheckoutState.Idle
+}
 
-internal suspend fun TravelViewModel.persistTrip(
-    offer: OfferDto,
-    passengers: List<PassengerInputDto>,
-    result: OrderResultDto,
-    customerId: String = "",
-) {
-    val first = offer.slices.firstOrNull()
-    val roundTrip = offer.slices.size > 1
+/**
+ * Persist the trip immediately (status pending_payment) so the booking
+ * survives leaving for the Custom Tab / process death; the confirmation flow
+ * polls from here.
+ */
+internal suspend fun TravelViewModel.persistPendingTrip(checkout: CheckoutDto) {
+    val trip = currentTrip ?: return
+    val offer = reviewMutable.value.offer
+    val first = offer?.slices?.firstOrNull()
+    val lastName = passengersMutable.value.firstOrNull()?.familyName.orEmpty()
     val route = if (first == null) {
-        ""
+        trip.bookingReference.ifBlank { "Flight booking" }
     } else {
         val base = "${first.origin} → ${first.destination}"
-        if (roundTrip) "$base (round trip)" else base
+        if ((offer?.slices?.size ?: 0) > 1) "$base (round trip)" else base
     }
     repository.upsertBookedTrip(
         BookedTrip(
-            orderId = result.orderId,
-            bookingReference = result.bookingReference,
+            orderId = trip.tripId,
+            bookingReference = trip.bookingReference,
             route = route,
             departDate = first?.departureAt?.take(ISO_DATE_LENGTH).orEmpty(),
-            amount = result.totalAmount,
-            currency = result.currency,
-            passengersJson = runCatching { bookingJson.encodeToString(passengers) }.getOrDefault(""),
-            status = if (result.awaitingPayment) "on hold" else "confirmed",
-            type = "flight",
-            awaitingPayment = result.awaitingPayment,
-            paymentRequiredBy = result.paymentRequiredBy.orEmpty(),
-            customerId = customerId,
+            amount = checkout.totalAmount,
+            currency = checkout.currency,
+            passengersJson = runCatching { bookingJson.encodeToString(passengersMutable.value) }.getOrDefault(""),
+            status = TRIP_STATUS_PENDING_PAYMENT,
+            type = TRIP_TYPE_FLIGHT,
+            awaitingPayment = true,
+            paymentRequiredBy = "",
+            tripId = trip.tripId,
+            checkoutExpiresAt = checkout.expiresAt,
+            lastName = lastName,
         )
     )
 }
 
-private val bookingJson = Json { ignoreUnknownKeys = true }
+// --- Post-checkout polling --------------------------------------------------
+
+private const val TRIP_POLL_ROUNDS = 40
+private const val TRIP_POLL_INTERVAL_MS = 3_000L
+
+/**
+ * Poll `GET /trips/:id` every ~3s up to ~2 minutes while the status is
+ * pending_payment/processing (started on resume after the Custom Tab, and on
+ * confirmation entry). Updates the local trip and surfaces the final state.
+ */
+fun TravelViewModel.pollTrip(tripId: String) {
+    pollJob?.cancel()
+    tripPollMutable.value = TripPollState.Polling
+    pollJob = viewModelScope.launch {
+        repeat(TRIP_POLL_ROUNDS) { round ->
+            if (round > 0) delay(TRIP_POLL_INTERVAL_MS)
+            val trip = runCatching { TravelApi.trip(tripId) }.getOrNull()
+            if (trip != null) {
+                currentTrip = trip
+                updateStoredTrip(trip)
+                if (!isTripPollingStatus(trip.status)) {
+                    tripPollMutable.value = TripPollState.Done(trip)
+                    return@launch
+                }
+                tripPollMutable.value = TripPollState.Polling
+            }
+        }
+        // Timed out still pending: surface the last known state.
+        val last = currentTrip
+        tripPollMutable.value = if (last != null) TripPollState.Done(last)
+        else TripPollState.Error("Still processing. Pull to refresh for the latest status.")
+    }
+}
+
+fun TravelViewModel.stopTripPoll() {
+    pollJob?.cancel()
+    pollJob = null
+    if (tripPollMutable.value is TripPollState.Polling) {
+        tripPollMutable.value = TripPollState.Idle
+    }
+}
+
+/** Refresh one stored trip from the server (Trips pull-to-refresh / per-trip). */
+fun TravelViewModel.refreshStoredTrip(orderId: String) {
+    viewModelScope.launch {
+        val stored = repository.getBookedTrip(orderId) ?: return@launch
+        val tripId = stored.tripId.ifBlank { stored.orderId }
+        runCatching { TravelApi.trip(tripId) }
+            .onSuccess { trip ->
+                currentTrip = trip
+                updateStoredTrip(trip)
+            }
+    }
+}
+
+internal suspend fun TravelViewModel.updateStoredTrip(trip: TripDto) {
+    val stored = repository.getBookedTrip(trip.tripId) ?: return
+    val ref = trip.bookingReference.ifBlank { stored.bookingReference }
+    repository.upsertBookedTrip(
+        stored.copy(
+            bookingReference = ref,
+            amount = trip.totalAmount,
+            currency = trip.currency,
+            status = trip.status,
+            awaitingPayment = trip.status == TRIP_STATUS_PENDING_PAYMENT,
+            failureMessage = trip.failureMessage.orEmpty(),
+        )
+    )
+}
+
+fun TravelViewModel.tripById(orderId: String): BookedTrip? = bookedTrips.value.find { it.orderId == orderId }
+
+/**
+ * Trip ids still awaiting payment/processing (for resume polling in
+ * `MainActivity.onResume`). Reads Room directly so it works even before the
+ * observed list has its first emission.
+ */
+suspend fun TravelViewModel.pendingTripIds(): List<String> =
+    runCatching { repository.getAllBookedTrips() }.getOrDefault(emptyList())
+        .filter {
+            it.status == TRIP_STATUS_PENDING_PAYMENT || it.status == TRIP_STATUS_PROCESSING
+        }
+        .map { it.tripId.ifBlank { it.orderId } }
+        .filter { it.isNotBlank() }
+
+internal val bookingJson = Json { ignoreUnknownKeys = true }
 
 /** Length of an ISO `YYYY-MM-DD` date prefix. */
 private const val ISO_DATE_LENGTH = 10

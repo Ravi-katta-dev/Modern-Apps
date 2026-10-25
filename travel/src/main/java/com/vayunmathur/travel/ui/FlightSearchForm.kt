@@ -34,7 +34,7 @@ import androidx.annotation.StringRes
 import com.vayunmathur.travel.R
 import com.vayunmathur.library.ui.R as UiR
 
-/** The Duffel cabin classes, with a display label. */
+/** The booking-provider cabin classes, with a display label. */
 enum class Cabin(val code: String, @StringRes val label: Int) {
     ECONOMY("economy", R.string.economy),
     PREMIUM("premium_economy", R.string.premium),

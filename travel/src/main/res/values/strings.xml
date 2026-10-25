@@ -66,17 +66,12 @@
     <string name="sort_cheapest">Cheapest</string>
     <!-- Sort: fastest duration. Adjective -->
     <string name="sort_fastest">Fastest</string>
-    <!-- Loading row while still polling Duffel for more fares -->
-    <string name="still_searching_for_more_fares">Still searching for more fares…</string>
     <!-- Banner: live price refresh in progress -->
     <string name="refreshing_prices">Refreshing prices…</string>
     <!-- Banner: prices locked until deadline. %1$s = expiry time e.g. 10:42 AM -->
     <string name="prices_held">Prices held · <xliff:g id="expiry" example="10:42 AM">%1$s</xliff:g></string>
     <!-- Fallback airline name when owner blank. Noun -->
     <string name="flight">Flight</string>
-
-    <!-- PartialOffersPages & shared offer components -->
-    <!-- (reuses flight fallback above) -->
 
     <!-- TopAppBar title for reviewing flight offer. Verb phrase -->
     <string name="review_flight">Review flight</string>
@@ -88,10 +83,41 @@
     <string name="bags">Bags: <xliff:g id="allowance" example="1 checked bag">%1$s</xliff:g></string>
     <!-- Disclaimer: offer hold expiry warning. %1$s = deadline time -->
     <string name="offer_held_until_price_may_change">Offer held until <xliff:g id="deadline" example="10:45 AM">%1$s</xliff:g> · price may change</string>
+    <!-- Section header: fare refund/change policy text. Noun phrase -->
+    <string name="fare_policies">Fare policies</string>
+    <!-- Fare policy row: refund terms. %1$s = policy text -->
+    <string name="refund_policy">Refund: <xliff:g id="policy" example="Refundable before departure">%1$s</xliff:g></string>
+    <!-- Fare policy row: change terms. %1$s = policy text -->
+    <string name="change_policy">Changes: <xliff:g id="policy" example="Changeable with fee">%1$s</xliff:g></string>
+    <!-- Operating carrier disclosure with flight. %1$s = airline, %2$s = flight e.g. BA 249 -->
+    <string name="operated_by_flight">Operated by <xliff:g id="airline" example="British Airways">%1$s</xliff:g> · <xliff:g id="flight" example="BA 249">%2$s</xliff:g></string>
+    <!-- Operating carrier disclosure without flight number. %1$s = airline -->
+    <string name="operated_by">Operated by <xliff:g id="airline" example="British Airways">%1$s</xliff:g></string>
     <!-- Price summary total label. Noun -->
     <string name="total">Total</string>
     <!-- CTA to ancillaries extras page. Verb -->
     <string name="continue_action">Continue</string>
+
+    <!-- Round-trip step 1 title: choose outbound flight. Verb phrase -->
+    <string name="choose_outbound">Choose outbound</string>
+    <!-- Round-trip step 2 title: choose return flight. Verb phrase -->
+    <string name="choose_return">Choose return</string>
+    <!-- Round-trip step 3 title: choose fare. Verb phrase -->
+    <string name="choose_fare">Choose fare</string>
+    <!-- Step indicator 1 of 3. Noun phrase -->
+    <string name="step_1_of_3">Step 1 of 3</string>
+    <!-- Step indicator 2 of 3. Noun phrase -->
+    <string name="step_2_of_3">Step 2 of 3</string>
+    <!-- Step indicator 3 of 3. Noun phrase -->
+    <string name="step_3_of_3">Step 3 of 3</string>
+    <!-- Multi-city leg title. %1$d = leg index, %2$d = leg count -->
+    <string name="choose_flight_leg">Choose flight <xliff:g id="index" example="1">%1$d</xliff:g> of <xliff:g id="count" example="3">%2$d</xliff:g></string>
+    <!-- Empty state: no flights for this leg. Sentence -->
+    <string name="no_flights_for_leg">No flights available for this leg.</string>
+    <!-- Chip: a picked multi-city leg. Adjective -->
+    <string name="picked">Picked</string>
+    <!-- CTA: review all picked multi-city flights. %1$s = total e.g. $812 -->
+    <string name="review_picks">Review picks · <xliff:g id="total" example="$812">%1$s</xliff:g></string>
 
     <!-- TopAppBar title for extras / ancillaries. Verb phrase -->
     <string name="add_extras">Add extras</string>
@@ -101,6 +127,8 @@
     <string name="extras">Extras</string>
     <!-- Section header: seats map section. Noun plural, title case for header -->
     <string name="seats_1">Seats</string>
+    <!-- Notice: seat maps still pricing, with retry. Sentence -->
+    <string name="seat_maps_still_loading">Seat maps are still loading. You can continue without seats or try again.</string>
     <!-- Row showing selected seats for segment. %1$s = seat codes e.g. 12A, 12B -->
     <string name="seats">Seats: <xliff:g id="seats" example="12A, 12B">%1$s</xliff:g></string>
     <!-- Button: change selected seats. Verb -->
@@ -115,8 +143,8 @@
     <string name="for_passenger">For <xliff:g id="passenger" example="John">%1$s</xliff:g></string>
     <!-- Category label: generic extra (seat, bag). Noun -->
     <string name="extra">Extra</string>
-    <!-- CTA to passengers form after extras. Verb phrase -->
-    <string name="continue_to_passengers">Continue to passengers</string>
+    <!-- CTA to checkout after extras. Verb phrase -->
+    <string name="continue_to_checkout">Continue to checkout</string>
 
     <!-- TopAppBar title for passengers input. Noun plural -->
     <string name="passengers">Passengers</string>
@@ -124,7 +152,7 @@
     <string name="given_name">Given name</string>
     <!-- Section label: last/family name. Noun phrase -->
     <string name="family_name">Family name</string>
-    <!-- Field label: first name short version for add customer form. Noun -->
+    <!-- Field label: first name short version for profile form. Noun -->
     <string name="first_name">First name</string>
     <!-- Field label: last name short version. Noun -->
     <string name="last_name">Last name</string>
@@ -138,6 +166,8 @@
     <string name="phone_optional">Phone (optional)</string>
     <!-- Section header: passport identity document. Noun -->
     <string name="passport">Passport</string>
+    <!-- Hint: passport may be requested at checkout. Sentence -->
+    <string name="passport_may_be_needed">Passport details are optional now — payment may ask for them.</string>
     <!-- Field label: passport number. Noun phrase -->
     <string name="passport_number">Passport number</string>
     <!-- Field label: issuing country code example GB. Keep GB as example, not translate code -->
@@ -152,44 +182,82 @@
     <string name="number">Number</string>
     <!-- Link: accompanying infant selector row. Noun phrase -->
     <string name="accompanying_infant">Accompanying infant</string>
-    <!-- CTA to payment page. Verb phrase -->
-    <string name="continue_to_payment">Continue to payment</string>
+    <!-- CTA: create trip then continue to extras. Verb phrase -->
+    <string name="continue_to_extras">Continue to extras</string>
+    <!-- Loading state while creating the trip -->
+    <string name="creating_trip">Creating trip…</string>
+    <!-- Section header: prefill from a saved profile. Verb phrase -->
+    <string name="prefill_from_profile">Prefill from a saved profile</string>
 
     <!-- TopAppBar title for payment. Noun -->
     <string name="payment">Payment</string>
     <!-- Total due amount card header. Noun phrase -->
     <string name="total_due">Total due</string>
-    <!-- Info: which customer booking is for. %1$s = customer name -->
-    <string name="booking_for">Booking for <xliff:g id="customer" example="John">%1$s</xliff:g></string>
-    <!-- Toggle chip: pay now. Verb phrase -->
-    <string name="pay_now">Pay now</string>
-    <!-- Toggle chip: hold order and pay later. Verb phrase in parentheses -->
-    <string name="hold_pay_later">Hold (pay later)</string>
-    <!-- Explanation: hold order meaning, price held until deadline paid from test balance -->
-    <string name="hold_order_the_price_is_held_and_you_pay">Hold order — the price is held and you pay from your test balance before the deadline.</string>
-    <!-- Loading state while booking request in flight -->
-    <string name="booking">Booking…</string>
-    <!-- Button: confirm hold placement. Verb phrase -->
-    <string name="place_hold">Place hold</string>
-    <!-- Button: pay using Duffel test balance (sandbox, no card charged). Verb phrase -->
-    <string name="pay_with_test_balance">Pay with test balance</string>
+    <!-- Explainer: payment finishes on a secure hosted page. Sentence -->
+    <string name="secure_checkout_explainer">You\u2019ll finish payment on a secure page.</string>
+    <!-- Loading state while the checkout link is prepared -->
+    <string name="preparing_checkout">Preparing checkout…</string>
+    <!-- CTA: open the hosted checkout page. Verb phrase -->
+    <string name="pay_securely">Pay securely</string>
+    <!-- Price-change title: fare repriced at checkout. Noun phrase -->
+    <string name="price_changed_title">Price changed</string>
+    <!-- Row label: original quoted price. Noun phrase -->
+    <string name="original_price">Original price</string>
+    <!-- Row label: new current price. Noun phrase -->
+    <string name="new_price">New price</string>
+    <!-- Checkbox: accept the repriced total. Verb phrase -->
+    <string name="accept_new_price">Accept new price</string>
+    <!-- Summary: original vs new price. %1$s = original, %2$s = new -->
+    <string name="price_changed_summary"><xliff:g id="original" example="$410">%1$s</xliff:g> → <xliff:g id="new" example="$438">%2$s</xliff:g></string>
 
-    <!-- Title variants: booking confirmed vs on hold. Noun phrases -->
+    <!-- Title: booking confirmed. Noun phrase -->
     <string name="booking_confirmed">Booking confirmed</string>
-    <!-- Status: order on hold awaiting payment -->
-    <string name="on_hold">On hold</string>
+    <!-- Trip status: awaiting hosted payment. Noun phrase -->
+    <string name="status_payment_pending">Payment pending</string>
+    <!-- Trip status: payment processing. Noun phrase -->
+    <string name="status_processing">Processing</string>
+    <!-- Trip status: confirmed. Adjective -->
+    <string name="status_confirmed">Confirmed</string>
+    <!-- Trip status: partially confirmed. Adjective -->
+    <string name="status_partial">Partial</string>
+    <!-- Trip status: failed. Adjective -->
+    <string name="status_failed">Failed</string>
+    <!-- Trip status: cancelled. Adjective -->
+    <string name="status_cancelled">Cancelled</string>
+    <!-- Trip status fallback: unknown. Adjective -->
+    <string name="status_unknown">Unknown</string>
+    <!-- Headline: payment still pending. Noun phrase -->
+    <string name="payment_pending_headline">Payment pending</string>
+    <!-- Headline: payment confirming. Verb phrase -->
+    <string name="confirming_payment">Confirming payment…</string>
+    <!-- Headline: partially confirmed. Noun phrase -->
+    <string name="partial_headline">Partially confirmed</string>
+    <!-- Headline: booking failed. Noun phrase -->
+    <string name="booking_failed_headline">Booking failed</string>
     <!-- Headline: success you are booked. Phrase with apostrophe escaped -->
     <string name="you_re_booked">You\'re booked!</string>
-    <!-- Headline for held order state. Noun phrase with em dash -->
-    <string name="held_pay_to_confirm">Held — pay to confirm</string>
     <!-- Error empty when trip not found after booking -->
     <string name="trip_not_found">Trip not found.</string>
     <!-- Fallback button to return to search. Verb phrase -->
     <string name="back_to_search">Back to search</string>
-    <!-- Loading: paying for held order -->
-    <string name="paying">Paying…</string>
-    <!-- Button: pay held order with test balance -->
-    <string name="pay_now_with_test_balance">Pay now with test balance</string>
+    <!-- Button: complete a pending hosted payment. Verb phrase -->
+    <string name="complete_payment">Complete payment</string>
+    <!-- Button: re-check booking status. Verb phrase -->
+    <string name="refresh_status">Refresh status</string>
+    <!-- Notice: the payment link expired. Sentence -->
+    <string name="payment_link_expired">This payment link has expired. Please start a new booking.</string>
+    <!-- Detail row label: booking reference. Noun phrase -->
+    <string name="booking_reference">Booking reference</string>
+    <!-- Detail row label: route summary. Noun -->
+    <string name="route_label">Route</string>
+    <!-- Detail row label: departure date. Noun -->
+    <string name="departs">Departs</string>
+    <!-- Detail row label: amount due. Noun phrase -->
+    <string name="amount_due">Amount due</string>
+    <!-- Detail row label: amount paid. Noun phrase -->
+    <string name="amount_paid">Amount paid</string>
+    <!-- Detail row label: generic status. Noun -->
+    <string name="status_label">Status</string>
     <!-- Navigation: go to full itinerary detail -->
     <string name="view_full_itinerary">View full itinerary</string>
     <!-- Navigation: go to my trips list -->
@@ -199,19 +267,21 @@
     <string name="order">Order</string>
     <!-- Action: change flights in this order. Verb phrase -->
     <string name="change_flights">Change flights</string>
+    <!-- Detail row label: passengers list. Noun plural -->
+    <string name="passengers_label">Passengers</string>
+    <!-- Detail row label: ticket numbers. Noun phrase -->
+    <string name="ticket_numbers">Tickets</string>
+    <!-- Empty state: order not found. Sentence -->
+    <string name="order_not_found">Order not found.</string>
+    <!-- Slice title: single itinerary. Noun -->
+    <string name="itinerary">Itinerary</string>
+    <!-- Slice title: numbered flight. %1$d = index -->
+    <string name="flight_n">Flight <xliff:g id="number" example="1">%1$d</xliff:g></string>
 
-    <!-- Sync remote Duffel orders button. Verb phrase -->
-    <string name="sync_remote_orders">Sync remote orders</string>
-    <!-- Loading sync state -->
-    <string name="syncing">Syncing.</string>
-    <!-- Section header: trips synced from Duffel sandbox API -->
-    <string name="synced_from_duffel">Synced from Duffel</string>
     <!-- Chip: payment due on trip card. Noun phrase -->
     <string name="payment_due">Payment due</string>
     <!-- Chip: trip cancelled state. Verb past participle -->
     <string name="cancelled">Cancelled</string>
-    <!-- Chip: airline schedule change notification. Noun phrase -->
-    <string name="schedule_change">Schedule change</string>
 
     <!-- TopAppBar title: cancel order screen -->
     <string name="cancel_order">Cancel order</string>
@@ -219,12 +289,16 @@
     <string name="cancel_this_order">Cancel this order?</string>
     <!-- Label for refund amount row. Noun -->
     <string name="refund">Refund</string>
-    <!-- Quote detail: refund amount %1$s issued to destination %2$s (e.g. balance) -->
-    <string name="refund_of_issued_to_your">Refund of <xliff:g id="amount" example="$120.00">%1$s</xliff:g> issued to your <xliff:g id="destination" example="balance">%2$s</xliff:g>.</string>
-    <!-- Quote detail: refund destination only when refundTo payment method known. %1$s = e.g. balance -->
-    <string name="refunded_to_your">Refunded to your <xliff:g id="destination" example="balance">%1$s</xliff:g>.</string>
-    <!-- Fallback noun for payment destination: balance (test balance) used in refund messages. Lowercase -->
-    <string name="balance">balance</string>
+    <!-- Label for penalty amount row. Noun -->
+    <string name="penalty">Penalty</string>
+    <!-- Notice: cancellation is still processing. Sentence -->
+    <string name="cancellation_processing">Cancellation is processing…</string>
+    <!-- Quote detail: refund amount %1$s issued to destination %2$s (e.g. original payment) -->
+    <string name="refund_of_issued_to_your">Refund of <xliff:g id="amount" example="$120.00">%1$s</xliff:g> issued to your <xliff:g id="destination" example="original payment">%2$s</xliff:g>.</string>
+    <!-- Quote detail: refund destination only when refundTo payment method known. %1$s = e.g. original payment -->
+    <string name="refunded_to_your">Refunded to your <xliff:g id="destination" example="original payment">%2$s</xliff:g>.</string>
+    <!-- Fallback noun for refund destination: original payment method. Lowercase -->
+    <string name="original_payment">original payment</string>
     <!-- Success headline after cancellation API call succeeded -->
     <string name="order_cancelled">Order cancelled</string>
     <!-- Loading state cancelling -->
@@ -236,7 +310,7 @@
     <string name="pick_a_flight_to_change">Pick a flight to change</string>
     <!-- Button to search for change alternatives -->
     <string name="find_change_options">Find change options</string>
-    <!-- Empty state when Duffel returns no change options -->
+    <!-- Empty state when no change options are returned -->
     <string name="no_change_options_available">No change options available.</string>
     <!-- Section header: list of change options -->
     <string name="change_options">Change options</string>
@@ -248,10 +322,18 @@
     <string name="no_price_change">No price change</string>
     <!-- Loading: confirming change -->
     <string name="confirming">Confirming…</string>
+    <!-- Loading: pricing change -->
+    <string name="pricing_change">Pricing change…</string>
+    <!-- Button: price then select a change option. Verb phrase -->
+    <string name="price_and_select">Price &amp; select</string>
+    <!-- Notice: change is still processing. Sentence -->
+    <string name="change_processing">Change is processing…</string>
     <!-- Button: select alternative and confirm change -->
     <string name="select_confirm">Select &amp; confirm</string>
     <!-- Success headline after change confirmed -->
     <string name="change_confirmed">Change confirmed</string>
+    <!-- Notice: extra payment needed to finish change. Sentence -->
+    <string name="change_payment_needed">An extra payment is needed to finish this change.</string>
 
     <!-- TopAppBar title for seat map. Verb phrase -->
     <string name="choose_seats">Choose seats</string>
@@ -262,22 +344,19 @@
     <string name="ff_numbers_explained">Saved numbers are sent when searching so member fares and perks are priced, and are pre-filled when booking.</string>
     <!-- Empty state when no FF numbers saved -->
     <string name="no_frequent_flyer_numbers_saved_yet">No frequent-flyer numbers saved yet.</string>
-    <!-- Section header: customers/profiles saved -->
-    <string name="customers">Customers</string>
-    <!-- Explanatory: bookings linked to active customer -->
-    <string name="active_customer_explained">Bookings are associated with the active customer so orders and payments can be tracked per person.</string>
-    <!-- Empty state when no customers saved -->
-    <string name="no_customers_yet">No customers yet.</string>
-    <!-- Chip/badge: active customer indicator. Adjective -->
-    <string name="active">Active</string>
-    <!-- Button: use this customer as active. Verb -->
-    <string name="use">Use</string>
-    <!-- Button/form: add a customer profile. Verb phrase -->
-    <string name="add_a_customer">Add a customer</string>
-    <!-- Form field label: create customer submit. Verb phrase -->
-    <string name="create_customer">Create customer</string>
-    <!-- Field label: optional phone for customer form (duplicate of passengers form; reuse above id). Noun with (optional) -->
-    <!-- string name="phone_optional" defined above — removed duplicate -->
+    <!-- Section header: booking profiles saved on this device -->
+    <string name="booking_profiles">Booking profiles</string>
+    <!-- Explanatory: profiles prefill passenger contact details -->
+    <string name="profiles_explained">Profiles live on this device only and prefill contact details on the passengers form.</string>
+    <!-- Empty state when no profiles saved -->
+    <string name="no_profiles_yet">No profiles yet.</string>
+    <!-- Button: delete a profile. Verb -->
+    <string name="delete">Delete</string>
+    <!-- Button/form: add a booking profile. Verb phrase -->
+    <string name="add_a_profile">Add a profile</string>
+    <!-- Form field label: save profile submit. Verb phrase -->
+    <string name="save_profile">Save profile</string>
+    <!-- Field label: optional phone for profile form. Noun with (optional) -->
     <!-- Button: add a frequent flyer number. Verb phrase -->
     <string name="add_a_number">Add a number</string>
     <!-- Field label: account number for FF -->
@@ -309,10 +388,10 @@
     <string name="hotel_loyalty_optional">Hotel loyalty (optional)</string>
     <!-- Field label: loyalty programme name. Noun -->
     <string name="programme">Programme</string>
-    <!-- Disclaimer: sandbox booking paid with test balance, no card charged -->
-    <string name="sandbox_booking_paid_with_a_duffel_test">Sandbox booking — paid with a Duffel test balance. No card is charged.</string>
-    <!-- Booking action: loading state booking hotel -->
-    <string name="book_with_test_balance">Book with test balance</string>
+    <!-- Loading state while booking hotel -->
+    <string name="booking">Booking…</string>
+    <!-- Booking action: continue to hosted payment. Verb phrase -->
+    <string name="continue_to_payment">Continue to payment</string>
 
     <string name="destination_or_hotel">Destination or hotel</string>
 </resources>

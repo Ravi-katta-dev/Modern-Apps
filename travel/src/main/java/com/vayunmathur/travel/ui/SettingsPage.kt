@@ -23,17 +23,13 @@ import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.ExperimentalMaterial3Api
-import com.vayunmathur.library.ui.FilterChip
 import com.vayunmathur.library.ui.HorizontalDivider
 import com.vayunmathur.library.ui.IconButton
 import com.vayunmathur.library.ui.IconDelete
-import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.OutlinedCard
 import com.vayunmathur.library.ui.OutlinedTextField
-import com.vayunmathur.library.ui.Scaffold
 import com.vayunmathur.library.ui.Text
-import com.vayunmathur.library.ui.TopAppBar
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.travel.Route
@@ -45,14 +41,14 @@ import com.vayunmathur.travel.util.loadAirlines
 import com.vayunmathur.travel.util.removeCustomer
 import com.vayunmathur.travel.util.removeFrequentFlyer
 import com.vayunmathur.travel.util.saveFrequentFlyer
-import com.vayunmathur.travel.util.selectCustomer
 import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 
 /**
- * App settings. Currently holds saved frequent-flyer accounts, which are applied
- * as loyalty pricing at flight search and pre-filled at booking.
+ * App settings. Holds saved frequent-flyer accounts (applied as loyalty
+ * pricing at flight search and pre-filled at booking) and local-only booking
+ * profiles (prefill for the passengers form).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,7 +56,6 @@ fun SettingsPage(backStack: NavBackStack<Route>, viewModel: TravelViewModel) {
     val frequentFlyers by viewModel.frequentFlyers.collectAsStateWithLifecycle()
     val airlines by viewModel.airlines.collectAsStateWithLifecycle()
     val customers by viewModel.customers.collectAsStateWithLifecycle()
-    val activeCustomerId by viewModel.activeCustomerId.collectAsStateWithLifecycle()
     val customerError by viewModel.customerError.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { viewModel.loadAirlines() }
@@ -105,16 +100,16 @@ fun SettingsPage(backStack: NavBackStack<Route>, viewModel: TravelViewModel) {
 
             HorizontalDivider()
 
-            Text(stringResource(R.string.customers), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.booking_profiles), style = MaterialTheme.typography.titleMedium)
             Text(
-                stringResource(R.string.active_customer_explained),
+                stringResource(R.string.profiles_explained),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             if (customers.isEmpty()) {
                 Text(
-                    stringResource(R.string.no_customers_yet),
+                    stringResource(R.string.no_profiles_yet),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -122,8 +117,6 @@ fun SettingsPage(backStack: NavBackStack<Route>, viewModel: TravelViewModel) {
                 customers.forEach { customer ->
                     CustomerRow(
                         customer = customer,
-                        active = customer.id == activeCustomerId,
-                        onSelect = { viewModel.selectCustomer(customer.id) },
                         onDelete = { viewModel.removeCustomer(customer.id) },
                     )
                 }
@@ -143,8 +136,6 @@ fun SettingsPage(backStack: NavBackStack<Route>, viewModel: TravelViewModel) {
 @Composable
 private fun CustomerRow(
     customer: Customer,
-    active: Boolean,
-    onSelect: () -> Unit,
     onDelete: () -> Unit,
 ) {
     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
@@ -161,11 +152,6 @@ private fun CustomerRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            FilterChip(
-                selected = active,
-                onClick = onSelect,
-                label = { Text(if (active) stringResource(R.string.active) else stringResource(R.string.use)) },
-            )
             IconButton(onClick = onDelete) {
                 IconDelete()
             }
@@ -184,7 +170,7 @@ private fun AddCustomerForm(
     var phone by remember { mutableStateOf("") }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.add_a_customer), style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.add_a_profile), style = MaterialTheme.typography.titleSmall)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 value = given,
@@ -229,7 +215,7 @@ private fun AddCustomerForm(
             },
             enabled = email.isNotBlank() && given.isNotBlank() && family.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
-        ) { Text(stringResource(R.string.create_customer)) }
+        ) { Text(stringResource(R.string.save_profile)) }
     }
 }
 

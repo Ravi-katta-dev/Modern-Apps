@@ -38,10 +38,12 @@ import com.vayunmathur.library.ui.DateString
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.travel.Route
+import com.vayunmathur.travel.intents.openCheckout
 import com.vayunmathur.travel.network.StayGuestInputDto
 import com.vayunmathur.travel.util.StayBookingState
 import com.vayunmathur.travel.util.TravelViewModel
 import com.vayunmathur.travel.util.bookStay
+import com.vayunmathur.travel.util.pollStayTrip
 import com.vayunmathur.travel.util.resetStayBooking
 import com.vayunmathur.travel.util.stayTotal
 import androidx.compose.ui.res.stringResource
@@ -53,6 +55,7 @@ fun StayGuestsPage(
     viewModel: TravelViewModel,
 ) {
     val booking by viewModel.stayBooking.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
     var givenName by remember { mutableStateOf("") }
     var familyName by remember { mutableStateOf("") }
     var bornOn by remember { mutableStateOf("") }
@@ -66,6 +69,10 @@ fun StayGuestsPage(
         val b = booking
         if (b is StayBookingState.Success) {
             viewModel.resetStayBooking()
+            viewModel.pollStayTrip()
+            if (b.result.checkoutUrl.isNotBlank()) {
+                openCheckout(context, b.result.checkoutUrl)
+            }
             backStack.reset(Route.Home, Route.StayConfirmation(b.result.id))
         }
     }
@@ -123,7 +130,7 @@ fun StayGuestsPage(
                 Text(it.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
             Text(
-                stringResource(R.string.sandbox_booking_paid_with_a_duffel_test),
+                stringResource(R.string.secure_checkout_explainer),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -150,7 +157,7 @@ fun StayGuestsPage(
                     CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
                     Text(stringResource(R.string.booking))
                 } else {
-                    Text(stringResource(R.string.book_with_test_balance))
+                    Text(stringResource(R.string.continue_to_payment))
                 }
             }
         }

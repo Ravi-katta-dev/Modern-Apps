@@ -136,22 +136,6 @@ fun FlightResultsScreen(
         if (expiry != null && visible.isNotEmpty()) {
             item { OfferExpiryBanner(expiry) { actions.refreshOffers() } }
         }
-        if (state.polling && visible.isNotEmpty()) {
-            item {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text(
-                        stringResource(R.string.still_searching_for_more_fares),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
         items(visible) { offer ->
             OfferCard(offer) { actions.openOffer(offer) }
         }

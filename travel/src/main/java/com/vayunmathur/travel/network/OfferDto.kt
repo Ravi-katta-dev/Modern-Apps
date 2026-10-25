@@ -25,6 +25,8 @@ data class BaggageDto(
 
 /**
  * A single operated leg of a [SliceDto], from `/api/travel/flights`.
+ * [operatingCarrierIata] names the operating airline when it differs from the
+ * marketing carrier (blank when same/unknown) for the "Operated by" disclosure.
  */
 @Serializable
 data class SegmentDto(
@@ -39,6 +41,7 @@ data class SegmentDto(
     val aircraft: String = "",
     val cabinClass: String = "",
     val baggages: List<BaggageDto> = emptyList(),
+    val operatingCarrierIata: String = "",
 )
 
 /**
@@ -78,7 +81,7 @@ data class SliceDto(
     val fareBrandName: String = "",
 )
 
-/** A passenger carried on an offer (id + Duffel type + optional age). */
+/** A passenger carried on an offer (id + booking type + optional age). */
 @Serializable
 data class OfferPassengerDto(
     val id: String = "",
@@ -88,13 +91,16 @@ data class OfferPassengerDto(
 
 /**
  * A bookable flight offer from `/api/travel/flights` (or refreshed via
- * `/api/travel/offer`). [totalAmount] is a decimal string (Duffel returns money
+ * `/api/travel/offer`). One Offer per fare: [itineraryId] is shared by every
+ * fare of one itinerary. [totalAmount] is a decimal string (money is returned
  * as strings). [offerId] is the id passed back when booking, and [expiresAt] is
- * when the offer can no longer be booked at this price.
+ * when the offer can no longer be booked at this price. [refundPolicy] /
+ * [changePolicy] are display strings (blank when unknown).
  */
 @Serializable
 data class OfferDto(
     val offerId: String = "",
+    val itineraryId: String = "",
     val totalAmount: String = "0",
     val currency: String = "USD",
     val owner: String = "",
@@ -107,6 +113,8 @@ data class OfferDto(
     val passengerIds: List<String> = emptyList(),
     val passengers: List<OfferPassengerDto> = emptyList(),
     val conditions: ConditionsDto = ConditionsDto(),
+    val refundPolicy: String = "",
+    val changePolicy: String = "",
     val availableServices: List<ServiceDto> = emptyList(),
     val fareBrand: String = "",
     val slices: List<SliceDto> = emptyList(),
@@ -127,16 +135,5 @@ data class OfferDto(
 @Serializable
 data class OfferSearchDto(
     val offerRequestId: String = "",
-    val offers: List<OfferDto> = emptyList(),
-)
-
-/**
- * A step in a partial (step-by-step) offer request: the request [id] plus the
- * offers for the current leg (or the final orderable fares). Each partial offer
- * carries a single slice.
- */
-@Serializable
-data class PartialOfferDto(
-    val id: String = "",
     val offers: List<OfferDto> = emptyList(),
 )

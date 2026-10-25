@@ -12,12 +12,12 @@ _Install: ./install travel (dev by default)._
 - Rust: no / screenshotTest: yes
 
 ## Overview
-**Purpose:** Flight + hotel booking — search/comparison, seat maps, ancillaries/offers, order management; trips persist on-device so plans stay readable offline.
+**Purpose:** Flight + hotel booking — search/comparison, seat maps, ancillaries/offers, trip management with hosted checkout; trips persist on-device so plans stay readable offline.
 **Key features:**
-- Flight search form → results → offer review → passengers → payment → confirmation; change/cancel/manage on booked orders
-- Stays search → detail → guests → confirmation; seat-map picker; ancillaries/partial-offers pages
-- `data/` Room (trips, customers, frequent-flyer, recent searches) + `network/` airline/stays DTOs + APIs
-**Architecture / data-flow:** `ui/` search/results/booking pages → `util/TravelViewModel` (+ `TravelUiContract`/`TravelUiState`, per-area `Travel*Ops`) → `data/TravelRepository` over Room + `network/TravelApi`/`StaysApi`; booked trips stay readable from Room when offline.
+- Flight search form → results → offer review → passengers → trip → ancillaries → hosted checkout → confirmation; change/cancel/manage on booked trips
+- Multi-city (one offer per leg, one trip) and round-trip step-by-step (grouped on-device); stays search → detail → guests → hosted checkout → confirmation; seat-map picker
+- `data/` Room (trips, local booking profiles, frequent-flyer, recent searches) + `domain/` on-device grouping/status + `network/` trip/stays DTOs + APIs
+**Architecture / data-flow:** `ui/` search/results/booking pages → `util/TravelViewModel` (+ `TravelUiContract`/`TravelUiState`, per-area `Travel*Ops`) → `domain/` grouping + `data/TravelRepository` over Room + `network/TravelApi`/`StaysApi`; booked trips stay readable from Room when offline.
 **Entry points + reading order:** `MainActivity.kt` → `ui/HomePage.kt` → `ui/FlightSearchForm.kt` → `util/TravelViewModel.kt` → `util/TravelSearchOps.kt` → `network/TravelApi.kt`.
 **Gotchas:**
 - `util/` is NOT a closed package root — pending migration; don't add more files there
@@ -27,13 +27,18 @@ _Install: ./install travel (dev by default)._
 ## Key files
 ### Root — entry (no Route.kt)
 - com/vayunmathur/travel/MainActivity.kt
-### data/ — Room trips + customers
+### data/ — Room trips + profiles
 - com/vayunmathur/travel/data/TravelDatabase.kt
 - com/vayunmathur/travel/data/TravelRepository.kt
 - com/vayunmathur/travel/data/BookedTrip.kt
 - com/vayunmathur/travel/data/Customer.kt
 - com/vayunmathur/travel/data/FrequentFlyer.kt
 - com/vayunmathur/travel/data/RecentSearch.kt
+### domain/ — on-device offer + trip logic
+- com/vayunmathur/travel/domain/OfferGrouping.kt
+- com/vayunmathur/travel/domain/TripStatus.kt
+### intents/ — hosted-checkout Custom Tab
+- com/vayunmathur/travel/intents/CheckoutTabs.kt
 ### network/ — airline + stays APIs
 - com/vayunmathur/travel/network/TravelApi.kt
 - com/vayunmathur/travel/network/OfferDto.kt
@@ -41,7 +46,6 @@ _Install: ./install travel (dev by default)._
 - com/vayunmathur/travel/network/ManageDto.kt
 - com/vayunmathur/travel/network/AirlineDto.kt
 - com/vayunmathur/travel/network/AncillaryDto.kt
-- com/vayunmathur/travel/network/CustomerDto.kt
 - com/vayunmathur/travel/network/PlaceDto.kt
 - com/vayunmathur/travel/network/StaysApi.kt
 - com/vayunmathur/travel/network/StaysDto.kt

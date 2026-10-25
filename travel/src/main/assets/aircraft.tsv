@@ -1,0 +1,221 @@
+iata	name
+100	Fokker 100
+141	BAe 146-100
+142	BAe 146-200
+143	BAe 146-300
+146	BAe 146
+290	Embraer E190-E2
+295	Embraer E195-E2
+310	Airbus A310
+318	Airbus A318
+319	Airbus A319
+31N	Airbus A319neo
+320	Airbus A320
+321	Airbus A321
+32N	Airbus A320neo
+32Q	Airbus A321neo
+330	Airbus A330
+332	Airbus A330-200
+333	Airbus A330-300
+338	Airbus A330-800neo
+339	Airbus A330-900neo
+340	Airbus A340
+342	Airbus A340-200
+343	Airbus A340-300
+345	Airbus A340-500
+346	Airbus A340-600
+350	Airbus A350
+351	Airbus A350-1000
+359	Airbus A350-900
+380	Airbus A380
+388	Airbus A380-800
+703	Boeing 707
+717	Boeing 717
+721	Boeing 727-100
+722	Boeing 727-200
+727	Boeing 727
+732	Boeing 737-200
+733	Boeing 737-300
+734	Boeing 737-400
+735	Boeing 737-500
+736	Boeing 737-600
+737	Boeing 737
+738	Boeing 737-800
+739	Boeing 737-900
+73G	Boeing 737-700
+741	Boeing 747-100
+742	Boeing 747-200
+743	Boeing 747-300
+744	Boeing 747-400
+747	Boeing 747
+748	Boeing 747-8
+74B	Boeing 747 LCF Dreamlifter
+74J	Boeing 747-400D
+74L	Boeing 747SP
+74R	Boeing 747SR
+752	Boeing 757-200
+753	Boeing 757-300
+757	Boeing 757
+762	Boeing 767-200
+763	Boeing 767-300
+764	Boeing 767-400
+767	Boeing 767
+772	Boeing 777-200
+773	Boeing 777-300
+777	Boeing 777
+778	Boeing 777-8
+779	Boeing 777-9
+77L	Boeing 777-200LR
+77W	Boeing 777-300ER
+787	Boeing 787
+788	Boeing 787-8
+789	Boeing 787-9
+78J	Boeing 787-10
+7M7	Boeing 737 MAX 7
+7M8	Boeing 737 MAX 8
+7M9	Boeing 737 MAX 9
+7MJ	Boeing 737 MAX 10
+A25	Antonov An-225 Mriya
+A26	Antonov AN-26
+A28	Antonov AN-28
+A30	Antonov AN-30
+A32	Antonov AN-32
+A40	Antonov AN-140
+A4F	Antonov AN-124 Ruslan
+A58	Antonov An-158
+A81	Antonov An-148
+AB3	Airbus A300
+AB6	Airbus A300-600
+ABB	Airbus A300-600ST Super Transporter / Beluga
+ACP	Gulfstream/Rockwell (Aero) Commander
+ACT	Gulfstream/Rockwell (Aero) Turbo Commander
+AN4	Antonov AN-24
+AN7	Antonov AN-72
+ANF	Antonov AN-12
+AR1	Avro RJ100
+AR7	Avro RJ70
+AR8	Avro RJ85
+AT4	Aerospatiale/Alenia ATR 42-300
+AT5	Aerospatiale/Alenia ATR 42-500
+AT7	Aerospatiale/Alenia ATR 72
+ATP	British Aerospace ATP
+ATR	Aerospatiale/Alenia ATR 42-600
+B11	British Aerospace (BAC) One Eleven
+B72	Boeing 720B
+BEH	Beechcraft 1900
+BH2	Bell 212
+BNI	Pilatus Britten-Norman BN-2A/B Islander
+BNT	Pilatus Britten-Norman BN-2A Mk III Trislander
+CCJ	Canadair Challenger
+CCX	Bombardier Global Express
+CL4	Canadair CL-44
+CN1	Cessna 172
+CNJ	Cessna Citation CJ3
+CR1	Canadair Regional Jet 100
+CR2	Canadair Regional Jet 200
+CR7	Canadair Regional Jet 700
+CR9	Canadair Regional Jet 900
+CRK	Canadair Regional Jet 1000
+CRV	Aerospatiale (Sud Aviation) Se.210 Caravelle
+CS1	Bombardier CS100
+CS3	Bombardier CS300
+D10	Douglas DC-10
+D20	Dassault Falcon 2000
+D28	Fairchild Dornier Do.228
+D38	Fairchild Dornier Do.328
+D3F	Douglas DC-3
+D6F	Douglas DC-6
+D8L	Douglas DC-8-62
+D8Q	Douglas DC-8-72
+D8T	Douglas DC-8-50
+D91	Douglas DC-9-10
+D92	Douglas DC-9-20
+D93	Douglas DC-9-30
+D94	Douglas DC-9-40
+D95	Douglas DC-9-50
+DF3	Dassault Falcon 50
+DF7	Dassault Falcon 7X
+DF9	Dassault Falcon 900
+DH1	De Havilland Canada DHC-8-100 Dash 8 / 8Q
+DH2	De Havilland Canada DHC-8-200 Dash 8 / 8Q
+DH3	De Havilland Canada DHC-8-300 Dash 8
+DH4	De Havilland Canada DHC-8-400 Dash 8Q
+DH7	De Havilland Canada DHC-7 Dash 7
+DHC	De Havilland Canada DHC-4 Caribou
+DHD	De Havilland DH.104 Dove
+DHH	De Havilland DH.114 Heron
+DHL	De Havilland Canada DHC-3 Otter
+DHP	De Havilland Canada DHC-2 Beaver
+DHR	De Havilland Canada DHC-2 Turbo-Beaver
+DHT	De Havilland Canada DHC-6 Twin Otter
+E70	Embraer 170
+E75	Embraer 175
+E7W	Embraer 175 (long wing)
+E90	Embraer 190
+E95	Embraer 195
+EM2	Embraer EMB 120 Brasilia
+EMB	Embraer EMB 110 Bandeirante
+EP1	Embraer Phenom 100
+EP3	Embraer Phenom 300
+ER3	Embraer Legacy 600
+ER4	Embraer RJ145
+ERD	Embraer RJ140
+F21	Fokker F28 Fellowship
+F27	Fokker F27 Friendship
+F50	Fokker 50
+F70	Fokker 70
+FRJ	Fairchild Dornier 328JET
+GJ4	Gulfstream IV
+GJ5	Gulfstream V
+GJ6	Gulfstream G650
+GR3	Gulfstream G280
+GRS	Gulfstream Aerospace G-159 Gulfstream I
+H25	British Aerospace 125 series / Hawker/Raytheon 700/800/800XP/850/900
+HS7	Hawker Siddeley HS 748
+I14	Ilyushin IL114
+I93	Ilyushin IL96
+IL6	Ilyushin IL62
+IL7	Ilyushin IL76
+IL8	Ilyushin IL18
+ILW	Ilyushin IL86
+J31	British Aerospace Jetstream 31
+J32	British Aerospace Jetstream 32
+J41	British Aerospace Jetstream 41
+L10	Lockheed L-1011 Tristar
+L49	Lockheed L-1049 Super Constellation
+LOE	Lockheed L-188 Electra
+LOH	Lockheed L-182 / 282 / 382 (L-100) Hercules
+LRJ	Learjet 35
+M11	McDonnell Douglas MD-11
+M81	McDonnell Douglas MD-81
+M82	McDonnell Douglas MD-82
+M83	McDonnell Douglas MD-83
+M87	McDonnell Douglas MD-87
+M88	McDonnell Douglas MD-88
+M90	McDonnell Douglas MD-90
+ND2	Aerospatiale (Nord) 262
+NDC	Aerospatiale SN.601 Corvette
+PA2	Piper PA-31 Navajo
+PAG	Piper PA-46
+PL2	Pilatus PC-12
+PL6	Pilatus PC-6 Turbo Porter
+PN6	Partenavia P.68
+S20	Saab 2000
+S58	Sikorsky S-58T
+S61	Sikorsky S-61
+S76	Sikorsky S-76
+S92	Sikorsky S-92
+SF3	Saab SF340A/B
+SH3	Shorts SD.330
+SH6	Shorts SD.360
+SHB	Shorts SC-5 Belfast
+SHS	Shorts SC-7 Skyvan
+SSC	Concorde
+SU9	Sukhoi Superjet 100-95
+T20	Tupolev Tu-204
+TU3	Tupolev Tu-134
+TU5	Tupolev Tu-154
+YK2	Yakovlev Yak-42
+YK4	Yakovlev Yak-40
+YN2	Harbin Yunshuji Y12
+YS1	NAMC YS-11

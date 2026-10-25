@@ -56,7 +56,7 @@ private val GAP = 4.dp
 private val AISLE = 22.dp
 
 /**
- * Duffel gives variable element counts per section (e.g. a 3-4-3 cabin), and does
+ * Seat maps give variable element counts per section (e.g. a 3-4-3 cabin), and do
  * not pad rows to a uniform width, so we can't render elements 1:1 and expect
  * columns to line up. Instead we derive a canonical grid per cabin: the ordered
  * set of seat-letters in each section. Seats are then placed under their own
@@ -102,7 +102,8 @@ fun SeatMapPage(
     val state by viewModel.seatMap.collectAsStateWithLifecycle()
     val selectedSeats by viewModel.selectedSeats.collectAsStateWithLifecycle()
 
-    LaunchedEffect(route.offerId) { viewModel.loadSeatMaps(route.offerId) }
+    // Seat maps ride on the trip ancillaries (loaded before this screen).
+    LaunchedEffect(route.offerId) { viewModel.loadSeatMaps() }
 
     val actions = remember(viewModel, backStack) {
         object : SeatMapActions {

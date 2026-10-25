@@ -33,6 +33,33 @@ import com.vayunmathur.travel.network.AirlineDto
 import com.vayunmathur.travel.network.IdentityDocumentDto
 import com.vayunmathur.travel.network.LoyaltyAccountDto
 
+/** Row of saved booking profiles; tapping one prefills the lead passenger. */
+@Composable
+internal fun ProfilePrefillRow(
+    profiles: List<com.vayunmathur.travel.data.Customer>,
+    onPick: (com.vayunmathur.travel.data.Customer) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            stringResource(R.string.prefill_from_profile),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            profiles.forEach { profile ->
+                FilterChip(
+                    selected = false,
+                    onClick = { onPick(profile) },
+                    label = { Text(profile.displayName) },
+                )
+            }
+        }
+    }
+}
+
 @Composable
 internal fun IdentityDocumentFields(doc: IdentityDocumentDto?, onChange: (IdentityDocumentDto) -> Unit) {
     val current = doc ?: IdentityDocumentDto()

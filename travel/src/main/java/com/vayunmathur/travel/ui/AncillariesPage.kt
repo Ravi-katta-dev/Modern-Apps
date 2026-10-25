@@ -1,5 +1,6 @@
 package com.vayunmathur.travel.ui
 import com.vayunmathur.travel.R
+import com.vayunmathur.library.ui.R as UiR
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,24 +24,27 @@ import com.vayunmathur.library.ui.ExperimentalMaterial3Api
 import com.vayunmathur.library.ui.HorizontalDivider
 import com.vayunmathur.library.ui.IconAdd
 import com.vayunmathur.library.ui.IconButton
-import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.IconRemove
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.OutlinedButton
-import com.vayunmathur.library.ui.Scaffold
 import com.vayunmathur.library.ui.Text
-import com.vayunmathur.library.ui.TopAppBar
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.travel.Route
-import com.vayunmathur.travel.network.OfferDto
 import com.vayunmathur.travel.network.ServiceDto
+import com.vayunmathur.travel.util.AncillariesState
 import com.vayunmathur.travel.util.TravelViewModel
 import com.vayunmathur.travel.util.initPassengers
+import com.vayunmathur.travel.util.retrySeatMaps
+import com.vayunmathur.travel.util.saveAncillariesAndContinue
 import com.vayunmathur.travel.util.setBaggageQuantity
 import com.vayunmathur.travel.util.setExtraQuantity
 import androidx.compose.ui.res.stringResource
 
+/**
+ * Extras step: bag services + seat maps off the created trip. Saving posts
+ * the selections, then the flow moves to hosted checkout.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AncillariesPage(
@@ -48,11 +52,13 @@ fun AncillariesPage(
     viewModel: TravelViewModel,
     @Suppress("UNUSED_PARAMETER") route: Route.Ancillaries,
 ) {
+    val state by viewModel.ancillaries.collectAsStateWithLifecycle()
     val review by viewModel.review.collectAsStateWithLifecycle()
     val selectedBaggage by viewModel.selectedBaggage.collectAsStateWithLifecycle()
     val selectedExtras by viewModel.selectedExtras.collectAsStateWithLifecycle()
     val selectedSeats by viewModel.selectedSeats.collectAsStateWithLifecycle()
     val offer = review.offer
+    val services = state.ancillaries?.services.orEmpty()
 
     AppScaffold(
         title = stringResource(R.string.add_extras),
@@ -63,6 +69,10 @@ fun AncillariesPage(
             StatusBox(loading = false, error = null, isEmpty = true, emptyMessage = "No offer selected.")
             return@AppScaffold
         }
+        if (state.loading && services.isEmpty()) {
+            StatusBox(loading = true, error = null, isEmpty = false, modifier = Modifier.padding(padding))
+            return@AppScaffold
+        }
         Column(
             Modifier
                 .fillMaxSize()
@@ -71,8 +81,9 @@ fun AncillariesPage(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            val multiPassenger = offer.passengers.size > 1
-            val bags = offer.availableServices.filter { it.type == "baggage" }
+            val passengerCount = offer.passengers.size.coerceAtLeast(1)
+            val multiPassenger = passengerCount > 1
+            val bags = services.filter { it.type == "baggage" }
             if (bags.isNotEmpty()) {
                 SectionHeader(stringResource(R.string.extra_baggage))
                 bags.forEach { svc ->
@@ -85,7 +96,7 @@ fun AncillariesPage(
                 }
             }
 
-            val extras = offer.availableServices.filter { it.type != "baggage" && it.type != "seat" }
+            val extras = services.filter { it.type != "baggage" && it.type != "seat" }
             if (extras.isNotEmpty()) {
                 SectionHeader(stringResource(R.string.extras))
                 extras.forEach { svc ->
@@ -99,6 +110,9 @@ fun AncillariesPage(
             }
 
             SectionHeader(stringResource(R.string.seats_1))
+            if (state.seatMapsLoading) {
+                SeatMapsPendingCard { viewModel.retrySeatMaps() }
+            }
                 offer.slices.forEach { slice ->
                 slice.segments.forEach { seg ->
                     val segSeats = selectedSeats.filterKeys { it.startsWith("${seg.id}|") }.values
@@ -129,15 +143,19 @@ fun AncillariesPage(
             }
 
             HorizontalDivider()
-            ExtrasSummary(offer, selectedBaggage, selectedExtras, selectedSeats)
+            ExtrasSummary(offer.currency, services, selectedBaggage, selectedExtras, selectedSeats)
+
+            state.error?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
 
             Button(
                 onClick = {
-                    viewModel.initPassengers(offer)
-                    backStack.add(Route.Passengers(offer.offerId))
+                    viewModel.saveAncillariesAndContinue()
                 },
+                enabled = !state.loading,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(stringResource(R.string.continue_to_passengers)) }
+            ) { Text(stringResource(R.string.continue_to_checkout)) }
         }
     }
 }
@@ -224,7 +242,7 @@ private fun ExtraServiceRow(
 }
 
 /** A human label for a passenger id, e.g. "Adult 1" / "Child 2". */
-private fun passengerLabel(offer: OfferDto, passengerId: String?): String? {
+private fun passengerLabel(offer: com.vayunmathur.travel.network.OfferDto, passengerId: String?): String? {
     if (passengerId == null) return null
     val index = offer.passengers.indexOfFirst { it.id == passengerId }
     if (index < 0) return null
@@ -236,16 +254,31 @@ private fun passengerLabel(offer: OfferDto, passengerId: String?): String? {
 }
 
 @Composable
+private fun SeatMapsPendingCard(onRetry: () -> Unit) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.seat_maps_still_loading),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            OutlinedButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(UiR.string.retry))
+            }
+        }
+    }
+}
+
+@Composable
 private fun ExtrasSummary(
-    offer: OfferDto,
+    currency: String,
+    services: List<ServiceDto>,
     selectedBaggage: Map<String, Long>,
     selectedExtras: Map<String, Long>,
     selectedSeats: Map<String, com.vayunmathur.travel.network.SeatElementDto>,
 ) {
-    val currency = offer.currency
     var total = 0.0
     (selectedBaggage + selectedExtras).forEach { (id, qty) ->
-        val svc = offer.availableServices.find { it.id == id }
+        val svc = services.find { it.id == id }
         total += (svc?.totalAmount?.toDoubleOrNull() ?: 0.0) * qty
     }
     selectedSeats.values.forEach { total += it.totalAmount?.toDoubleOrNull() ?: 0.0 }

@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -27,11 +29,28 @@ import com.vayunmathur.library.ui.Text
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.travel.Route
+import com.vayunmathur.travel.data.TRIP_STATUS_FAILED
+import com.vayunmathur.travel.data.TRIP_STATUS_PARTIAL
+import com.vayunmathur.travel.data.TRIP_STATUS_PENDING_PAYMENT
+import com.vayunmathur.travel.data.TRIP_STATUS_PROCESSING
+import com.vayunmathur.travel.domain.isCheckoutUnexpired
+import com.vayunmathur.travel.domain.isTripAwaitingPayment
+import com.vayunmathur.travel.domain.isTripPollingStatus
+import com.vayunmathur.travel.domain.tripStatusLabel
+import com.vayunmathur.travel.intents.openCheckout
+import com.vayunmathur.travel.util.CheckoutState
 import com.vayunmathur.travel.util.TravelViewModel
-import com.vayunmathur.travel.util.payOrder
-import com.vayunmathur.travel.util.resetPaymentAction
+import com.vayunmathur.travel.util.TripPollState
+import com.vayunmathur.travel.util.pollTrip
+import com.vayunmathur.travel.util.recheckoutForStoredTrip
 import androidx.compose.ui.res.stringResource
 
+/**
+ * Post-payment confirmation: polls the trip while pending/processing and
+ * shows the final status (confirmed / processing / failed / partial) with the
+ * booking reference. While pending_payment (and the checkout has not expired)
+ * offers "Complete payment" (fresh link in a Custom Tab) + "Refresh status".
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConfirmationPage(
@@ -41,16 +60,17 @@ fun ConfirmationPage(
 ) {
     val trips by viewModel.bookedTrips.collectAsStateWithLifecycle()
     val trip = trips.find { it.orderId == route.orderId }
-    val paymentAction by viewModel.payment.collectAsStateWithLifecycle()
+    val poll by viewModel.tripPoll.collectAsStateWithLifecycle()
+    val checkout by viewModel.checkout.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
-    androidx.compose.runtime.LaunchedEffect(paymentAction) {
-        if (paymentAction is com.vayunmathur.travel.util.PaymentActionState.Success) {
-            viewModel.resetPaymentAction()
-        }
+    LaunchedEffect(route.orderId) {
+        val id = trip?.tripId?.ifBlank { route.orderId } ?: route.orderId
+        viewModel.pollTrip(id)
     }
 
     DetailScaffold(
-        title = if (trip?.awaitingPayment == true) stringResource(R.string.on_hold) else stringResource(R.string.booking_confirmed),
+        title = stringResource(confirmationTitle(trip?.status.orEmpty())),
         scrollBehavior = appBarScrollBehavior(),
     ) {
         Column(
@@ -70,32 +90,76 @@ fun ConfirmationPage(
                 modifier = Modifier.size(64.dp).padding(top = 8.dp),
                 tint = MaterialTheme.colorScheme.primary,
             )
-            Text(if (trip.awaitingPayment) stringResource(R.string.held_pay_to_confirm) else stringResource(R.string.you_re_booked), style = MaterialTheme.typography.headlineSmall)
+            Text(
+                stringResource(confirmationHeadline(trip.status)),
+                style = MaterialTheme.typography.headlineSmall
+            )
+
+            if (poll is TripPollState.Polling || trip.status == TRIP_STATUS_PROCESSING) {
+                Text(
+                    stringResource(R.string.confirming_payment),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    DetailRow("Booking reference", trip.bookingReference, emphasize = true)
+                    DetailRow(
+                        stringResource(R.string.booking_reference),
+                        trip.bookingReference.ifBlank { "—" },
+                        emphasize = true
+                    )
                     HorizontalDivider()
-                    DetailRow("Route", trip.route)
-                    DetailRow("Departs", TravelViewModel.prettyDate(trip.departDate))
-                    DetailRow(if (trip.awaitingPayment) "Amount due" else "Amount paid", formatMoney(trip.amount, trip.currency))
-                    DetailRow("Status", trip.status.replaceFirstChar(Char::uppercase))
-                    if (trip.awaitingPayment && trip.paymentRequiredBy.isNotBlank()) {
-                        DetailRow("Pay before", TravelViewModel.prettyDate(trip.paymentRequiredBy.take(10)))
+                    DetailRow(stringResource(R.string.route_label), trip.route)
+                    DetailRow(stringResource(R.string.departs), TravelViewModel.prettyDate(trip.departDate))
+                    DetailRow(
+                        stringResource(if (isTripAwaitingPayment(trip.status)) R.string.amount_due else R.string.amount_paid),
+                        formatMoney(trip.amount, trip.currency)
+                    )
+                    DetailRow(stringResource(R.string.status_label), stringResource(tripStatusLabel(trip.status)))
+                    if (trip.status == TRIP_STATUS_FAILED && trip.failureMessage.isNotBlank()) {
+                        Text(
+                            trip.failureMessage,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
             }
 
-            if (trip.awaitingPayment) {
-                val paying = paymentAction is com.vayunmathur.travel.util.PaymentActionState.Loading
-                (paymentAction as? com.vayunmathur.travel.util.PaymentActionState.Error)?.let {
+            if (isTripAwaitingPayment(trip.status)) {
+                (checkout as? CheckoutState.Error)?.let {
                     Text(it.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
-                Button(
-                    onClick = { viewModel.payOrder(trip.orderId) },
-                    enabled = !paying,
+                val fresh = (checkout as? CheckoutState.Ready)?.checkout
+                if (fresh != null && isCheckoutUnexpired(trip.checkoutExpiresAt)) {
+                    Button(
+                        onClick = { openCheckout(context, fresh.checkoutUrl) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.complete_payment)) }
+                } else if (isCheckoutUnexpired(trip.checkoutExpiresAt)) {
+                    val loading = checkout is CheckoutState.Loading
+                    Button(
+                        onClick = { viewModel.recheckoutForStoredTrip(trip.orderId) },
+                        enabled = !loading,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(stringResource(R.string.complete_payment)) }
+                } else {
+                    Text(
+                        stringResource(R.string.payment_link_expired),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+
+            if (isTripPollingStatus(trip.status) || trip.status == TRIP_STATUS_PARTIAL) {
+                OutlinedButton(
+                    onClick = { viewModel.pollTrip(trip.tripId.ifBlank { trip.orderId }) },
+                    enabled = poll !is TripPollState.Polling,
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text(if (paying) stringResource(R.string.paying) else stringResource(R.string.pay_now_with_test_balance)) }
+                ) { Text(stringResource(R.string.refresh_status)) }
             }
 
             Button(onClick = { backStack.reset(Route.Home) }, modifier = Modifier.fillMaxWidth()) {
@@ -111,6 +175,22 @@ fun ConfirmationPage(
             ) { Text(stringResource(R.string.view_my_trips)) }
         }
     }
+}
+
+private fun confirmationTitle(status: String): Int = when (status) {
+    TRIP_STATUS_PENDING_PAYMENT -> R.string.status_payment_pending
+    TRIP_STATUS_PROCESSING -> R.string.status_processing
+    TRIP_STATUS_PARTIAL -> R.string.status_partial
+    TRIP_STATUS_FAILED -> R.string.status_failed
+    else -> R.string.booking_confirmed
+}
+
+private fun confirmationHeadline(status: String): Int = when (status) {
+    TRIP_STATUS_PENDING_PAYMENT -> R.string.payment_pending_headline
+    TRIP_STATUS_PROCESSING -> R.string.confirming_payment
+    TRIP_STATUS_PARTIAL -> R.string.partial_headline
+    TRIP_STATUS_FAILED -> R.string.booking_failed_headline
+    else -> R.string.you_re_booked
 }
 
 @Composable

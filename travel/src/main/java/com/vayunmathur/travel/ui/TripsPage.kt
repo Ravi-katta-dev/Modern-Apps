@@ -1,6 +1,5 @@
 package com.vayunmathur.travel.ui
 import com.vayunmathur.travel.R
-import com.vayunmathur.library.ui.R as UiR
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,88 +16,75 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.vayunmathur.library.ui.AppPullToRefreshBox
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.AssistChip
 import com.vayunmathur.library.ui.ElevatedCard
 import com.vayunmathur.library.ui.ExperimentalMaterial3Api
+import com.vayunmathur.library.ui.IconButton
 import com.vayunmathur.library.ui.IconFlight
 import com.vayunmathur.library.ui.IconHotel
-import com.vayunmathur.library.ui.IconNavigation
+import com.vayunmathur.library.ui.IconRefresh
 import com.vayunmathur.library.ui.MaterialTheme
-import com.vayunmathur.library.ui.OutlinedButton
-import com.vayunmathur.library.ui.Scaffold
 import com.vayunmathur.library.ui.Text
-import com.vayunmathur.library.ui.TopAppBar
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.travel.Route
 import com.vayunmathur.travel.data.BookedTrip
-import com.vayunmathur.travel.network.OrderDetailDto
+import com.vayunmathur.travel.data.TRIP_STATUS_CANCELLED
+import com.vayunmathur.travel.domain.isTripPollingStatus
+import com.vayunmathur.travel.domain.tripStatusLabel
 import com.vayunmathur.travel.util.TravelViewModel
-import com.vayunmathur.travel.util.loadOrderEvents
-import com.vayunmathur.travel.util.loadRemoteOrders
+import com.vayunmathur.travel.util.refreshStoredTrip
 import androidx.compose.ui.res.stringResource
 
+/**
+ * Trips hub: every stored trip (flights + stays). Pull-to-refresh (or the top
+ * action) refreshes pending trips from the server; each row also carries its
+ * own refresh while its status is still pending/processing.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TripsPage(backStack: NavBackStack<Route>, viewModel: TravelViewModel) {
     val trips by viewModel.bookedTrips.collectAsStateWithLifecycle()
-    val remote by viewModel.remoteOrders.collectAsStateWithLifecycle()
-    val orderEvents by viewModel.orderEvents.collectAsStateWithLifecycle()
-
-    androidx.compose.runtime.LaunchedEffect(remote.orders) {
-        remote.orders.forEach { viewModel.loadOrderEvents(it.orderId) }
-    }
+    val pending = trips.any { isTripPollingStatus(it.status) }
 
     AppScaffold(
         title = stringResource(R.string.my_trips),
         backStack = backStack,
+        actions = {
+            IconButton(onClick = { trips.forEach { viewModel.refreshStoredTrip(it.orderId) } }) {
+                IconRefresh()
+            }
+        },
         scrollBehavior = appBarScrollBehavior(),
     ) { padding ->
-        LazyColumn(
+        AppPullToRefreshBox(
+            isRefreshing = pending && trips.isNotEmpty(),
+            onRefresh = { trips.forEach { viewModel.refreshStoredTrip(it.orderId) } },
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
         ) {
-            item {
-                OutlinedButton(
-                    onClick = { viewModel.loadRemoteOrders() },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                ) { Text(if (remote.loading) stringResource(R.string.syncing) else stringResource(R.string.sync_remote_orders)) }
-            }
-
-            if (trips.isNotEmpty()) {
-                item { SectionHeader(stringResource(UiR.string.saved)) }
-                items(trips) { trip -> LocalTripCard(trip) { backStack.add(destinationForTrip(trip)) } }
-            }
-
-            if (remote.orders.isNotEmpty()) {
-                item { SectionHeader(stringResource(R.string.synced_from_duffel)) }
-                items(remote.orders) { order ->
-                    RemoteOrderCard(order, hasUpdates = orderEvents[order.orderId].orEmpty().isNotEmpty()) {
-                        backStack.add(Route.OrderDetail(order.orderId))
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
+            ) {
+                if (trips.isNotEmpty()) {
+                    items(trips) { trip ->
+                        LocalTripCard(
+                            trip = trip,
+                            onClick = { backStack.add(destinationForTrip(trip)) },
+                            onRefresh = { viewModel.refreshStoredTrip(trip.orderId) },
+                        )
                     }
-                }
-            }
-
-            if (remote.error != null) {
-                item {
-                    Text(
-                        remote.error!!,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(16.dp),
-                    )
-                }
-            }
-
-            if (trips.isEmpty() && remote.orders.isEmpty() && !remote.loading) {
-                item {
-                    StatusBox(
-                        loading = false,
-                        error = null,
-                        isEmpty = true,
-                        emptyMessage = "No booked trips yet.",
-                    )
+                } else {
+                    item {
+                        StatusBox(
+                            loading = false,
+                            error = null,
+                            isEmpty = true,
+                            emptyMessage = "No booked trips yet.",
+                        )
+                    }
                 }
             }
         }
@@ -106,7 +92,7 @@ fun TripsPage(backStack: NavBackStack<Route>, viewModel: TravelViewModel) {
 }
 
 @Composable
-private fun LocalTripCard(trip: BookedTrip, onClick: () -> Unit) {
+private fun LocalTripCard(trip: BookedTrip, onClick: () -> Unit, onRefresh: () -> Unit) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable { onClick() },
     ) {
@@ -119,55 +105,30 @@ private fun LocalTripCard(trip: BookedTrip, onClick: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text(trip.route, style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "${TravelViewModel.prettyDate(trip.departDate)} · ${trip.bookingReference}",
+                    "${TravelViewModel.prettyDate(trip.departDate)} · ${trip.bookingReference.ifBlank { stringResource(tripStatusLabel(trip.status)) }}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (trip.awaitingPayment) {
+                if (isTripPollingStatus(trip.status)) {
                     AssistChip(onClick = onClick, label = { Text(stringResource(R.string.payment_due)) })
-                } else if (trip.status.equals("cancelled", ignoreCase = true)) {
+                } else if (trip.status.equals(TRIP_STATUS_CANCELLED, ignoreCase = true)) {
                     AssistChip(onClick = onClick, label = { Text(stringResource(R.string.cancelled)) })
                 }
             }
-            Text(
-                formatMoney(trip.amount, trip.currency),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-    }
-}
-
-@Composable
-private fun RemoteOrderCard(order: OrderDetailDto, hasUpdates: Boolean = false, onClick: () -> Unit) {
-    val route = order.slices.firstOrNull()?.let { "${it.origin} → ${it.destination}" } ?: order.bookingReference
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).clickable { onClick() },
-    ) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconFlight(modifier = Modifier.padding(end = 12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(route, style = MaterialTheme.typography.titleMedium)
+            Column(horizontalAlignment = Alignment.End) {
                 Text(
-                    "${order.bookingReference} · ${order.status.replaceFirstChar(Char::uppercase)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    formatMoney(trip.amount, trip.currency),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
                 )
-                if (hasUpdates) {
-                    AssistChip(onClick = onClick, label = { Text(stringResource(R.string.schedule_change)) })
-                } else if (order.paymentStatus == "awaiting_payment") {
-                    AssistChip(onClick = onClick, label = { Text(stringResource(R.string.payment_due)) })
+                if (isTripPollingStatus(trip.status)) {
+                    IconButton(onClick = onRefresh) { IconRefresh() }
                 }
             }
-            Text(
-                formatMoney(order.totalAmount, order.currency),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
         }
     }
 }
 
 /** Where tapping a local trip goes, depending on flight vs stay. */
 private fun destinationForTrip(trip: BookedTrip): Route =
-    if (trip.type == "stay") Route.StayConfirmation(trip.orderId) else Route.OrderDetail(trip.orderId)
+    if (trip.type == "stay") Route.StayConfirmation(trip.orderId) else Route.Confirmation(trip.orderId)

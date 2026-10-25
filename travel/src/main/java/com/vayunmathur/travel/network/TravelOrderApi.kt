@@ -1,11 +1,10 @@
 package com.vayunmathur.travel.network
 
-import com.vayunmathur.library.network.NetworkClient
-
 /**
- * Order management endpoints under `/api/travel` (book, pay, list, change,
- * cancel, services). Split from [TravelApi] so neither object exceeds the
- * TooManyFunctions cap. Shares URL/error helpers via [TravelApiCore.kt].
+ * Booking servicing keyed by booking reference + traveler last name, under
+ * `/api/travel` (detail, cancel, change). Split from [TravelApi] so neither
+ * object exceeds the TooManyFunctions cap. Shares URL/error helpers via
+ * [TravelApiCore.kt].
  */
 object TravelOrderApi {
 
@@ -13,73 +12,64 @@ object TravelOrderApi {
 
     private fun enc(s: String): String = travelEnc(s)
 
-    /**
-     * Book a selected offer. Returns the confirmed order (with a PNR). On a
-     * non-2xx response the actual upstream message (e.g. a Duffel validation
-     * error) is surfaced instead of a bare HTTP status.
-     */
-    suspend fun createOrder(request: OrderRequestDto): OrderResultDto {
-        val res = NetworkClient.performRequest(
-            url = "$BASE/orders",
-            method = "POST",
-            headers = mapOf("Content-Type" to "application/json"),
-            body = request,
+    /** Full detail for a booked trip. */
+    suspend fun bookingDetail(ref: String, lastName: String): OrderDetailDto =
+        travelGetJson(
+            "$BASE/bookings/${enc(ref)}?last_name=${enc(lastName)}",
+            "Could not load booking"
         )
-        if (!res.isSuccess) {
-            throw IllegalStateException(
-                travelExtractError(res.body).ifBlank { "Booking failed (HTTP ${res.status})." }
-            )
-        }
-        return travelJson.decodeFromString(res.body)
-    }
 
-    /** Settle a hold order via balance (pay later). */
-    suspend fun payOrder(orderId: String): OrderResultDto {
-        val res = NetworkClient.performRequest(
-            url = "$BASE/orders/${enc(orderId)}/pay",
-            method = "POST",
-            headers = mapOf("Content-Type" to "application/json"),
-        )
-        if (!res.isSuccess) {
-            throw IllegalStateException(
-                travelExtractError(res.body).ifBlank { "Payment failed (HTTP ${res.status})." }
-            )
-        }
-        return travelJson.decodeFromString(res.body)
-    }
-
-    /** List the account's remote orders (for the Trips hub). */
-    suspend fun listOrders(): List<OrderDetailDto> = NetworkClient.getJson("$BASE/orders")
-
-    /** Full detail for one remote order. */
-    suspend fun orderDetail(orderId: String): OrderDetailDto =
-        NetworkClient.getJson("$BASE/orders/${enc(orderId)}")
-
-    /** Server-recorded webhook events (schedule change / cancellation) for an order. */
-    suspend fun orderEvents(orderId: String): List<OrderEventDto> =
-        NetworkClient.getJson("$BASE/order-events?order_id=${enc(orderId)}")
-
-    /** Get a refund quote for cancelling an order (does not confirm). */
-    suspend fun cancelQuote(orderId: String): CancellationDto =
-        travelPostJson("$BASE/orders/${enc(orderId)}/cancel", "", "Cancellation quote failed")
-
-    /** Confirm a cancellation. */
-    suspend fun confirmCancellation(cancellationId: String): CancellationDto =
+    /** Preview cancelling a booking (refund, penalty, commitable/message). */
+    suspend fun cancelPreview(ref: String, lastName: String): CancellationDto =
         travelPostJson(
-            "$BASE/cancellations/${enc(cancellationId)}/confirm",
+            "$BASE/bookings/${enc(ref)}/cancel?last_name=${enc(lastName)}",
+            "",
+            "Cancellation quote failed"
+        )
+
+    /** Commit a cancellation preview. */
+    suspend fun confirmCancellation(quoteId: String): CancellationDto =
+        travelPostJson(
+            "$BASE/cancellations/${enc(quoteId)}/confirm",
             "",
             "Cancellation failed"
         )
 
-    /** Start an order change; returns priced change offers. */
-    suspend fun changeRequest(orderId: String, input: ChangeRequestInputDto): ChangeRequestResultDto =
-        travelPostJson("$BASE/orders/${enc(orderId)}/changes", input, "Change request failed")
+    /** Poll a committed cancellation until succeeded/failed. */
+    suspend fun cancellationStatus(operationId: String, ref: String, lastName: String): CancellationDto =
+        travelGetJson(
+            "$BASE/cancellations/${enc(operationId)}?ref=${enc(ref)}&last_name=${enc(lastName)}",
+            "Could not load cancellation status"
+        )
 
-    /** Accept a change offer, paying any difference via balance. */
-    suspend fun confirmChange(changeOfferId: String): OrderResultDto =
-        travelPostJson("$BASE/changes/${enc(changeOfferId)}/confirm", "", "Change failed")
+    /** Start a booking change; returns priced change offers. */
+    suspend fun changeRequest(ref: String, lastName: String, input: ChangeRequestInputDto): ChangeRequestResultDto =
+        travelPostJson(
+            "$BASE/bookings/${enc(ref)}/changes?last_name=${enc(lastName)}",
+            input,
+            "Change request failed"
+        )
 
-    /** Add services to a booked order, settling via balance. */
-    suspend fun addServices(orderId: String, input: AddServicesInputDto): OrderResultDto =
-        travelPostJson("$BASE/orders/${enc(orderId)}/services", input, "Adding services failed")
+    /** Price a change offer (pay / refund / even). */
+    suspend fun changePrice(offerId: String, ref: String, lastName: String): ChangePriceDto =
+        travelPostJson(
+            "$BASE/changes/${enc(offerId)}/price?ref=${enc(ref)}&last_name=${enc(lastName)}",
+            "",
+            "Could not price change"
+        )
+
+    /** Confirm a change offer (may return a checkoutUrl when payment is due). */
+    suspend fun confirmChange(offerId: String, ref: String, lastName: String): ChangeConfirmDto =
+        travelPostJson(
+            "$BASE/changes/${enc(offerId)}/confirm?ref=${enc(ref)}&last_name=${enc(lastName)}",
+            "",
+            "Change failed"
+        )
+
+    /** Live change status (after confirm, while pending). */
+    suspend fun changeStatus(ref: String, lastName: String): ChangeStatusDto =
+        travelGetJson(
+            "$BASE/changes/status?ref=${enc(ref)}&last_name=${enc(lastName)}",
+            "Could not load change status"
+        )
 }

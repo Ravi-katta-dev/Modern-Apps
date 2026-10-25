@@ -92,6 +92,22 @@ fun StayDetailPage(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+                if (rates.description.isNotBlank()) {
+                    Text(rates.description, style = MaterialTheme.typography.bodyMedium)
+                }
+                val times = listOf(
+                    rates.checkInTime.takeIf { it.isNotBlank() }
+                        ?.let { "${stringResource(R.string.check_in)} $it" },
+                    rates.checkOutTime.takeIf { it.isNotBlank() }
+                        ?.let { "${stringResource(R.string.check_out)} $it" },
+                ).filterNotNull()
+                if (times.isNotEmpty()) {
+                    Text(
+                        times.joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             HorizontalDivider()
             SectionHeader(stringResource(R.string.rooms))

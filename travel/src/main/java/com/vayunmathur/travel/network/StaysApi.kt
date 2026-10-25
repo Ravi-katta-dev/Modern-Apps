@@ -7,7 +7,9 @@ import kotlinx.serialization.json.Json
 /**
  * Thin wrapper over the shared [NetworkClient] for the `/api/stays` endpoints on
  * the proxy. Mirrors [TravelApi]: URL/body construction + delegation, with the
- * Duffel token held server-side. Callers wrap in try/catch and surface errors.
+ * booking token held server-side. Booking completes via hosted checkout; the
+ * trip is then polled/serviced through the shared trip + bookings endpoints.
+ * Callers wrap in try/catch and surface errors.
  */
 object StaysApi {
 
@@ -18,8 +20,10 @@ object StaysApi {
     private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 
     /**
-     * Search accommodations near [place] (an IATA code the server resolves to
-     * coordinates) for the given dates. [checkIn]/[checkOut] are `YYYY-MM-DD`.
+     * Search accommodations for the given dates. [place] is free text the
+     * server resolves (or an IATA code); pass [latitude]/[longitude] when the
+     * offline suggestion carried coordinates. [checkIn]/[checkOut] are
+     * `YYYY-MM-DD`.
      */
     suspend fun search(
         place: String,
@@ -47,34 +51,17 @@ object StaysApi {
         return NetworkClient.getJson(url)
     }
 
-    /** Accommodation/location autocomplete for the search box. */
-    suspend fun suggestions(query: String): List<StaySuggestionDto> {
-        if (query.isBlank()) return emptyList()
-        return NetworkClient.getJson("$BASE/suggestions?q=${enc(query)}")
-    }
-
     /** All rates for a search result. */
     suspend fun rates(searchResultId: String): StayRatesDto =
         NetworkClient.getJson("$BASE/rates?id=${enc(searchResultId)}")
 
-    /** Confirm price/availability for a rate. */
+    /** Create a trip for a chosen rate (confirming price). */
     suspend fun quote(rateId: String): StayQuoteDto =
         postJson("$BASE/quote", StayQuoteRequest(rateId), "Quote failed")
 
-    /** Book a quoted rate. */
+    /** Book a quoted rate: upserts travelers, starts hosted checkout. */
     suspend fun book(request: StayBookingRequestDto): StayBookingResultDto =
         postJson("$BASE/bookings", request, "Booking failed")
-
-    /** List stay bookings. */
-    suspend fun bookings(): List<StayBookingResultDto> = NetworkClient.getJson("$BASE/bookings")
-
-    /** One stay booking. */
-    suspend fun bookingDetail(id: String): StayBookingResultDto =
-        NetworkClient.getJson("$BASE/bookings/${enc(id)}")
-
-    /** Cancel a stay booking. */
-    suspend fun cancel(id: String): StayBookingResultDto =
-        postJson("$BASE/bookings/${enc(id)}/cancel", "", "Cancellation failed")
 
     private const val MAX_ERROR_SNIPPET_LENGTH = 300
 
@@ -85,10 +72,7 @@ object StaysApi {
             headers = mapOf("Content-Type" to "application/json"),
             body = if (body is String && body.isEmpty()) null else body,
         )
-        if (!res.isSuccess) {
-            val snippet = res.body.trim().take(MAX_ERROR_SNIPPET_LENGTH)
-            throw IllegalStateException(snippet.ifBlank { "$fallback (HTTP ${res.status})." })
-        }
+        if (!res.isSuccess) throw travelHttpError(res.status, res.body, fallback)
         return json.decodeFromString(res.body)
     }
 }

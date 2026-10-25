@@ -42,11 +42,11 @@ private const val SEGMENT = "seg_0000AaBbCc"
 /**
  * Store listing images for `:travel`. See `common-conventions-preview-metadata`.
  *
- * The four screens walk the booking: pick a fare, pick a seat, see the confirmed order,
+ * The four screens walk the booking: pick a fare, pick a seat, see the booked trip,
  * and the hotel side of the app.
  *
  * Everything is a literal DTO. That matters more here than in the other apps, because every
- * one of these screens is normally filled by a live Duffel search:
+ * one of these screens is normally filled by a live flight search:
  *
  *  - No logo or photo URLs. Layoutlib has no network, and both `AirlineLogo` and the stay
  *    card fall back cleanly to a badge / no image when the URL is blank.

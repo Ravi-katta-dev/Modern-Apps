@@ -2,7 +2,11 @@ package com.vayunmathur.travel.network
 
 import kotlinx.serialization.Serializable
 
-/** A refund quote for cancelling an order (create → confirm). */
+/**
+ * A cancel preview (`POST /api/travel/bookings/:ref/cancel`) or the committed
+ * operation (`POST /cancellations/:quoteId/confirm`, polled via
+ * `GET /cancellations/:operationId`). Cached server-side by id.
+ */
 @Serializable
 data class CancellationDto(
     val id: String = "",
@@ -10,20 +14,25 @@ data class CancellationDto(
     val refundAmount: String = "0",
     val refundCurrency: String = "USD",
     val refundTo: String = "",
+    val penaltyAmount: String? = null,
+    val commitable: Boolean = false,
+    val status: String = "",
+    val message: String? = null,
 )
 
-/** One offered alternative when changing an order. */
+/** One priced alternative when changing a booking. */
 @Serializable
 data class ChangeOfferDto(
     val id: String = "",
-    val changeTotalAmount: String = "0",
-    val changeTotalCurrency: String = "USD",
-    val newTotalAmount: String = "0",
-    val newTotalCurrency: String = "USD",
+    val changeTotalAmount: String = "",
+    val changeTotalCurrency: String = "",
+    val newTotalAmount: String = "",
+    val newTotalCurrency: String = "",
     val slices: List<SliceDto> = emptyList(),
+    val description: String = "",
 )
 
-/** Result of creating a change request: the request id + priced offers. */
+/** Result of starting a change: the booking ref + priced offers. */
 @Serializable
 data class ChangeRequestResultDto(
     val id: String = "",
@@ -38,7 +47,7 @@ data class SearchSliceInputDto(
     val date: String = "",
 )
 
-/** Body for starting an order change. */
+/** Body for starting a booking change. */
 @Serializable
 data class ChangeRequestInputDto(
     val orderId: String = "",
@@ -47,10 +56,27 @@ data class ChangeRequestInputDto(
     val cabin: String? = null,
 )
 
-/** Body for adding services to a booked order. */
+/** Price outcome for `POST /changes/:offerId/price`. */
 @Serializable
-data class AddServicesInputDto(
-    val services: List<ServiceSelectionDto> = emptyList(),
+data class ChangePriceDto(
+    val outcome: String = "",
     val amount: String = "0",
     val currency: String = "USD",
+    val newFareAmount: String = "",
+)
+
+/** Result of `POST /changes/:offerId/confirm`. */
+@Serializable
+data class ChangeConfirmDto(
+    val orderId: String = "",
+    val status: String = "",
+    val checkoutUrl: String? = null,
+)
+
+/** Live status for `GET /changes/status`. */
+@Serializable
+data class ChangeStatusDto(
+    val orderId: String = "",
+    val status: String = "",
+    val checkoutUrl: String? = null,
 )

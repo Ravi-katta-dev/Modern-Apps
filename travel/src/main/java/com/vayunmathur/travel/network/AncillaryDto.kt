@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 
 /**
  * An add-on service available on an [OfferDto] (extra baggage today). [type] is
- * Duffel's service type (e.g. `baggage`); [title] is a human label.
+ * the service type (e.g. `baggage`); [title] is a human label.
  */
 @Serializable
 data class ServiceDto(

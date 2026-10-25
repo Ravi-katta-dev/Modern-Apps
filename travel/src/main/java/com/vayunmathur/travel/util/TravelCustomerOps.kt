@@ -3,8 +3,7 @@ package com.vayunmathur.travel.util
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.travel.data.Customer
 import com.vayunmathur.travel.data.FrequentFlyer
-import com.vayunmathur.travel.network.CustomerUserInputDto
-import com.vayunmathur.travel.network.TravelCustomerApi
+import java.util.UUID
 import kotlinx.coroutines.launch
 
 fun TravelViewModel.saveFrequentFlyer(airlineIata: String, accountNumber: String, airlineName: String) {
@@ -22,44 +21,32 @@ fun TravelViewModel.removeFrequentFlyer(airlineIata: String) {
     viewModelScope.launch { repository.deleteFrequentFlyer(airlineIata) }
 }
 
-/** Create a Duffel customer user, store it locally, and make it active. */
+/**
+ * Save a booking profile locally (random UUID id) and report validation
+ * errors. Profiles only prefill the passengers form; there is no server use.
+ */
 fun TravelViewModel.createCustomer(email: String, givenName: String, familyName: String, phone: String) {
-    viewModelScope.launch {
-        runCatching {
-            TravelCustomerApi.createCustomer(
-                CustomerUserInputDto(
-                    email = email.trim(),
-                    givenName = givenName.trim(),
-                    familyName = familyName.trim(),
-                    phoneNumber = phone.trim().ifBlank { null },
-                )
-            )
-        }.onSuccess { dto ->
-            if (dto.id.isNotBlank()) {
-                repository.upsertCustomer(
-                    Customer(
-                        id = dto.id,
-                        email = dto.email,
-                        givenName = dto.givenName,
-                        familyName = dto.familyName,
-                        phoneNumber = dto.phoneNumber.orEmpty(),
-                    )
-                )
-                dataStore.setString(activeCustomerKey, dto.id)
-                customerErrorMutable.value = null
-            }
-        }.onFailure { customerErrorMutable.value = errorMessage(it) }
+    val cleanEmail = email.trim()
+    val cleanGiven = givenName.trim()
+    val cleanFamily = familyName.trim()
+    if (cleanEmail.isBlank() || cleanGiven.isBlank() || cleanFamily.isBlank()) {
+        customerErrorMutable.value = "Enter a name and email for this profile."
+        return
     }
-}
-
-/** Select (or clear, with blank) the active customer. */
-fun TravelViewModel.selectCustomer(id: String) {
-    viewModelScope.launch { dataStore.setString(activeCustomerKey, id) }
+    viewModelScope.launch {
+        repository.upsertCustomer(
+            Customer(
+                id = UUID.randomUUID().toString(),
+                email = cleanEmail,
+                givenName = cleanGiven,
+                familyName = cleanFamily,
+                phoneNumber = phone.trim(),
+            )
+        )
+        customerErrorMutable.value = null
+    }
 }
 
 fun TravelViewModel.removeCustomer(id: String) {
-    viewModelScope.launch {
-        repository.deleteCustomerById(id)
-        if (activeCustomerId.value == id) dataStore.setString(activeCustomerKey, "")
-    }
+    viewModelScope.launch { repository.deleteCustomerById(id) }
 }

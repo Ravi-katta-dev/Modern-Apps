@@ -2,7 +2,7 @@ package com.vayunmathur.travel.network
 
 import kotlinx.serialization.Serializable
 
-/** Reference data for an airline (name + logo URLs), from `/api/travel/airlines`. */
+/** Reference data for an airline (name + IATA code), from the offline catalog. */
 @Serializable
 data class AirlineDto(
     val name: String = "",
@@ -11,7 +11,7 @@ data class AirlineDto(
     val logoLockupUrl: String = "",
 )
 
-/** Reference data for an airport, from `/api/travel/airport`. */
+/** Reference data for an airport, from the offline catalog. */
 @Serializable
 data class AirportDto(
     val iataCode: String = "",
@@ -23,7 +23,7 @@ data class AirportDto(
     val longitude: Double? = null,
 )
 
-/** Reference data for an aircraft type, from `/api/travel/aircraft`. */
+/** Reference data for an aircraft type, from the offline catalog. */
 @Serializable
 data class AircraftDto(
     val id: String = "",
@@ -31,7 +31,7 @@ data class AircraftDto(
     val iataCode: String = "",
 )
 
-/** Reference data for a city, from `/api/travel/cities`. */
+/** Reference data for a city, from the offline catalog. */
 @Serializable
 data class CityDto(
     val name: String = "",

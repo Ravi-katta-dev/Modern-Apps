@@ -56,6 +56,9 @@ data class StayRatesDto(
     val longitude: Double? = null,
     val photos: List<String> = emptyList(),
     val amenities: List<String> = emptyList(),
+    val description: String = "",
+    val checkInTime: String = "",
+    val checkOutTime: String = "",
     val rooms: List<StayRoomDto> = emptyList(),
 )
 
@@ -92,15 +95,20 @@ data class StayBookingRequestDto(
     val phoneNumber: String = "",
 )
 
-/** A stay booking returned after booking / in the bookings list. */
+/**
+ * A stay booking after hosted checkout starts. Polling and servicing then use
+ * the shared trip (`GET /travel/trips/:id`) and bookings endpoints.
+ */
 @Serializable
 data class StayBookingResultDto(
     val id: String = "",
     val reference: String = "",
-    val status: String = "confirmed",
+    val status: String = "pending_payment",
     val accommodationName: String = "",
     val checkInDate: String = "",
     val checkOutDate: String = "",
     val totalAmount: String = "0",
     val totalCurrency: String = "USD",
+    val checkoutUrl: String = "",
+    val expiresAt: String = "",
 )

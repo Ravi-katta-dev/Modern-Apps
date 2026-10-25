@@ -1,5 +1,6 @@
 package com.vayunmathur.travel.ui
 import com.vayunmathur.travel.R
+import com.vayunmathur.library.ui.R as UiR
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,45 +11,38 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vayunmathur.library.ui.AppScaffold
 import com.vayunmathur.library.ui.Button
 import com.vayunmathur.library.ui.DesktopMaxWidthContainer
+import com.vayunmathur.library.ui.Checkbox
 import com.vayunmathur.library.ui.CircularProgressIndicator
 import com.vayunmathur.library.ui.ElevatedCard
 import com.vayunmathur.library.ui.ExperimentalMaterial3Api
-import com.vayunmathur.library.ui.IconNavigation
 import com.vayunmathur.library.ui.MaterialTheme
-import com.vayunmathur.library.ui.Scaffold
+import com.vayunmathur.library.ui.OutlinedButton
 import com.vayunmathur.library.ui.Text
-import com.vayunmathur.library.ui.TopAppBar
 import com.vayunmathur.library.ui.appBarScrollBehavior
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.travel.Route
-import com.vayunmathur.travel.util.BookingState
+import com.vayunmathur.travel.intents.openCheckout
+import com.vayunmathur.travel.util.CheckoutState
 import com.vayunmathur.travel.util.TravelViewModel
-import com.vayunmathur.travel.util.createOrder
-import com.vayunmathur.travel.util.resetBooking
+import com.vayunmathur.travel.util.acceptNewPrice
+import com.vayunmathur.travel.util.pollTrip
+import com.vayunmathur.travel.util.startCheckout
 import androidx.compose.ui.res.stringResource
 
 /**
- * Payment screen.
- *
- * **Sandbox (shipped):** books the offer with Duffel's test `balance` payment —
- * no card entry, no PCI surface — via [TravelViewModel.createOrder].
- *
- * **Live cards (deferred):** this same screen is where a Duffel Payments hosted
- * card component would be rendered in a `WebView` (using a client key minted by
- * `/api/travel/payment-key`), then the resulting card token passed to
- * `createOrder`. The flow around it (review → passengers → confirmation) does
- * not change, so that layers in here without reworking navigation.
+ * Hosted-checkout screen: shows the checkout total (and the original vs new
+ * price when it changed, requiring an explicit accept), then "Pay securely"
+ * opens the checkout URL in a Custom Tab. The trip is persisted as
+ * pending_payment before leaving; on return the app polls to confirmation.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -58,20 +52,15 @@ fun PaymentPage(
     @Suppress("UNUSED_PARAMETER") route: Route.Payment,
 ) {
     val review by viewModel.review.collectAsStateWithLifecycle()
-    val booking by viewModel.booking.collectAsStateWithLifecycle()
-    val customers by viewModel.customers.collectAsStateWithLifecycle()
-    val activeCustomerId by viewModel.activeCustomerId.collectAsStateWithLifecycle()
-    val activeCustomer = customers.firstOrNull { it.id == activeCustomerId }
+    val checkout by viewModel.checkout.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
-    LaunchedEffect(booking) {
-        val b = booking
-        if (b is BookingState.Success) {
-            viewModel.resetBooking()
-            // Replace the whole booking flow with the confirmation so Back
-            // returns to Home rather than the payment screen.
-            backStack.reset(Route.Home, Route.Confirmation(b.result.orderId))
-        }
+    LaunchedEffect(Unit) {
+        if (checkout is CheckoutState.Idle) viewModel.startCheckout()
     }
+
+    val ready = (checkout as? CheckoutState.Ready)?.checkout
+    val accepted = (checkout as? CheckoutState.Ready)?.acceptedNewPrice == true
 
     AppScaffold(
         title = stringResource(R.string.payment),
@@ -79,9 +68,7 @@ fun PaymentPage(
         scrollBehavior = appBarScrollBehavior(),
     ) { padding ->
         val offer = review.offer
-        val loading = booking is BookingState.Loading
-        val allowHold = offer != null && !offer.requiresInstantPayment
-        var hold by remember { mutableStateOf(false) }
+        val loading = checkout is CheckoutState.Loading
         // Single-pane payment form; letterboxed on expanded windows.
         DesktopMaxWidthContainer(Modifier.padding(padding)) {
         Column(
@@ -90,6 +77,8 @@ fun PaymentPage(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            val total = ready?.totalAmount ?: offer?.totalAmount
+            val currency = ready?.currency ?: offer?.currency ?: "USD"
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Row(
                     Modifier.fillMaxWidth().padding(16.dp),
@@ -98,7 +87,7 @@ fun PaymentPage(
                 ) {
                     Text(stringResource(R.string.total_due), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        if (offer != null) formatMoney(offer.totalAmount, offer.currency) else "—",
+                        if (total != null) formatMoney(total, currency) else "—",
                         style = MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
@@ -106,59 +95,108 @@ fun PaymentPage(
                 }
             }
 
-            if (activeCustomer != null) {
-                Text(
-                    stringResource(R.string.booking_for, activeCustomer.displayName),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (ready?.priceChanged == true) {
+                PriceChangeCard(
+                    original = ready.originalAmount.orEmpty(),
+                    current = ready.totalAmount,
+                    currency = currency,
+                    accepted = accepted,
+                    onAccept = { viewModel.acceptNewPrice() },
                 )
             }
 
-            if (allowHold) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-                ) {
-                    com.vayunmathur.library.ui.FilterChip(
-                        selected = !hold,
-                        onClick = { hold = false },
-                        label = { Text(stringResource(R.string.pay_now)) },
-                    )
-                    com.vayunmathur.library.ui.FilterChip(
-                        selected = hold,
-                        onClick = { hold = true },
-                        label = { Text(stringResource(R.string.hold_pay_later)) },
-                    )
-                }
-            }
-
             Text(
-                if (hold) {
-                    stringResource(R.string.hold_order_the_price_is_held_and_you_pay)
-                } else {
-                    stringResource(R.string.sandbox_booking_paid_with_a_duffel_test)
-                },
+                stringResource(R.string.secure_checkout_explainer),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            (booking as? BookingState.Error)?.let {
+            (checkout as? CheckoutState.Error)?.let {
                 Text(it.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                OutlinedButton(
+                    onClick = { viewModel.startCheckout() },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(UiR.string.retry)) }
             }
 
+            val payEnabled = ready != null && !loading &&
+                (!ready.priceChanged || accepted)
             Button(
-                onClick = { viewModel.createOrder(hold = hold) },
-                enabled = offer != null && !loading,
+                onClick = {
+                    val url = ready?.checkoutUrl.orEmpty()
+                    val tripId = viewModel.currentTrip?.tripId.orEmpty()
+                    openCheckout(context, url)
+                    if (tripId.isNotBlank()) viewModel.pollTrip(tripId)
+                    if (tripId.isNotBlank()) backStack.add(Route.Confirmation(tripId))
+                },
+                enabled = payEnabled,
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 if (loading) {
                     CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
-                    Text(stringResource(R.string.booking))
+                    Text(stringResource(R.string.preparing_checkout))
                 } else {
-                    Text(if (hold) stringResource(R.string.place_hold) else stringResource(R.string.pay_with_test_balance))
+                    Text(stringResource(R.string.pay_securely))
                 }
             }
         }
+        }
+    }
+}
+
+@Composable
+private fun PriceChangeCard(
+    original: String,
+    current: String,
+    currency: String,
+    accepted: Boolean,
+    onAccept: () -> Unit,
+) {
+    ElevatedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(R.string.price_changed_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    stringResource(R.string.original_price),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    if (original.isNotBlank()) formatMoney(original, currency) else "—",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    stringResource(R.string.new_price),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    formatMoney(current, currency),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = accepted, onCheckedChange = { if (it) onAccept() })
+                Text(
+                    stringResource(R.string.accept_new_price),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
         }
     }
 }

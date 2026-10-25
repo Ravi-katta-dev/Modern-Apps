@@ -146,14 +146,14 @@ private fun ContactAccumulator.readBirthday(c: Cursor, cols: ContactColumns) {
 private fun isBirthdayRow(c: Cursor, cols: ContactColumns): Boolean =
     cols.data2 >= 0 && c.getInt(cols.data2) == Event.TYPE_BIRTHDAY
 
-/** Strip spaces/dashes/parens so the number is closer to the E.164 Duffel wants. */
+/** Strip spaces/dashes/parens so the number is closer to the E.164 form wanted. */
 private fun normalizePhone(raw: String): String =
     raw.filter { it.isDigit() || it == '+' }
 
 /**
  * Normalize a contact birthday to ISO `YYYY-MM-DD`. Contacts store birthdays as
  * `yyyy-MM-dd` or, when the year is unknown, `--MM-dd`. We only accept a full
- * date (a year is required for Duffel's `born_on`), returning blank otherwise.
+ * date (a year is required for the booking `born_on`), returning blank otherwise.
  */
 private fun isoBirthday(raw: String?): String {
     val s = raw?.trim().orEmpty()

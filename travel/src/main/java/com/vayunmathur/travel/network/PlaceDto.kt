@@ -3,8 +3,8 @@ package com.vayunmathur.travel.network
 import kotlinx.serialization.Serializable
 
 /**
- * An airport or city returned by `/api/travel/places`. [code] is the IATA
- * airport code (or a city code) the flight/hotel searches take as input;
+ * An airport or city from the offline catalog. [code] is the IATA
+ * airport code (or a metro code) the flight/hotel searches take as input;
  * [kind] is `"airport"` or `"city"`.
  */
 @Serializable

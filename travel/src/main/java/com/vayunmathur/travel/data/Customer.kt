@@ -4,8 +4,9 @@ import androidx.room3.Entity
 import androidx.room3.PrimaryKey
 
 /**
- * A saved Duffel customer user. [id] is the Duffel customer-user id (`icu_…`)
- * used to associate orders so bookings/payments can be tracked per customer.
+ * A saved booking profile, local-only: [id] is a random UUID generated on
+ * device. Used to prefill contact email/phone/name on the passengers form; no
+ * server use.
  */
 @Entity
 data class Customer(

@@ -16,7 +16,7 @@ fun conditionsLabels(conditions: com.vayunmathur.travel.network.ConditionsDto): 
     return labels
 }
 
-/** A money label like "$412" / "€220.50" from a Duffel decimal-string amount. */
+/** A money label like "$412" / "€220.50" from a booking decimal-string amount. */
 fun formatMoney(amount: String, currency: String): String {
     val value = amount.toDoubleOrNull() ?: return "$currency $amount"
     val symbol = when (currency.uppercase()) {

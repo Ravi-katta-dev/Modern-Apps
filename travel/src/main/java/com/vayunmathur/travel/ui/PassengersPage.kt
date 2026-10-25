@@ -41,8 +41,11 @@ import com.vayunmathur.travel.Route
 import com.vayunmathur.travel.network.AirlineDto
 import com.vayunmathur.travel.network.OfferPassengerDto
 import com.vayunmathur.travel.network.PassengerInputDto
+import com.vayunmathur.travel.util.BookingState
 import com.vayunmathur.travel.util.TravelViewModel
+import com.vayunmathur.travel.util.createTrip
 import com.vayunmathur.travel.util.loadAirlines
+import com.vayunmathur.travel.util.prefillFromProfile
 import com.vayunmathur.travel.util.updatePassenger
 import com.vayunmathur.travel.util.REQUESTED_CONTACT_FIELDS
 import com.vayunmathur.travel.util.readSessionContact
@@ -63,12 +66,21 @@ fun PassengersPage(
 ) {
     val passengers by viewModel.passengers.collectAsStateWithLifecycle()
     val review by viewModel.review.collectAsStateWithLifecycle()
+    val booking by viewModel.booking.collectAsStateWithLifecycle()
     val airlines by viewModel.airlines.collectAsStateWithLifecycle()
+    val profiles by viewModel.customers.collectAsStateWithLifecycle()
     val offer = review.offer
     val offerPassengers = offer?.passengers.orEmpty()
+    // Passport need is unknown until checkout: show the fields as optional
+    // unless the server already demanded them (422 missingFields).
+    val missingFields = (booking as? BookingState.MissingDetails)?.missingFields.orEmpty()
     val identityRequired = offer?.passengerIdentityDocumentsRequired == true
 
     LaunchedEffect(Unit) { viewModel.loadAirlines() }
+
+    // Checkout demanded details the form didn't collect: route back here with
+    // the message so the user can fill the gaps.
+    val missingMessage = (booking as? BookingState.MissingDetails)?.message
 
     // Infants that must be linked to an accompanying adult.
     val infantOptions = passengers.mapIndexedNotNull { index, p ->
@@ -82,6 +94,12 @@ fun PassengersPage(
         backStack = backStack,
         scrollBehavior = appBarScrollBehavior(),
     ) { padding ->
+        // Trip creation happens here (not on payment): watch for the trip and
+        // move to ancillaries once it exists.
+        val tripReady = (booking as? BookingState.TripReady)?.trip
+        LaunchedEffect(tripReady) {
+            if (tripReady != null) backStack.add(Route.Ancillaries(route.offerId))
+        }
         // Single-pane passenger forms; letterboxed on expanded windows.
         DesktopMaxWidthContainer(Modifier.padding(padding)) {
         Column(
@@ -91,6 +109,18 @@ fun PassengersPage(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (missingMessage != null) {
+                Text(
+                    missingMessage,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            if (profiles.isNotEmpty()) {
+                ProfilePrefillRow(profiles) {
+                    viewModel.prefillFromProfile(it.email, it.givenName, it.familyName, it.phoneNumber)
+                }
+            }
             passengers.forEachIndexed { index, passenger ->
                 PassengerForm(
                     index = index,
@@ -98,6 +128,7 @@ fun PassengersPage(
                     passenger = passenger,
                     passengerRef = offerPassengers.getOrNull(index),
                     identityRequired = identityRequired,
+                    identityMissing = missingFields,
                     infantOptions = infantOptions,
                     airlines = airlines,
                     onChange = { viewModel.updatePassenger(index, it) },
@@ -105,13 +136,17 @@ fun PassengersPage(
             }
 
             val allInfantsLinked = infantOptions.all { it.first in linkedInfantIds }
+            val creating = booking is BookingState.Loading
+            (booking as? BookingState.Error)?.let {
+                Text(it.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
             Button(
-                onClick = { backStack.add(Route.Payment(route.offerId)) },
+                onClick = { viewModel.createTrip() },
                 enabled = passengers.isNotEmpty() &&
                     passengers.indices.all { passengers[it].isValid(offerPassengers.getOrNull(it), identityRequired) } &&
-                    allInfantsLinked,
+                    allInfantsLinked && !creating,
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text(stringResource(R.string.continue_to_payment)) }
+            ) { Text(if (creating) stringResource(R.string.creating_trip) else stringResource(R.string.continue_to_extras)) }
         }
         }
     }
@@ -124,6 +159,7 @@ private fun PassengerForm(
     passenger: PassengerInputDto,
     passengerRef: OfferPassengerDto?,
     identityRequired: Boolean,
+    identityMissing: List<String>,
     infantOptions: List<Pair<String, String>>,
     airlines: List<AirlineDto>,
     onChange: (PassengerInputDto) -> Unit,
@@ -241,8 +277,15 @@ private fun PassengerForm(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            if (identityRequired) {
+            if (identityRequired || identityMissing.isNotEmpty()) {
                 HorizontalDivider()
+                if (!identityRequired && identityMissing.isNotEmpty()) {
+                    Text(
+                        stringResource(R.string.passport_may_be_needed),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 IdentityDocumentFields(passenger.identityDocument) {
                     onChange(passenger.copy(identityDocument = it))
                 }

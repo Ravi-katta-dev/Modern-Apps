@@ -25,6 +25,7 @@ import com.vayunmathur.travel.ui.ConfirmationPage
 import com.vayunmathur.travel.ui.FlightResultsPage
 import com.vayunmathur.travel.ui.FareSelectPage
 import com.vayunmathur.travel.ui.HomePage
+import com.vayunmathur.travel.ui.MultiCityLegPage
 import com.vayunmathur.travel.ui.OfferReviewPage
 import com.vayunmathur.travel.ui.OrderDetailPage
 import com.vayunmathur.travel.ui.OutboundSelectPage
@@ -40,6 +41,8 @@ import com.vayunmathur.travel.ui.StayResultsPage
 import com.vayunmathur.travel.ui.TripsPage
 import com.vayunmathur.travel.util.TravelViewModel
 import com.vayunmathur.travel.util.TravelViewModelFactory
+import com.vayunmathur.travel.util.pendingTripIds
+import com.vayunmathur.travel.util.pollTrip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -63,6 +66,16 @@ class MainActivity : MaActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             repository = TravelRepository.get(this@MainActivity)
             withContext(Dispatchers.Main) { ready = true }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Back from the hosted-checkout Custom Tab: resume polling any trip
+        // that is still awaiting payment / processing.
+        if (!::repository.isInitialized) return
+        lifecycleScope.launch {
+            viewModel.pendingTripIds().forEach { viewModel.pollTrip(it) }
         }
     }
 
@@ -101,10 +114,21 @@ sealed interface Route : NavKey {
     ) : Route
 
     @Serializable
-    data class ReturnSelect(val outboundId: String) : Route
+    data class MultiCityLeg(
+        val slices: String,
+        val legIndex: Int,
+        val adults: Int,
+        val children: String,
+        val infants: Int,
+        val cabin: String,
+        val maxConnections: Int,
+    ) : Route
 
     @Serializable
-    data class FareSelect(val outboundId: String, val returnId: String) : Route
+    data class ReturnSelect(val outboundSignature: String) : Route
+
+    @Serializable
+    data class FareSelect(val outboundSignature: String, val inboundSignature: String) : Route
 
     @Serializable
     data class Ancillaries(val offerId: String) : Route
@@ -167,6 +191,7 @@ fun MainGraph(viewModel: TravelViewModel) {
             entry<Route.Home> { HomePage(backStack, viewModel) }
             entry<Route.FlightResults>(metadata = ListPage()) { FlightResultsPage(backStack, viewModel, it) }
             entry<Route.OutboundSelect> { OutboundSelectPage(backStack, viewModel, it) }
+            entry<Route.MultiCityLeg> { MultiCityLegPage(backStack, viewModel, it) }
             entry<Route.ReturnSelect> { ReturnSelectPage(backStack, viewModel, it) }
             entry<Route.FareSelect> { FareSelectPage(backStack, viewModel, it) }
             entry<Route.OfferReview>(metadata = ListDetailPage() + MorphPage()) {

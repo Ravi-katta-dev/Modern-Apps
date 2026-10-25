@@ -22,4 +22,5 @@ dependencies {
     implementation(project(":library:network"))
 
     implementation(project(":library:image"))
+    implementation(libs.androidx.browser)
 }
