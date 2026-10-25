@@ -321,10 +321,10 @@ impl Net {
     /// out of the APK, since the peak would be the whole file again just in a different allocation.
     ///
     /// [`Net::CHUNK_BYTES`] instead, one `cmd_copy_buffer` per chunk at the right `dst_offset`.
-    /// Each is submitted and waited on before the next is written, because the staging buffer is
-    /// reused and overwriting it while a copy is still reading it is a race. That costs one round
-    /// trip per chunk — 16 for that sampler — against a transfer that is bandwidth-bound anyway,
-    /// and it happens once per net rather than once per inference.
+    /// Two staging buffers alternate, so the file read for chunk N+1 overlaps chunk N's copy:
+    /// each side waits only for its own previous copy before being overwritten. That halves
+    /// the round trips per chunk — the transfer is bandwidth-bound anyway — and it happens
+    /// once per net rather than once per inference.
     fn upload_weights(&self, weights: &dyn Blob) -> Result<(), String> {
         let (lo, hi) = self.window;
         let total = hi - lo;
@@ -332,19 +332,48 @@ impl Net {
             return Ok(());
         }
         let chunk = total.min(Self::CHUNK_BYTES);
-        let staging = Buffer::staging(&self.context, chunk as vk::DeviceSize)?;
+        let staging = [
+            Buffer::staging(&self.context, chunk as vk::DeviceSize)?,
+            Buffer::staging(&self.context, chunk as vk::DeviceSize)?,
+        ];
         let mut buffer = vec![0u8; usize::try_from(chunk).map_err(|_| "a chunk overflowed")?];
-        let command_buffer = self.allocate_command_buffer()?;
-        // SAFETY: the command buffer was just allocated from this device's pool and is
+        let command_buffers = [self.allocate_command_buffer()?, self.allocate_command_buffer()?];
+        // One fence per side, so a side is waited on only when it is about to be reused.
+        // SAFETY: plain object creations on this net's device; both are destroyed below on
+        // every path, after their work has been waited on.
+        let fences = unsafe {
+            let first = self
+                .context
+                .device
+                .create_fence(&vk::FenceCreateInfo::default(), None)
+                .map_err(|e| format!("create_fence {e:?}"))?;
+            let second = self
+                .context
+                .device
+                .create_fence(&vk::FenceCreateInfo::default(), None)
+                .map_err(|e| format!("create_fence {e:?}"));
+            match second {
+                Ok(second) => [first, second],
+                Err(e) => {
+                    self.context.device.destroy_fence(first, None);
+                    return Err(e);
+                }
+            }
+        };
+        // SAFETY: both command buffers were just allocated from this device's pool and are
         // freed on every path below; each copy is bounds-checked by the loop, which never asks
         // for more than `chunk` bytes of staging or writes past `total` of the destination.
+        // A side's staging buffer is rewritten only after its own fence was waited on, so no
+        // copy reads bytes another write is racing.
         unsafe {
             let device = &self.context.device;
+            let mut submitted = [false, false];
             let mut written = 0u64;
             let outcome = loop {
                 if written >= total {
                     break Ok(());
                 }
+                let side = (written / chunk) as usize % 2;
                 let size = chunk.min(total - written);
                 let piece = match buffer.get_mut(..size as usize) {
                     Some(piece) => piece,
@@ -353,10 +382,22 @@ impl Net {
                 if let Err(e) = weights.read_at(lo + written, piece) {
                     break Err(e);
                 }
-                if let Err(e) = staging.write(piece) {
+                // This side's previous copy (two chunks ago) may still be reading its staging
+                // buffer: wait for it BEFORE overwriting. The file read above overlaps it.
+                if submitted[side] {
+                    if let Err(e) = device.wait_for_fences(&[fences[side]], true, FENCE_TIMEOUT_NS)
+                    {
+                        break Err(format!("wait_for_fences {e:?}"));
+                    }
+                    if let Err(e) = device.reset_fences(&[fences[side]]) {
+                        break Err(format!("reset_fences {e:?}"));
+                    }
+                }
+                if let Err(e) = staging[side].write(piece) {
                     break Err(e);
                 }
                 let copy = || -> Result<(), String> {
+                    let command_buffer = command_buffers[side];
                     device
                         .begin_command_buffer(
                             command_buffer,
@@ -369,25 +410,40 @@ impl Net {
                         .size(size as vk::DeviceSize);
                     device.cmd_copy_buffer(
                         command_buffer,
-                        staging.buffer,
+                        staging[side].buffer,
                         self.weights.buffer,
                         std::slice::from_ref(&region),
                     );
                     device
                         .end_command_buffer(command_buffer)
                         .map_err(|e| format!("end_command_buffer {e:?}"))?;
-                    // Waited on before the next chunk overwrites the staging buffer. The pool was
-                    // created with `RESET_COMMAND_BUFFER`, so re-beginning the same buffer is
-                    // legal once its submission has completed.
-                    self.submit_and_wait(command_buffer)
+                    // No wait: the next chunk's file read overlaps this copy, and the fence
+                    // is waited on above before this side is reused, two chunks later.
+                    let guard = self.context.lock_queue();
+                    let submitted = device.queue_submit(
+                        self.context.queue,
+                        &[vk::SubmitInfo::default()
+                            .command_buffers(std::slice::from_ref(&command_buffer))],
+                        fences[side],
+                    );
+                    drop(guard);
+                    submitted.map_err(|e| format!("queue_submit {e:?}"))
                 };
                 if let Err(e) = copy() {
                     break Err(e);
                 }
+                submitted[side] = true;
                 written += size;
             };
-            device.free_command_buffers(self.command_pool, &[command_buffer]);
-            // `staging` drops here, after the last fence has been waited on.
+            // Both sides may still hold in-flight copies; the staging buffers must outlive them.
+            for (side, fence) in fences.iter().enumerate() {
+                if submitted[side] {
+                    let _ = device.wait_for_fences(std::slice::from_ref(fence), true, FENCE_TIMEOUT_NS);
+                }
+                device.destroy_fence(*fence, None);
+            }
+            device.free_command_buffers(self.command_pool, &command_buffers);
+            // `staging` drops here, after every fence has been waited on.
             outcome
         }
     }
