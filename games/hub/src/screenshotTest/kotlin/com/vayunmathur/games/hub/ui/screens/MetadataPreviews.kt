@@ -186,6 +186,7 @@ class MetadataPreviews {
     @PreviewTest
     @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
+    // CHROME EXEMPT: custom wide dashboard+games two-pane, not a tab destination.
     fun Preview4Expanded() {
         DynamicTheme(darkTheme = true) {
             // Expanded windows keep the dashboard visible while the games list

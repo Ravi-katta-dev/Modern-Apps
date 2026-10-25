@@ -125,6 +125,7 @@ class MetadataPreviews {
     @PreviewTest
     @Preview(name = "4-expanded", device = EXPANDED, group = "large-tablet", showSystemUi = true)
     @Composable
+    // CHROME EXEMPT: pushed traffic-detail route renders with no tab chrome on device.
     fun Preview4Expanded() {
         DynamicTheme(darkTheme = true) {
             // Expanded windows keep the tunnel list visible while the traffic
