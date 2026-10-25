@@ -172,13 +172,6 @@ mod tests {
         vocoded_frames: Vec<u32>,
     }
 
-    /// What `synthesise` runs the sampler and the vocoder at: the predicted frames rounded
-    /// up for the int8 wide-load path. The stub asserts these padded lengths; the pipeline
-    /// test asserts the waveform is truncated back to the real ones.
-    fn padded(frames: u32) -> u32 {
-        super::pad_positions(frames)
-    }
-
     impl Stages for Recording {
         fn duration(&mut self, lanes: &[f32], style: &[f32]) -> Result<f32, String> {
             // Two lanes over `chars + 1` positions, the sentence token first.
@@ -210,12 +203,12 @@ mod tests {
             query_angles: &[f32],
             key_angles: &[f32],
         ) -> Result<Vec<f32>, String> {
-            assert_eq!(latent.len(), net::LATENT as usize * padded(self.frames) as usize);
+            assert_eq!(latent.len(), net::LATENT as usize * self.frames as usize);
             assert_eq!(text.len(), net::TEXT as usize * self.chars as usize);
             assert_eq!(keys.len(), net::STYLE as usize * net::MAIN_BLOCKS * 50);
             assert_eq!(style.len(), net::STYLE as usize * 50);
             assert_eq!(shifts.len(), net::CHANNELS as usize * net::MAIN_BLOCKS);
-            assert_eq!(query_angles.len(), 64 * padded(self.frames) as usize);
+            assert_eq!(query_angles.len(), 64 * self.frames as usize);
             assert_eq!(key_angles.len(), 64 * self.chars as usize);
             self.sampler_calls += 1;
             self.latents.push(latent.to_vec());
@@ -264,8 +257,6 @@ mod tests {
         }
 
         fn vocoder(&mut self, latent: &[f32], frames: u32) -> Result<Vec<f32>, String> {
-            // The padded shape in, the padded waveform out; `synthesise` truncates.
-            assert_eq!(frames, padded(self.frames));
             assert_eq!(latent.len(), net::LATENT as usize * frames as usize);
             self.vocoded_frames.push(frames);
             Ok(vec![0.5; frames as usize * 3072])
@@ -301,49 +292,6 @@ mod tests {
     }
 
     #[test]
-    fn padding_leaves_short_lengths_alone() {
-        assert_eq!(super::pad_positions(1), 4);
-        assert_eq!(super::pad_positions(4), 4);
-        assert_eq!(super::pad_positions(14), 16);
-        assert_eq!(super::pad_positions(49), 52);
-        assert_eq!(super::pad_positions(52), 52);
-    }
-
-    #[test]
-    fn replicating_the_edge_extends_each_channel_with_its_last_value() {
-        // Two channels over three positions, extended to five: each row keeps its values
-        // and repeats its own edge, not its neighbour's.
-        let values = vec![1.0, 2.0, 3.0, 10.0, 20.0, 30.0];
-        let got = super::replicate_edge(&values, 2, 3, 5).expect("extends");
-        assert_eq!(got, vec![1.0, 2.0, 3.0, 3.0, 3.0, 10.0, 20.0, 30.0, 30.0, 30.0]);
-        // Already a multiple of four: a copy, not an error.
-        let same = super::replicate_edge(&values, 2, 3, 3).expect("copies");
-        assert_eq!(same, values);
-        // A short slice, a zero width and a shrinking target are all refused rather
-        // than read out of bounds.
-        assert!(super::replicate_edge(&values[..5], 2, 3, 5).is_err());
-        assert!(super::replicate_edge(&values, 0, 3, 5).is_err());
-        assert!(super::replicate_edge(&values, 2, 3, 2).is_err());
-    }
-
-    #[test]
-    fn a_split_rotary_table_matches_the_whole_one_on_the_real_positions() {
-        // The padded query table is normalised by the real length, so its head is the
-        // table the unpadded plan used and only the replicated tail differs.
-        let theta = vec![0.5; net::FREQUENCIES as usize];
-        let whole = super::rotary_angles(&theta, 14).expect("angles");
-        let split = super::rotary_angles_over(&theta, 14, 16).expect("angles");
-        assert_eq!(split.len(), 64 * 16);
-        for channel in 0..64 {
-            assert_eq!(
-                &split[channel * 16..channel * 16 + 14],
-                &whole[channel * 14..(channel + 1) * 14],
-                "channel {channel} drifts"
-            );
-        }
-    }
-
-    #[test]
     fn the_pipeline_runs_the_four_nets_in_order_at_the_predicted_length() {
         // "hello" is five mapped letters, and `<en>` and `</en>` are nine more. At one second the
         // duration predictor's answer becomes ceil(44100 / 1.05 / 3072) = 14 frames, and the
@@ -368,10 +316,8 @@ mod tests {
             &|count| vec![0.0; count],
         )
         .expect("synthesises");
-        // Fourteen frames of audio, not sixteen: the sampler and the vocoder ran padded
-        // (see the stub's asserts) and `synthesise` truncated the tail.
         assert_eq!(samples.len(), 14 * 3072);
-        assert_eq!(stages.vocoded_frames, vec![16]);
+        assert_eq!(stages.vocoded_frames, vec![14]);
         // `synthesise` takes the dual path: 16 `sampler_both` calls, each served by
         // the default as two single submits.
         assert_eq!(stages.sampler_duals, STEPS as usize);

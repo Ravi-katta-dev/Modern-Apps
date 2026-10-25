@@ -159,10 +159,6 @@ pub const TENSORS: usize = PLAN_TENSORS + 18;
 /// [`crate::post::supertonic::synthesise`] runs this net `2 * STEPS` = 32 times per utterance. The
 /// benchmark in `vulkan::parity` is what closed that off - the tiled int8 path measured at 0.98x of
 /// the fp16 tiled one, so quantising costs no time here.
-///
-/// [`crate::post::supertonic::synthesise`] runs every utterance at a multiple of four frames
-/// (see [`crate::post::supertonic::pad_positions`]), so these dispatches take the shader's
-/// 16-tap wide-load path rather than its scalar fallback.
 pub const INT8_CONVS: usize = 2 + BLOCKS * 2 + MAIN_BLOCKS * 7;
 
 /// The rotary `theta`, `[32]`. `rotary_scale * rotary_base ^ (-j / 32)`.

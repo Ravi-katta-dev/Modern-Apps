@@ -101,88 +101,22 @@ pub fn time_shifts(weights: Reader, current: u32, total: u32) -> Result<Vec<f32>
 /// meet at the same angle. It also means the query table and the key table are different tensors
 /// even though they share `theta`.
 pub fn rotary_angles(theta: &[f32], positions: u32) -> Result<Vec<f32>, String> {
-    rotary_angles_over(theta, positions, positions)
-}
-
-/// [`rotary_angles`] with the length and the normaliser split: a table `len` positions wide
-/// whose angles are `(position / divisor) * theta`.
-///
-/// For a padded plan — see [`pad_positions`] — the query table is built at the padded length
-/// but normalised by the real one, so the real positions keep the exact angles the unpadded
-/// plan used and the padding replicates the edge. The tail is never read (the velocities are
-/// sliced back to the real length before the Euler step leaves them anywhere observable),
-/// but the divisor is what makes the head bit-identical rather than merely close.
-pub fn rotary_angles_over(theta: &[f32], divisor: u32, len: u32) -> Result<Vec<f32>, String> {
-    if divisor == 0 || len == 0 {
+    if positions == 0 {
         return Err("a rotary table over no positions".into());
     }
     if theta.len() != net::FREQUENCIES as usize {
         return Err(format!("{} rotary frequencies, not {}", theta.len(), net::FREQUENCIES));
     }
-    let width = len as usize;
+    let width = positions as usize;
     let mut table = vec![0.0f32; 2 * net::FREQUENCIES as usize * width];
     for (frequency, &turn) in theta.iter().enumerate() {
         for position in 0..width {
-            let angle = position as f32 / divisor as f32 * turn;
+            let angle = position as f32 / positions as f32 * turn;
             table[frequency * width + position] = angle.cos();
             table[(net::FREQUENCIES as usize + frequency) * width + position] = angle.sin();
         }
     }
     Ok(table)
-}
-
-/// The latent length the sampler and the vocoder actually run at: `frames` rounded up to a
-/// multiple of four.
-///
-/// The int8 pointwise shader (`conv_point_int8.comp`) reads sixteen taps and four positions
-/// per iteration only when the position count is a multiple of four; at any other length it
-/// falls back to scalar loads, which measured ~2.5x slower on the NLLB/whisper encode GEMMs.
-/// The sampler runs at 49 frames for the reference sentence, so every one of its 172
-/// pointwise dispatches per dual step takes the slow path. Rounding to 52 recovers the fast
-/// one for no new kernel and no new op.
-///
-/// Bit-identical, not approximate, when the padding replicates the edge (see
-/// [`replicate_edge`]): the depthwise convolutions are symmetrically edge-padded, so a real
-/// position's taps clamp to the same values; everything computed over the tail is sliced off
-/// before it is observable. The vocoder needs no replication at all — its convolutions are
-/// causal, so real outputs never read the tail.
-pub fn pad_positions(frames: u32) -> u32 {
-    frames.next_multiple_of(4).max(4)
-}
-
-/// Extend a channel-major `[channels, real]` tensor to `[channels, padded]` by replicating
-/// its last position.
-///
-/// The host-side half of [`pad_positions`]: the sampler's latent and query angles arrive at
-/// the padded length with the tail filled this way, so the edge-padded depthwise reads the
-/// same values the unpadded plan's clamps produced. A zero fill would read as silence past
-/// the edge and drift the tail's real outputs; replication is what makes the padding free.
-pub fn replicate_edge(
-    values: &[f32],
-    channels: usize,
-    real: usize,
-    padded: usize,
-) -> Result<Vec<f32>, String> {
-    if channels == 0 || real == 0 || padded < real {
-        return Err(format!(
-            "cannot extend {channels} channels over {real} positions to {padded}"
-        ));
-    }
-    if values.len() != channels * real {
-        return Err(format!(
-            "{} values are not {channels} channels over {real} positions",
-            values.len()
-        ));
-    }
-    let mut out = Vec::with_capacity(channels * padded);
-    for channel in 0..channels {
-        let row = &values[channel * real..(channel + 1) * real];
-        out.extend_from_slice(row);
-        if let Some(&edge) = row.last() {
-            out.extend(std::iter::repeat_n(edge, padded - real));
-        }
-    }
-    Ok(out)
 }
 
 /// The unconditional branch's text input: `text_special_token` at every one of `chars` positions.
