@@ -23,6 +23,7 @@ import com.vayunmathur.library.ui.IconButton
 import com.vayunmathur.library.ui.IconRuler
 import com.vayunmathur.library.ui.VerticalDivider
 import com.vayunmathur.library.ui.appBarScrollBehavior
+import com.vayunmathur.library.ui.isCompactHeight
 import com.vayunmathur.library.ui.isExpandedWidth
 
 /** Binds [CalculatorViewModel] to the stateless [CalculatorScreen]. */
@@ -60,20 +61,48 @@ fun CalculatorScreen(
         },
         scrollBehavior = appBarScrollBehavior(),
     ) { padding ->
-        // Sibling tools, never list-detail. On expanded windows the display sits
-        // beside the keypad (fractional split, keypad capped so keys stay usable)
-        // instead of stretching full-width.
-        if (isExpandedWidth()) {
-            Row(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-                DisplayColumn(state, actions, Modifier.weight(1f).fillMaxSize())
-                VerticalDivider()
-                KeypadColumn(rows, actions, second, { second = !second }, Modifier.weight(1f).widthIn(max = 560.dp).fillMaxSize())
+        // Three genuinely different windows, not two:
+        //
+        // - Compact height (landscape phone, <480dp tall): vertical space is the
+        //   scarce axis. The portrait stack (display over an 8-row keypad) needs
+        //   ~500dp+ of height and clips; the old side-by-side branch squeezed all
+        //   8 rows into ~300dp of content height, so the nav inset (~24dp) plus
+        //   the fixed 50dp keys overflowed and the bottom row rendered half-cut.
+        //   Instead the keypad goes full-bleed edge to edge with weight-distributed
+        //   keys (no fixed height, no outer 16dp padding), and the readout
+        //   collapses to a single compact line above the keys. No scrolling, no
+        //   clipping, no lost row.
+        // - Expanded width (tablet/desktop): room for the sibling-tools split —
+        //   display beside a capped keypad so keys stay usable.
+        // - Everything else (portrait phone): the classic stacked layout.
+        val compactHeight = isCompactHeight()
+        val expandedWidth = isExpandedWidth()
+        when {
+            compactHeight -> {
+                Column(Modifier.fillMaxSize().padding(padding)) {
+                    LandscapeDisplay(state, Modifier.fillMaxWidth())
+                    LandscapeKeypad(
+                        rows,
+                        actions,
+                        second,
+                        { second = !second },
+                        Modifier.fillMaxWidth().weight(1f),
+                    )
+                }
             }
-        } else {
-            Column(Modifier.fillMaxSize().padding(padding)) {
-                DisplayColumn(state, actions, Modifier.fillMaxWidth().weight(1f))
-                HorizontalDivider()
-                KeypadColumn(rows, actions, second, { second = !second }, Modifier.fillMaxWidth())
+            expandedWidth -> {
+                Row(Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
+                    DisplayColumn(state, actions, Modifier.weight(1f).fillMaxSize())
+                    VerticalDivider()
+                    KeypadColumn(rows, actions, second, { second = !second }, Modifier.weight(1f).widthIn(max = 560.dp).fillMaxSize())
+                }
+            }
+            else -> {
+                Column(Modifier.fillMaxSize().padding(padding)) {
+                    DisplayColumn(state, actions, Modifier.fillMaxWidth().weight(1f))
+                    HorizontalDivider()
+                    KeypadColumn(rows, actions, second, { second = !second }, Modifier.fillMaxWidth())
+                }
             }
         }
     }
