@@ -20,10 +20,49 @@
 //!
 //! The output is written over the same leading span. Entries past it keep whatever they held,
 //! which is safe precisely because `attn_apply_cached.comp` sums over the same bound.
+//!
+//! # Row mode
+//!
+//! With `p.kw == 1` one workgroup owns one row and its lanes split the attended keys. A decode
+//! step has one row per head and up to the whole context per row. See `reduce.glsl`.
 
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 #include "common.glsl"
+#include "reduce.glsl"
+
+void row_mode() {
+    uint row = reduce_row();
+    if (row >= p.count) {
+        return;
+    }
+    uint lane = gl_LocalInvocationID.x;
+    uint lanes = gl_WorkGroupSize.x;
+    uint stride = p.out_w;
+    uint first = attn_first();
+    uint last = attn_last(stride);
+    uint at = p.in0 + row * stride;
+    float peak = -65504.0;
+    for (uint i = first + lane; i <= last; i += lanes) {
+        peak = max(peak, float(arena[at + i]));
+    }
+    peak = workgroup_max(peak);
+    float total = 0.0;
+    for (uint i = first + lane; i <= last; i += lanes) {
+        total += exp(float(arena[at + i]) - peak);
+    }
+    float inverse = 1.0 / workgroup_sum(total);
+    uint out_row = p.out_at + row * stride;
+    for (uint i = first + lane; i <= last; i += lanes) {
+        arena[out_row + i] = float16_t(exp(float(arena[at + i]) - peak) * inverse);
+    }
+}
 
 void main() {
+    if (reduce_row_mode()) {
+        row_mode();
+        return;
+    }
     uint row = global_index();
     if (row >= p.count) {
         return;

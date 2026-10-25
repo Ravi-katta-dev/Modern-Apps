@@ -34,6 +34,30 @@ const CONV_VEC_INT4_ROWS: u32 = 8;
 /// `the_q2k_gemv_row_count_matches_its_shader` holds it against the shader.
 pub(crate) const CONV_VEC_Q2K_ROWS: u32 = 8;
 
+/// Most rows a reducing kind (layer norm, RMS norm, softmax) runs one workgroup per row for.
+///
+/// Below it a whole workgroup splits each row - see `shaders/reduce.glsl` - because there are
+/// too few rows to occupy the device one invocation each: a decode step normalises a single
+/// position. Above it the original one-invocation-per-row mode stays, because enough rows fill
+/// the device on their own and adjacent invocations then read adjacent positions.
+const ROW_REDUCE_MAX_ROWS: u32 = 256;
+
+/// Shortest row worth splitting across a workgroup. Shorter rows leave most lanes idle.
+const ROW_REDUCE_MIN_LEN: u32 = 64;
+
+/// Invocations per workgroup: `local_size_x` in `shaders/common.glsl`.
+const ROW_REDUCE_LANES: u32 = 64;
+
+/// Whether `rows` rows of `len` elements reduce one workgroup per row, as
+/// `(Push::kw, invocations)`.
+fn row_reduce(rows: u32, len: u32) -> (u32, u32) {
+    if rows <= ROW_REDUCE_MAX_ROWS && len >= ROW_REDUCE_MIN_LEN {
+        (1, rows * ROW_REDUCE_LANES)
+    } else {
+        (0, rows)
+    }
+}
+
 #[cfg(test)]
 fn gemv_rows_of(shader: &str) -> u32 {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders").join(shader);

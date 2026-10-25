@@ -414,10 +414,12 @@ mod tests {
         for op in &plan.ops {
             if let Op::Dispatch { kind: Kind::LayerNorm, push, invocations } = op {
                 assert_eq!(push.in_c, D_MODEL);
-                // One invocation per position, not per element: `count` is the spatial
-                // extent because each reduces a whole column of channels.
-                assert_eq!(*invocations, WIDTH / 8);
+                // One reduction per position, not per element: `count` is the spatial extent
+                // because each reduces a whole column of channels. A line is few positions, so
+                // each gets a whole workgroup (`row_reduce`), 64 invocations.
                 assert_eq!(push.count, WIDTH / 8);
+                assert_eq!(push.kw, 1, "row mode: {push:?}");
+                assert_eq!(*invocations, WIDTH / 8 * 64);
             }
         }
     }

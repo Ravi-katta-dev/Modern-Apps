@@ -32,10 +32,46 @@
 //! Maximum, then sum, then store, re-evaluating `exp` in the third rather than keeping
 //! the row in registers: `T` is around 80 for a line of text, which is far too large for
 //! a fixed-size local array and too small for the bandwidth to matter.
+//!
+//! # Row mode
+//!
+//! With `p.kw == 1` one workgroup owns one row and its lanes split the keys, for the few
+//! long rows a decode step has (whisper's cross-attention is 1,500 keys). See `reduce.glsl`.
 
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 #include "common.glsl"
+#include "reduce.glsl"
+
+void row_mode() {
+    uint row = reduce_row();
+    if (row >= p.count) {
+        return;
+    }
+    uint lane = gl_LocalInvocationID.x;
+    uint lanes = gl_WorkGroupSize.x;
+    uint at = p.in0 + row * p.out_w;
+    float peak = -65504.0;
+    for (uint i = lane; i < p.out_w; i += lanes) {
+        peak = max(peak, float(arena[at + i]));
+    }
+    peak = workgroup_max(peak);
+    float total = 0.0;
+    for (uint i = lane; i < p.out_w; i += lanes) {
+        total += exp(float(arena[at + i]) - peak);
+    }
+    float inverse = 1.0 / workgroup_sum(total);
+    uint out_row = p.out_at + row * p.out_w;
+    for (uint i = lane; i < p.out_w; i += lanes) {
+        arena[out_row + i] = float16_t(exp(float(arena[at + i]) - peak) * inverse);
+    }
+}
 
 void main() {
+    if (reduce_row_mode()) {
+        row_mode();
+        return;
+    }
     uint row = global_index();
     if (row >= p.count) {
         return;

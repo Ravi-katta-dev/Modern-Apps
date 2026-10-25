@@ -361,8 +361,10 @@ impl<'a> Builder<'a> {
             Node::LayerNorm { input, out, gamma, beta, epsilon } => {
                 let so = shape(*out);
                 // One invocation per position, each reducing over the channels, so the
-                // dispatch is the spatial extent rather than the element count.
+                // dispatch is the spatial extent rather than the element count - or, for a
+                // handful of positions, one workgroup each. See `row_reduce`.
                 let positions = so.h * so.w;
+                let (kw, invocations) = row_reduce(positions, so.c);
                 ops.push(Op::Dispatch {
                     kind: Kind::LayerNorm,
                     push: Push {
@@ -378,9 +380,10 @@ impl<'a> Builder<'a> {
                         out_w: so.w,
                         param1_bits: epsilon.to_bits(),
                         count: positions,
+                        kw,
                         ..Push::default()
                     },
-                    invocations: positions,
+                    invocations,
                 });
             }
             Node::InstanceNorm { input, out, epsilon } => {
@@ -407,8 +410,10 @@ impl<'a> Builder<'a> {
             }
             Node::RmsNorm { input, out, gamma, epsilon, groups, res, quant_scale } => {
                 let so = shape(*out);
-                // One invocation per group per position, reducing over that group's channels.
+                // One invocation per group per position, reducing over that group's channels,
+                // or one workgroup each when there are few. See `row_reduce`.
                 let positions = so.h * so.w * groups.max(&1);
+                let (kw, invocations) = row_reduce(positions, so.c / groups.max(&1));
                 // A folded residual addend, or NO_FUSE. Same contract as the
                 // convolution kinds: `fused_store` in the shader adds
                 // `arena[res + index]`, and `arena_reads` covers the range.
@@ -433,9 +438,10 @@ impl<'a> Builder<'a> {
                         param1_bits: epsilon.to_bits(),
                         count: positions,
                         res: res_at,
+                        kw,
                         ..Push::default()
                     },
-                    invocations: positions,
+                    invocations,
                 });
             }
             Node::AttnScores { q, k, out, heads, kv_heads, scale } => {

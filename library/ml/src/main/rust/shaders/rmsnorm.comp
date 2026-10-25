@@ -20,10 +20,53 @@
 //! Identical to layer norm's: the sequence is `[d_model, 1, T]`, one invocation per
 //! position, and the reduction strides by `in_h * in_w`. See `nets::Kind::LayerNorm` for
 //! why the layout is that way round.
+//!
+//! # Row mode
+//!
+//! With `p.kw == 1` one workgroup owns one (group, position) row and its lanes split the
+//! group's channels. See `reduce.glsl`.
 
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 #include "common.glsl"
+#include "reduce.glsl"
+
+void row_mode() {
+    uint position = reduce_row();
+    if (position >= p.count) {
+        return;
+    }
+    uint lane = gl_LocalInvocationID.x;
+    uint lanes = gl_WorkGroupSize.x;
+    uint stride = p.in_h * p.in_w;
+    uint groups = max(p.group, 1u);
+    uint per_group = p.in_c / groups;
+    uint base = (position / stride) * per_group;
+    uint at_pos = position % stride;
+    float epsilon = uintBitsToFloat(p.param1_bits);
+    float squares = 0.0;
+    for (uint c = lane; c < per_group; c += lanes) {
+        float value = float(arena[p.in0 + (base + c) * stride + at_pos]);
+        squares += value * value;
+    }
+    float inverse = 1.0 / sqrt(workgroup_sum(squares) / float(per_group) + epsilon);
+    for (uint c = lane; c < per_group; c += lanes) {
+        uint at = (base + c) * stride + at_pos;
+        float value = float(arena[p.in0 + at]);
+        float gamma = float(weights[p.weight + c]);
+        float normed = quant_store(value * inverse * gamma);
+        if (p.res != 0xFFFFFFFFu) {
+            normed += float(arena[p.res + at]);
+        }
+        arena[p.out_at + at] = float16_t(normed);
+    }
+}
 
 void main() {
+    if (reduce_row_mode()) {
+        row_mode();
+        return;
+    }
     uint position = global_index();
     if (position >= p.count) {
         return;

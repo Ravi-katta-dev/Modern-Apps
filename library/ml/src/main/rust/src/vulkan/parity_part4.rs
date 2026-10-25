@@ -157,6 +157,126 @@ fn layer_norm_over_channels_agrees_with_the_reference() {
     );
 }
 
+/// Build `record`'s plan, require every dispatch of `kind` in it to be in row mode, and return it.
+///
+/// The row-mode fixtures below are only worth anything if the plan actually chose that mode, and
+/// the choice is a threshold in `nets` that can move. This makes a fixture that silently fell back
+/// to the per-row shader fail instead of passing for the wrong reason.
+fn row_mode_plan(
+    source: &dyn WeightSource,
+    shapes: &[Shape],
+    kind: crate::nets::Kind,
+    record: impl FnOnce(&mut Builder, &[Id]) -> Id,
+) -> Plan {
+    let plan = build(source, shapes, record);
+    let mut seen = 0;
+    for op in &plan.ops {
+        if let crate::nets::Op::Dispatch { kind: k, push, .. } = op {
+            if *k == kind {
+                assert_eq!(push.kw, 1, "{kind:?} is not in row mode: {push:?}");
+                seen += 1;
+            }
+        }
+    }
+    assert!(seen > 0, "the plan has no {kind:?}");
+    plan
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_row_mode_layer_norm_agrees_with_the_reference() {
+    // A decode step's shape - one position of d_model 1,024 - and a short sentence's, five
+    // positions, where the channels a lane reads are a stride apart. 1,024 is not a multiple of
+    // the lane count times anything convenient on every device, which is the point: the strided
+    // loop must cover every channel exactly once whatever the subgroup size.
+    for positions in [1u32, 5] {
+        let channels = 1024u32;
+        let x = spread((channels * positions) as usize, 0.6);
+        let given = Given::new(&[
+            (vec![channels], spread(channels as usize, 1.1)),
+            (vec![channels], spread(channels as usize, 2.3)),
+        ])
+        .expect("the fixture tensors are consistent");
+        let plan = row_mode_plan(
+            &given,
+            &[Shape::new(channels, 1, positions)],
+            crate::nets::Kind::LayerNorm,
+            |b, ids| b.layer_norm(ids[0], 0, 1e-5),
+        );
+        compare(&format!("row-mode layer norm over {positions}"), plan, given.data().to_vec(), &[&x]);
+    }
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_row_mode_grouped_rms_norm_agrees_with_the_reference() {
+    // Gemma 4's QK-norm at decode: eight heads of 256, each its own row and its own workgroup.
+    const HEAD_DIM: u32 = 256;
+    const HEADS: u32 = 8;
+    let channels = HEAD_DIM * HEADS;
+    let input: Vec<f32> = (0..channels)
+        .map(|i| spread(channels as usize, 0.9)[i as usize] * ((i / HEAD_DIM) as f32 + 1.0))
+        .collect();
+    let given = Given::new(&[(vec![HEAD_DIM], spread(HEAD_DIM as usize, 2.5))])
+        .expect("the fixture tensors are consistent");
+    let plan = row_mode_plan(
+        &given,
+        &[Shape::new(channels, 1, 1)],
+        crate::nets::Kind::RmsNorm,
+        |b, ids| b.rms_norm_grouped(ids[0], 0, 1e-6, HEADS),
+    );
+    compare("a row-mode grouped rms norm", plan, given.data().to_vec(), &[&input]);
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_row_mode_softmax_agrees_with_the_reference() {
+    // Whisper's decode cross-attention: a few heads, each one query over 1,500 keys. Large, spread
+    // values so the max subtraction matters - a row that skipped it overflows `exp`.
+    let (heads, keys) = (8u32, 1500u32);
+    let x: Vec<f32> = spread((heads * keys) as usize, 0.3).iter().map(|v| v * 40.0).collect();
+    let source = Invented::new(0);
+    let plan = row_mode_plan(
+        &source,
+        &[Shape::new(heads, 1, keys)],
+        crate::nets::Kind::Softmax,
+        |b, ids| b.softmax(ids[0]),
+    );
+    compare("a row-mode softmax", plan, source.into_data(), &[&x]);
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_row_mode_prefix_softmax_agrees_with_the_reference() {
+    // A decode plan built at 256 keys, run at several prefixes: the row is mostly stale, and only
+    // the leading `prefix + 1` may be read or written. A prefix below and above the lane count, so
+    // both the partly idle and the multi-pass cases run.
+    let (heads, keys) = (4u32, 256u32);
+    let x: Vec<f32> = spread((heads * keys) as usize, 0.7).iter().map(|v| v * 20.0).collect();
+    for prefix in [0u32, 40, 200] {
+        let source = Invented::new(0);
+        let plan = row_mode_plan(
+            &source,
+            &[Shape::new(heads, 1, keys)],
+            crate::nets::Kind::SoftmaxPrefix,
+            |b, ids| b.softmax_prefix(ids[0], false),
+        );
+        let data = source.into_data();
+        let host = crate::nets::reference::run_multi_at(&plan, &data, &[&x], prefix, 0)
+            .expect("the interpreter runs the plan");
+        let got = on_device_at(plan, data, &[&x], prefix);
+        // Only the attended span is defined; the rest holds whatever the arena held.
+        let live = (prefix + 1) as usize;
+        let span = |all: &[Vec<f32>]| -> Vec<Vec<f32>> {
+            vec![all[0]
+                .chunks_exact(keys as usize)
+                .flat_map(|row| row[..live].to_vec())
+                .collect()]
+        };
+        matches(&format!("a row-mode prefix softmax at {prefix}"), &span(&host), &span(&got));
+    }
+}
+
 #[test]
 #[ignore = "needs a Vulkan device"]
 fn a_two_lane_embedding_agrees_with_the_reference() {

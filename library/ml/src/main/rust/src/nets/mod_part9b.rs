@@ -337,8 +337,14 @@ impl<'a> Builder<'a> {
             Node::Softmax { input, out, mode, sliding, window } => {
                 let so = shape(*out);
                 // One invocation per row of the last axis, each normalising `out_w`
-                // contiguous elements, so the dispatch is rows rather than elements.
+                // contiguous elements, so the dispatch is rows rather than elements - or one
+                // workgroup per row when the rows are few and long. The causal shader has no row
+                // mode: it is prefill-only, where rows are plentiful. See `row_reduce`.
                 let rows = so.c * so.h;
+                let (kw, invocations) = match mode {
+                    SoftmaxMode::Causal => (0, rows),
+                    SoftmaxMode::Full | SoftmaxMode::Prefix => row_reduce(rows, so.w),
+                };
                 ops.push(Op::Dispatch {
                     kind: match mode {
                         SoftmaxMode::Full => Kind::Softmax,
@@ -359,9 +365,10 @@ impl<'a> Builder<'a> {
                         sliding: u32::from(*sliding),
                         // Only the causal shader reads it, and only when non-zero.
                         kh: *window,
+                        kw,
                         ..Push::default()
                     },
-                    invocations: rows,
+                    invocations,
                 });
             }
             Node::ConcatPositions { parts, out } => {

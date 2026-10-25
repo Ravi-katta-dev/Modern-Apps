@@ -23,10 +23,54 @@
 //!
 //! Accumulation is `float` like everywhere else here, and `epsilon` arrives in the push
 //! block because the recogniser uses 1e-5 for four of these and 1e-6 for the last.
+//!
+//! # Row mode
+//!
+//! With `p.kw == 1` one workgroup normalises one position and its lanes split the channels.
+//! See `reduce.glsl` for why: a decode step has a single position.
 
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
 #include "common.glsl"
+#include "reduce.glsl"
+
+void row_mode() {
+    uint position = reduce_row();
+    if (position >= p.count) {
+        return;
+    }
+    uint lane = gl_LocalInvocationID.x;
+    uint lanes = gl_WorkGroupSize.x;
+    uint stride = p.in_h * p.in_w;
+    float epsilon = uintBitsToFloat(p.param1_bits);
+
+    float total = 0.0;
+    for (uint c = lane; c < p.in_c; c += lanes) {
+        total += float(arena[p.in0 + c * stride + position]);
+    }
+    float mean = workgroup_sum(total) / float(p.in_c);
+
+    float variance = 0.0;
+    for (uint c = lane; c < p.in_c; c += lanes) {
+        float centred = float(arena[p.in0 + c * stride + position]) - mean;
+        variance += centred * centred;
+    }
+    float inverse = 1.0 / sqrt(workgroup_sum(variance) / float(p.in_c) + epsilon);
+
+    for (uint c = lane; c < p.in_c; c += lanes) {
+        uint at = c * stride + position;
+        float centred = float(arena[p.in0 + at]) - mean;
+        float gamma = float(weights[p.weight + c]);
+        float beta = float(weights[p.bias + c]);
+        arena[p.out_at + at] = float16_t(centred * inverse * gamma + beta);
+    }
+}
 
 void main() {
+    if (reduce_row_mode()) {
+        row_mode();
+        return;
+    }
     uint position = global_index();
     if (position >= p.count) {
         return;
