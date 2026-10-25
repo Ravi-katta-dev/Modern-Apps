@@ -256,18 +256,50 @@ impl Reference {
 
     /// The argmax of a logits row, as the host reads it back.
     ///
-    /// Mirrors `shaders/argmax.comp`: strict `>` over the row keeps the FIRST
-    /// index on ties, stored as `lo = id % 2048`, `hi = id / 2048` fp16
-    /// values. See `Builder::argmax`.
+    /// The first of the two stages [`Builder::argmax`](super::Builder::argmax) emits,
+    /// mirroring `shaders/argmax.comp`: the row splits into [`argmax_groups`](super::argmax_groups)
+    /// slices and each workgroup keeps its slice's first maximum (strict `>`), stored
+    /// as a `(value, lo, hi)` triple with `lo = id % 2048`, `hi = id / 2048`.
+    /// See `Builder::argmax`.
     fn argmax(&mut self, p: &Push) -> Result<(), String> {
         let len = (p.in_c * p.in_h * p.in_w).max(1);
+        let groups = super::argmax_groups(len).max(1);
+        let slice = len.div_ceil(groups);
+        for group in 0..groups {
+            let mut top_val = f32::NEG_INFINITY;
+            let mut top_idx = 0u32;
+            let end = (group + 1) * slice;
+            for i in group * slice..end.min(len) {
+                let value = self.load(p.in0, i)?;
+                if value > top_val {
+                    top_val = value;
+                    top_idx = i;
+                }
+            }
+            let at = p.out + group * 3;
+            self.store(at, 0, top_val)?;
+            self.store(at, 1, (top_idx % 2048) as f32)?;
+            self.store(at, 2, (top_idx / 2048) as f32)?;
+        }
+        Ok(())
+    }
+
+    /// Fold [`Reference::argmax`]'s partials to the winning index.
+    ///
+    /// Mirrors `shaders/argmax_fold.comp`: the greatest value wins, ties keep the
+    /// FIRST index, stored as `lo = id % 2048`, `hi = id / 2048` fp16 values.
+    /// See `Builder::argmax`.
+    fn argmax_fold(&mut self, p: &Push) -> Result<(), String> {
+        let groups = p.in_c.max(1);
         let mut top_val = f32::NEG_INFINITY;
         let mut top_idx = 0u32;
-        for i in 0..len {
-            let value = self.load(p.in0, i)?;
-            if value > top_val {
+        for group in 0..groups {
+            let at = p.in0 + group * 3;
+            let value = self.load(at, 0)?;
+            let index = self.load(at, 1)? as u32 + 2048 * self.load(at, 2)? as u32;
+            if value > top_val || (value == top_val && index < top_idx) {
                 top_val = value;
-                top_idx = i;
+                top_idx = index;
             }
         }
         self.store(p.out, 0, (top_idx % 2048) as f32)?;

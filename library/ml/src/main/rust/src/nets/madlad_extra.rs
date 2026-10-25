@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn the_head_is_four_even_splits_over_disjoint_class_ranges() {
         // Together the four splits are the whole vocabulary, which the device argmax reduces
-        // over in one pass. Even splits: 256,000 = 4 x 64,000.
+        // over in two stages. Even splits: 256,000 = 4 x 64,000.
         let source = Shapes::new(TENSORS);
         let plan = build(&source, Mode::DecodeStep { src_len: LEN })
             .expect("the step builds");
@@ -319,6 +319,14 @@ mod tests {
             })
             .collect();
         assert_eq!(argmax, vec![VOCAB]);
+        // And the fold over the partials is there exactly once.
+        assert_eq!(
+            plan.ops
+                .iter()
+                .filter(|op| matches!(op, Op::Dispatch { kind: Kind::ArgmaxFold, .. }))
+                .count(),
+            1
+        );
         assert_eq!(split_classes(0) * HEAD_SPLITS as u32, VOCAB);
     }
 

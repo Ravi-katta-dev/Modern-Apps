@@ -330,6 +330,7 @@ impl Kind {
             | Kind::Softcap
             | Kind::Quantize
             | Kind::Argmax
+            | Kind::ArgmaxFold
             | Kind::GatedActivate => {}
             // A scalar (`mul_scalar`) or a low/high pair (`clamp`) at `act_weight`.
             Kind::MulScalar | Kind::Clamp => {
@@ -417,6 +418,10 @@ impl Kind {
             // One id per position per lane, so the read is `in_c * out_w` and not `dense` -
             // `in_w` here is the *table's* row count.
             Kind::Embed => one(push.in0, push.in_c * push.out_w),
+            // The whole logits row, whatever the group count. See `Builder::argmax`.
+            Kind::Argmax => one(push.in0, dense),
+            // One `(value, lo, hi)` triple per group: `in_c` carries the group count.
+            Kind::ArgmaxFold => one(push.in0, push.in_c * 3),
             // One row in. Not `dense`: `in_h` here is the cache's capacity, not a spatial extent.
             Kind::CacheWrite => one(push.in0, push.count),
             // Convolutions, whose store may also add a folded residual and a folded
@@ -461,7 +466,6 @@ impl Kind {
             | Kind::Activate
             | Kind::GatedActivate
             | Kind::MulScalar
-            | Kind::Argmax
             | Kind::Clamp => one(push.in0, dense),
             // As above, plus a folded residual addend (see `Push::res`): the
             // post-norm `add(x, branch)` the fusion moved into this store.

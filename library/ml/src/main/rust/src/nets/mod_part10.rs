@@ -28,7 +28,8 @@ impl Node {
             | Node::ConcatPositions { out, .. }
             | Node::Concat { out, .. } => *out,
             | Node::Softcap { out, .. } => *out,
-            | Node::Argmax { out, .. } => *out,
+            | Node::Argmax { out, .. }
+            | Node::ArgmaxFold { out, .. } => *out,
             | Node::Quantize { out, .. } => *out,
             | Node::Activate { out, .. }
             | Node::GatedActivate { out, .. } => *out,
@@ -63,6 +64,7 @@ impl Node {
             | Node::Softmax { input, .. }
             | Node::Softcap { input, .. }
             | Node::Argmax { input, .. }
+            | Node::ArgmaxFold { input, .. }
             | Node::Quantize { input, .. }
             | Node::GatedActivate { input, .. }
             | Node::Activate { input, .. }

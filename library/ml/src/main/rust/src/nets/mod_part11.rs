@@ -51,6 +51,34 @@ pub(crate) mod tests {
             "the Q2_K gemv shader and Rust disagree on channels per workgroup"
         );
     }
+
+    /// `ARGMAX_PER_LANE` must equal `PER_LANE` in the argmax partials shader, and the
+    /// group counts must put NLLB's and MADLAD's vocabularies in the multi-workgroup
+    /// regime with room to spare.
+    #[test]
+    fn the_argmax_geometry_matches_its_shader() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders").join("argmax.comp");
+        let source = std::fs::read_to_string(&path).expect("the argmax shader reads");
+        let per_lane = source
+            .lines()
+            .find_map(|line| {
+                line.trim_start().strip_prefix("#define PER_LANE").and_then(|rest| {
+                    rest.trim().trim_end_matches('u').parse::<u32>().ok()
+                })
+            })
+            .unwrap_or_else(|| panic!("argmax.comp declares no PER_LANE"));
+        assert_eq!(per_lane, ARGMAX_PER_LANE);
+        // One lane's share at full occupancy: 64 lanes x 64 groups x PER_LANE.
+        assert_eq!(64 * 64 * ARGMAX_PER_LANE, 262_144);
+        // Both shipping vocabularies reduce over dozens of groups, not one.
+        assert_eq!(argmax_groups(256_206), 63);
+        assert_eq!(argmax_groups(256_000), 63);
+        // Ragged and small rows still dispatch at least one workgroup.
+        assert_eq!(argmax_groups(262_143), 64);
+        assert_eq!(argmax_groups(1_000), 1);
+        assert_eq!(argmax_groups(0), 1);
+    }
     /// `CONV_POINT_INT8_TILE` must equal `TILE` in the int8 tiled shader.
     ///
     /// Rust dispatches one workgroup per `TILE x TILE` block and the shader owns that block, so a

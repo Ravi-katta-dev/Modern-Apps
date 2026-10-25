@@ -245,9 +245,17 @@ impl<'a> Builder<'a> {
     /// neither the value nor the bits past id 2048). The host reconstructs
     /// `hi * 2048 + lo`. Ties keep the FIRST index (strict `>` in the
     /// shader), matching the host `argmax` loop.
+    ///
+    /// Two dispatches: [`Node::Argmax`] reduces the row to one `(value, lo, hi)`
+    /// triple per workgroup (see [`argmax_groups`]), then [`Node::ArgmaxFold`]
+    /// folds the triples. One workgroup over 262k logits leaves the GPU idle;
+    /// 63 workgroups do not.
     pub fn argmax(&mut self, input: Id) -> Id {
+        let groups = argmax_groups(self.shape_of(input).len());
+        let partials = self.tensor(Shape::new(groups * 3, 1, 1));
+        self.nodes.push(Node::Argmax { input, out: partials });
         let out = self.tensor(Shape::new(2, 1, 1));
-        self.nodes.push(Node::Argmax { input, out });
+        self.nodes.push(Node::ArgmaxFold { input: partials, out });
         out
     }
 

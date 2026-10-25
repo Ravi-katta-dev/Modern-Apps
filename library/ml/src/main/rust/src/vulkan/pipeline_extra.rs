@@ -168,6 +168,7 @@ impl Shaders {
             conv_q2k,
             quantize,
             argmax,
+            argmax_fold,
         ] = match <[vk::Pipeline; SPIRV.len()]>::try_from(built) {
             Ok(all) => all,
             Err(built) => {
@@ -228,6 +229,7 @@ impl Shaders {
             conv_q2k,
             quantize,
             argmax,
+            argmax_fold,
         })
     }
 
@@ -280,6 +282,7 @@ impl Shaders {
             Kind::Rotary => self.rotary,
             Kind::Quantize => self.quantize,
             Kind::Argmax => self.argmax,
+            Kind::ArgmaxFold => self.argmax_fold,
         }
     }
 
@@ -333,6 +336,7 @@ impl Shaders {
             self.clamp,
             self.quantize,
             self.argmax,
+            self.argmax_fold,
         ] {
             device.destroy_pipeline(pipeline, None);
         }

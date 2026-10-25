@@ -294,8 +294,14 @@ impl<'a> Builder<'a> {
             }
             Node::Argmax { input, out } => {
                 let si = shape(*input);
-                // One scalar out: the winning index as fp16 bits. The input
-                // is the concatenated logits row (all chunks, vocab-wide).
+                let so = shape(*out);
+                // One `(value, lo, hi)` triple per workgroup: the partials
+                // [`Node::ArgmaxFold`] folds. Groups from the shared helper, so the
+                // device and the host interpreter split the row identically.
+                // (`mod_part9b.rs` is inlined into `crate::nets`, so the helper is
+                // a bare name here, not `super::`.)
+                let groups = argmax_groups(si.len()).max(1);
+                // The input is the concatenated logits row (all chunks, vocab-wide).
                 ops.push(Op::Dispatch {
                     kind: Kind::Argmax,
                     push: Push {
@@ -304,13 +310,33 @@ impl<'a> Builder<'a> {
                         in_c: si.c,
                         in_h: si.h,
                         in_w: si.w,
-                        out_c: 1,
-                        out_h: 1,
-                        out_w: 1,
+                        out_c: so.c,
+                        out_h: so.h,
+                        out_w: so.w,
+                        group: groups,
                         count: si.len(),
                         ..Push::default()
                     },
-                    // 64 lanes per workgroup, grid-stride over the row.
+                    // One workgroup of 64 per group.
+                    invocations: groups * 64,
+                });
+            }
+            Node::ArgmaxFold { input, out } => {
+                let si = shape(*input);
+                let groups = si.len() / 3;
+                ops.push(Op::Dispatch {
+                    kind: Kind::ArgmaxFold,
+                    push: Push {
+                        in0: at(*input)?,
+                        out: at(*out)?,
+                        in_c: groups,
+                        out_c: 2,
+                        out_h: 1,
+                        out_w: 1,
+                        count: groups,
+                        ..Push::default()
+                    },
+                    // One workgroup folds every triple.
                     invocations: 64,
                 });
             }

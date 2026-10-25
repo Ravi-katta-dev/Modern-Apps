@@ -69,6 +69,22 @@ const ROW_REDUCE_MIN_LEN: u32 = 64;
 /// Invocations per workgroup: `local_size_x` in `shaders/common.glsl`.
 const ROW_REDUCE_LANES: u32 = 64;
 
+/// Logits each lane of [`Builder::argmax`]'s first stage scans per pass.
+///
+/// 64 lanes × 64 workgroups × this many cover 262,144 logits at one element per
+/// lane per iteration. Larger keeps the fold's partial count down; smaller wastes
+/// less on ragged tails. **Must equal `PER_LANE` in `shaders/argmax.comp`.**
+const ARGMAX_PER_LANE: u32 = 64;
+
+/// Workgroups [`Builder::argmax`]'s first stage reduces a row of `count` logits with.
+///
+/// Enough that every lane has work (`PER_LANE` each), capped so the fold's partials
+/// fit one workgroup's 64 lanes. The device and the host interpreter share this, so
+/// the group boundaries — and therefore the tie-breaks — agree by construction.
+pub(crate) fn argmax_groups(count: u32) -> u32 {
+    count.div_ceil(ROW_REDUCE_LANES * ARGMAX_PER_LANE).clamp(1, ROW_REDUCE_LANES)
+}
+
 /// Whether `rows` rows of `len` elements reduce one workgroup per row, as
 /// `(Push::kw, invocations)`.
 fn row_reduce(rows: u32, len: u32) -> (u32, u32) {

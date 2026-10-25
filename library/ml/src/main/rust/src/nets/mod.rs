@@ -330,7 +330,17 @@ pub enum Kind {
     /// a token; this reduces on the device and reads back one value instead
     /// of 512 KB of logits. See `shaders/argmax.comp`. The full-logits path
     /// (Kotlin sampling) is untouched — this serves greedy decoding only.
+    ///
+    /// The first of two stages: many workgroups each reduce a slice of the row to a
+    /// `(value, lo, hi)` partial, and [`Kind::ArgmaxFold`] folds the partials to the
+    /// winning index. See [`Builder::argmax`].
     Argmax,
+    /// Fold [`Kind::Argmax`]'s partials to the winning index as two fp16 lanes.
+    ///
+    /// Reads the `(value, lo, hi)` triples the first stage wrote and stores
+    /// `lo = id % 2048`, `hi = id / 2048`, keeping the FIRST index on ties.
+    /// See `shaders/argmax_fold.comp`.
+    ArgmaxFold,
     /// An [`Act`] applied on its own, for a value no convolution produced. See
     /// `shaders/activate.comp`.
     ///

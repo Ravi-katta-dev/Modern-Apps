@@ -87,3 +87,47 @@ fn a_net_uploads_only_the_window_its_plan_reads() {
     both.rebuild(early).expect("the covered plan installs");
     matches("a covering net rebuilt", &host_early, &both.infer_raw(&input).expect("it runs"));
 }
+
+/// A logits row at NLLB scale, with the peak tied across workgroup slices.
+///
+/// `count` logits of `spread` values with the maximum planted at `peaks`: the device must
+/// report the FIRST peak whatever slice it falls in. The winners are also asserted as the
+/// `[lo, hi]` pair the host reconstructs with `hi * 2048 + lo`.
+fn argmax_fixture(count: usize, peaks: &[u32]) -> (Plan, Vec<u8>, Vec<f32>) {
+    let mut logits = spread(count, 0.7);
+    let peak = logits.iter().fold(f32::NEG_INFINITY, |top, &v| top.max(v)) + 1.0;
+    for &at in peaks {
+        logits[at as usize] = peak;
+    }
+    let source = Invented::new(0);
+    let mut builder = Builder::new(&source);
+    let row = builder.input(Shape::new(count as u32, 1, 1));
+    let id = builder.argmax(row);
+    let plan = builder.finish(&[id]).expect("the argmax plan builds");
+    (plan, source.into_data(), logits)
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_two_stage_argmax_keeps_the_first_of_ties_across_slices() {
+    // 262,144 = 64 groups of 4,096: the full multi-workgroup regime, with the peak tied
+    // across the first slice boundary, a middle slice and the last element, plus a ragged
+    // count and a small row that reduces in a single group. (No peak at index 0: the
+    // `[0, 0]` answer that gives is indistinguishable from an unwritten tensor, which the
+    // parity guard refuses.)
+    for (count, peaks) in [
+        (262_144usize, vec![4096u32, 131_073, 262_143]),
+        (262_143usize, vec![7u32, 200_000]),
+        (1_000usize, vec![999u32, 3]),
+    ] {
+        let (plan, data, logits) = argmax_fixture(count, &peaks);
+        let want = peaks.iter().copied().min().expect("a peak");
+        let host = run_multi(&plan, &data, &[&logits]).expect("the interpreter runs");
+        let got = on_device(plan, data, &[&logits]);
+        matches(&format!("a two-stage argmax over {count} logits"), &host, &got);
+        let pair = got.into_iter().next().expect("one output");
+        assert_eq!(pair.len(), 2, "the [lo, hi] pair");
+        let id = pair[1] as u32 * 2048 + pair[0] as u32;
+        assert_eq!(id, want, "the first peak of {count} logits");
+    }
+}

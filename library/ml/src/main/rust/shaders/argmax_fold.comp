@@ -1,0 +1,43 @@
+#version 450
+//! Greedy argmax over a logits row, second stage: fold `argmax.comp`'s partials.
+//!
+//! One workgroup reads the `p.in_c` triples `(value, lo, hi)` the first stage wrote and
+//! stores the winner as TWO fp16 values: `lo = id % 2048`, `hi = id / 2048`. Both are
+//! exactly representable (fp16 integers are exact to 2048; ids < 262144 give hi < 128);
+//! the host reconstructs `hi * 2048 + lo`.
+//!
+//! Ties keep the FIRST index (strict `>` with an index comparison on equality),
+//! matching the host loop's `value > best.0` and the first stage's own tie-break.
+#include "common.glsl"
+shared uint best_idx[64];
+shared float best_val[64];
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+    uint groups = max(p.in_c, 1u);
+    // Grid-stride over the triples: one workgroup covers all 64 at most, usually fewer.
+    float mine_val = -65504.0;
+    uint mine_idx = 0u;
+    for (uint g = lane; g < groups; g += 64u) {
+        float v = float(arena[p.in0 + g * 3u]);
+        uint idx = uint(float(arena[p.in0 + g * 3u + 1u])) + 2048u * uint(float(arena[p.in0 + g * 3u + 2u]));
+        if (v > mine_val || (v == mine_val && idx < mine_idx)) {
+            mine_val = v;
+            mine_idx = idx;
+        }
+    }
+    best_val[lane] = mine_val;
+    best_idx[lane] = mine_idx;
+    barrier();
+    if (lane == 0u) {
+        float top_val = best_val[0];
+        uint top_idx = best_idx[0];
+        for (uint l = 1u; l < 64u; l++) {
+            if (best_val[l] > top_val || (best_val[l] == top_val && best_idx[l] < top_idx)) {
+                top_val = best_val[l];
+                top_idx = best_idx[l];
+            }
+        }
+        arena[p.out_at] = float16_t(float(top_idx % 2048u));
+        arena[p.out_at + 1u] = float16_t(float(top_idx / 2048u));
+    }
+}

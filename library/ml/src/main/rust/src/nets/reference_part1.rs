@@ -67,6 +67,7 @@ impl Reference {
                     Kind::CacheWrite => self.cache_write(push),
                     Kind::Softcap => self.softcap(push),
                     Kind::Argmax => self.argmax(push),
+                    Kind::ArgmaxFold => self.argmax_fold(push),
                     Kind::Quantize => self.quantize(push),
                     Kind::Activate => self.activate(push),
                     Kind::GatedActivate => self.gated_activate(push),

@@ -249,8 +249,9 @@ mod tests {
         // Three residuals per layer — half of which fold into their producing
         // convolution's store. See `Builder::add`.
         assert_eq!(counts.get("Add"), Some(&18), "{counts:?}");
-        // And the greedy pick, on the device.
+        // And the greedy pick, on the device: the partials reduce plus the fold.
         assert_eq!(counts.get("Argmax"), Some(&1), "{counts:?}");
+        assert_eq!(counts.get("ArgmaxFold"), Some(&1), "{counts:?}");
         assert_no_aliasing(&plan);
     }
 
@@ -380,7 +381,7 @@ mod tests {
             .collect();
         assert_eq!(heads, vec![64_052, 64_052, 64_051, 64_051]);
         assert_eq!(heads.iter().sum::<u32>(), VOCAB);
-        // The argmax runs over all of them at once, in id order.
+        // The argmax runs over all of them at once, in id order, then folds the partials.
         let argmax: Vec<_> = plan
             .ops
             .iter()
@@ -390,6 +391,13 @@ mod tests {
             })
             .collect();
         assert_eq!(argmax, vec![VOCAB]);
+        assert_eq!(
+            plan.ops
+                .iter()
+                .filter(|op| matches!(op, Op::Dispatch { kind: Kind::ArgmaxFold, .. }))
+                .count(),
+            1
+        );
     }
 
     #[test]

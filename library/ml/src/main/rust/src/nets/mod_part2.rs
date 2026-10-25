@@ -328,7 +328,15 @@ pub(crate) enum Node {
     },
     /// The argmax of a logits row: the winning index as two fp16 lanes
     /// (`lo = id % 2048`, `hi = id / 2048`). See [`Kind::Argmax`].
+    ///
+    /// The first of the two stages [`Builder::argmax`] emits: `out` holds one
+    /// `(value, lo, hi)` triple per workgroup, which [`Node::ArgmaxFold`] folds.
     Argmax {
+        input: Id,
+        out: Id,
+    },
+    /// Fold [`Node::Argmax`]'s partials to the winning index. See [`Kind::ArgmaxFold`].
+    ArgmaxFold {
         input: Id,
         out: Id,
     },
