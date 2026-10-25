@@ -1,6 +1,10 @@
 package com.vayunmathur.contacts.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.vayunmathur.contacts.data.Address
@@ -26,6 +30,12 @@ import com.vayunmathur.contacts.util.ContactsActions
 import com.vayunmathur.contacts.util.GroupWithContacts
 import com.vayunmathur.contacts.util.GroupsUiState
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.IconGroup
+import com.vayunmathur.library.ui.IconPerson
+import com.vayunmathur.library.ui.IconSettings
+import com.vayunmathur.library.ui.PagerTab
+import com.vayunmathur.library.ui.TabStyle
+import com.vayunmathur.library.ui.TabbedPagerScaffold
 import kotlinx.datetime.LocalDate
 
 /** Phone-shaped, roughly 1080x2340 at xxhdpi — comfortably above the F-Droid minimum. */
@@ -134,15 +144,7 @@ class MetadataPreviews {
     @Preview(name = "1-list", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1List() {
-        DynamicTheme(darkTheme = true) {
-            ContactListScreen(
-                state = ContactListUiState(
-                    contacts = SAMPLE_CONTACTS,
-                    groups = GROUPS,
-                ),
-                actions = ContactsActions.Noop,
-            )
-        }
+        ChromePreview(selectedTab = 0)
     }
 
     @PreviewTest
@@ -164,13 +166,50 @@ class MetadataPreviews {
     @Preview(name = "3-groups", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Groups() {
-        DynamicTheme(darkTheme = true) {
-            GroupsScreen(
-                state = GroupsUiState(groups = GROUPS.map { groupRow(it) }),
-                actions = ContactsActions.Noop,
-                // Friends starts expanded, so the shot shows what a group contains.
-                expandGroupId = FRIENDS.id,
-            )
-        }
+        ChromePreview(selectedTab = 1)
+    }
+}
+
+@Composable
+private fun ListContent() {
+    ContactListScreen(
+        state = ContactListUiState(
+            contacts = SAMPLE_CONTACTS,
+            groups = GROUPS,
+        ),
+        actions = ContactsActions.Noop,
+    )
+}
+
+@Composable
+private fun GroupsContent() {
+    GroupsScreen(
+        state = GroupsUiState(groups = GROUPS.map { groupRow(it) }),
+        actions = ContactsActions.Noop,
+        // Friends starts expanded, so the shot shows what a group contains.
+        expandGroupId = FRIENDS.id,
+    )
+}
+
+/**
+ * The app's real tab chrome around preview screen content: the same
+ * [TabbedPagerScaffold] with the same three tabs the activity declares. The
+ * Settings tab is ViewModel-coupled with no stateless slice, so it shows an
+ * empty page (never visible — only the selected tab renders); list and groups
+ * are the real screens with literal state.
+ */
+@Composable
+private fun ChromePreview(selectedTab: Int) {
+    DynamicTheme(darkTheme = true) {
+        val tabs = listOf(
+            PagerTab("Contacts", { IconPerson() }) { ListContent() },
+            PagerTab("Groups", { IconGroup() }) { GroupsContent() },
+            PagerTab("Settings", { IconSettings() }) { Box(Modifier.fillMaxSize()) },
+        )
+        TabbedPagerScaffold(
+            tabs = tabs,
+            pagerState = rememberPagerState(initialPage = selectedTab, pageCount = { tabs.size }),
+            tabStyle = TabStyle.BottomNav,
+        )
     }
 }

@@ -2,6 +2,7 @@ package com.vayunmathur.appstore.ui
 
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
@@ -14,10 +15,22 @@ import com.vayunmathur.appstore.util.AppDetailUiState
 import com.vayunmathur.appstore.util.AppSection
 import com.vayunmathur.appstore.util.HomeActions
 import com.vayunmathur.appstore.util.HomeUiState
+import com.vayunmathur.appstore.util.LibraryActions
+import com.vayunmathur.appstore.util.LibraryUiState
 import com.vayunmathur.appstore.util.SearchActions
 import com.vayunmathur.appstore.util.SearchUiState
 import com.vayunmathur.appstore.util.SectionLayout
+import com.vayunmathur.appstore.util.UpdatesActions
+import com.vayunmathur.appstore.util.UpdatesUiState
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.IconDownload
+import com.vayunmathur.library.ui.IconHome
+import com.vayunmathur.library.ui.IconPackage
+import com.vayunmathur.library.ui.IconProvider
+import com.vayunmathur.library.ui.IconSearch
+import com.vayunmathur.library.ui.PagerTab
+import com.vayunmathur.library.ui.TabStyle
+import com.vayunmathur.library.ui.TabbedPagerScaffold
 
 /** Phone-shaped, roughly 1080x2340 at xxhdpi — comfortably above the F-Droid minimum. */
 private const val PHONE = "spec:width=411dp,height=891dp,dpi=420"
@@ -64,6 +77,11 @@ private fun tile(top: Long, bottom: Long): Drawable =
  * The last slot goes to the "how apps are checked" page, because comparing what each
  * source actually guarantees is the thing that distinguishes this store from any other
  * F-Droid or Play client.
+ *
+ * Home, Search, Updates and Library render inside [ChromePreview] — the real
+ * [TabbedPagerScaffold] with the app's real tabs — so the bottom bar users see is
+ * in the shot. Detail and Trust are pushed routes with no tab bar on device, so
+ * they render bare, exactly as shipped. Only the selected tab is literal.
  */
 class MetadataPreviews {
 
@@ -71,41 +89,7 @@ class MetadataPreviews {
     @Preview(name = "1-home", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview1Home() {
-        DynamicTheme(darkTheme = true) {
-            HomeScreen(
-                state = HomeUiState(
-                    sections = listOf(
-                        AppSection(
-                            id = "modern-recent",
-                            title = "New from Modern Apps",
-                            subtitle = "The newest builds from this repo",
-                            apps = MODERN,
-                        ),
-                        AppSection(
-                            id = "proprietary-recent",
-                            title = "New in Proprietary",
-                            subtitle = "The newest builds from the Play mirror",
-                            apps = PROPRIETARY,
-                        ),
-                        AppSection(
-                            id = "fdroid-recent",
-                            title = "New on F-Droid",
-                            subtitle = "The newest builds on F-Droid",
-                            apps = FDROID,
-                            layout = SectionLayout.LIST,
-                        ),
-                    ),
-                    categories = listOf("Security", "Internet", "Multimedia", "Writing"),
-                    updateCount = 3,
-                    installedPackages = setOf(
-                        "com.vayunmathur.calculator",
-                        "com.beemdevelopment.aegis",
-                    ),
-                    installedIcons = ICONS,
-                ),
-                actions = HomeActions.Noop,
-            )
-        }
+        ChromePreview(selectedTab = 0)
     }
 
     @PreviewTest
@@ -156,18 +140,7 @@ class MetadataPreviews {
     @Preview(name = "3-search", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview3Search() {
-        DynamicTheme(darkTheme = true) {
-            SearchScreen(
-                state = SearchUiState(
-                    query = "password",
-                    results = SEARCH_HITS,
-                    hasSearched = true,
-                    installedPackages = setOf("com.beemdevelopment.aegis"),
-                    installedIcons = ICONS,
-                ),
-                actions = SearchActions.Noop,
-            )
-        }
+        ChromePreview(selectedTab = 1)
     }
 
     @PreviewTest
@@ -183,6 +156,128 @@ class MetadataPreviews {
                 initialFirstVisibleItem = 2,
             )
         }
+    }
+
+    @PreviewTest
+    @Preview(name = "5-updates", device = PHONE, group = "phone", showSystemUi = true)
+    @Composable
+    fun Preview5Updates() {
+        ChromePreview(selectedTab = 2)
+    }
+
+    @PreviewTest
+    @Preview(name = "6-library", device = PHONE, group = "phone", showSystemUi = true)
+    @Composable
+    fun Preview6Library() {
+        ChromePreview(selectedTab = 3)
+    }
+}
+
+@Composable
+private fun HomeContent() {
+    HomeScreen(
+        state = HomeUiState(
+            sections = listOf(
+                AppSection(
+                    id = "modern-recent",
+                    title = "New from Modern Apps",
+                    subtitle = "The newest builds from this repo",
+                    apps = MODERN,
+                ),
+                AppSection(
+                    id = "proprietary-recent",
+                    title = "New in Proprietary",
+                    subtitle = "The newest builds from the Play mirror",
+                    apps = PROPRIETARY,
+                ),
+                AppSection(
+                    id = "fdroid-recent",
+                    title = "New on F-Droid",
+                    subtitle = "The newest builds on F-Droid",
+                    apps = FDROID,
+                    layout = SectionLayout.LIST,
+                ),
+            ),
+            categories = listOf("Security", "Internet", "Multimedia", "Writing"),
+            updateCount = 3,
+            installedPackages = setOf(
+                "com.vayunmathur.calculator",
+                "com.beemdevelopment.aegis",
+            ),
+            installedIcons = ICONS,
+        ),
+        actions = HomeActions.Noop,
+    )
+}
+
+@Composable
+private fun SearchContent() {
+    SearchScreen(
+        state = SearchUiState(
+            query = "password",
+            results = SEARCH_HITS,
+            hasSearched = true,
+            installedPackages = setOf("com.beemdevelopment.aegis"),
+            installedIcons = ICONS,
+        ),
+        actions = SearchActions.Noop,
+    )
+}
+
+@Composable
+private fun UpdatesContent() {
+    UpdatesScreen(
+        state = UpdatesUiState(
+            updates = listOf(AEGIS),
+            installedIcons = ICONS,
+            installedInfos = mapOf(
+                "com.beemdevelopment.aegis" to InstalledInfo(
+                    packageName = "com.beemdevelopment.aegis",
+                    name = "Aegis Authenticator",
+                    versionName = "3.4.0",
+                    versionCode = 340,
+                ),
+            ),
+            lastCheckedAt = 1_785_566_534_600,
+        ),
+        actions = UpdatesActions.Noop,
+    )
+}
+
+@Composable
+private fun LibraryContent() {
+    LibraryScreen(
+        state = LibraryUiState(
+            apps = MODERN + FDROID,
+            installedIcons = ICONS,
+        ),
+        actions = LibraryActions.Noop,
+    )
+}
+
+/**
+ * The app's real tab chrome around preview screen content: the same
+ * [TabbedPagerScaffold] in [TabStyle.BottomNav] with the same five tabs that
+ * `AppTabs` declares — the pager starts on [selectedTab], so the bar highlights
+ * the shown screen. The Sources tab needs the ViewModel, so it shows an empty
+ * page (never visible — only the selected tab renders); everything else is the
+ * real screen with literal state.
+ */
+@Composable
+private fun ChromePreview(selectedTab: Int) {
+    DynamicTheme(darkTheme = true) {
+        val tabs = listOf(
+            PagerTab("Home", { IconHome() }) { HomeContent() },
+            PagerTab("Search", { IconSearch() }) { SearchContent() },
+            PagerTab("Updates", { IconDownload() }) { UpdatesContent() },
+            PagerTab("Library", { IconPackage() }) { LibraryContent() },
+            PagerTab("Sources", { IconProvider() }) { },
+        )
+        TabbedPagerScaffold(
+            tabs = tabs,
+            pagerState = rememberPagerState(initialPage = selectedTab, pageCount = { tabs.size }),
+            tabStyle = TabStyle.BottomNav,
+        )
     }
 }
 
