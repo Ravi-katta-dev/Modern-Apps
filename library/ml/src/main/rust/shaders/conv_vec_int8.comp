@@ -52,11 +52,25 @@
 //! accumulation, the scale applied to the finished accumulator, then the bias, then the activation.
 //! `p.weight` is a **32-bit word** offset and `p.act_weight` the scale as an fp16 element index,
 //! which is why `Act::PRelu` cannot ride along.
+//!
+//! # Wide loads
+//!
+//! When `in_c % 16 == 0` and the weight and activation bases are 16-byte aligned - every
+//! projection and head here - each lane reads sixteen taps per row with one `uvec4` load and the
+//! matching sixteen activations with four `f16vec4` loads, reused across the rows. The byte-per-lane
+//! loop below it issued one load per tap per row; on a Pixel 8 it streamed NLLB's decode weights at
+//! 15 GB/s, 85% of a step.
 
 // See the tail of `main`, and `conv_vec_int4.comp` which does the same.
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 #include "common.glsl"
+
+/// The arena as quads of fp16, for the wide activation loads. Read-only, and never a range this
+/// dispatch writes.
+layout(std430, binding = 0) readonly buffer ArenaQuad {
+    f16vec4 arena_quad[];
+};
 
 /// Output channels per workgroup.
 ///
@@ -95,10 +109,31 @@ void main() {
     }
     // Rows past the output are accumulated anyway and discarded at the store. Skipping them would
     // branch inside the hot loop for at most seven channels of the last workgroup.
-    for (uint k = lane; k < p.in_c; k += 64u) {
-        float x = float(arena[p.in0 + k]);
+    bool wide = (p.in_c & 15u) == 0u && (p.weight & 3u) == 0u && (p.in0 & 3u) == 0u;
+    if (wide) {
+        uint row16[ROWS];
         for (uint r = 0u; r < ROWS; r++) {
-            acc[r] += float(int8_at(p.weight, (channel_base + r) * p.in_c + k)) * x;
+            uint channel = min(channel_base + r, p.out_c - 1u);
+            row16[r] = (p.weight + ((channel * p.in_c) >> 2u)) >> 2u;
+        }
+        uint quad0 = p.in0 >> 2u;
+        for (uint k = lane * 16u; k < p.in_c; k += 1024u) {
+            vec4 x0 = vec4(arena_quad[quad0 + (k >> 2u)]);
+            vec4 x1 = vec4(arena_quad[quad0 + (k >> 2u) + 1u]);
+            vec4 x2 = vec4(arena_quad[quad0 + (k >> 2u) + 2u]);
+            vec4 x3 = vec4(arena_quad[quad0 + (k >> 2u) + 3u]);
+            for (uint r = 0u; r < ROWS; r++) {
+                uvec4 w = weights128[row16[r] + (k >> 4u)];
+                acc[r] += dot(unpack_int8x4(w.x), x0) + dot(unpack_int8x4(w.y), x1)
+                        + dot(unpack_int8x4(w.z), x2) + dot(unpack_int8x4(w.w), x3);
+            }
+        }
+    } else {
+        for (uint k = lane; k < p.in_c; k += 64u) {
+            float x = float(arena[p.in0 + k]);
+            for (uint r = 0u; r < ROWS; r++) {
+                acc[r] += float(int8_at(p.weight, (channel_base + r) * p.in_c + k)) * x;
+            }
         }
     }
     // Reduce within each subgroup in registers, then across the handful a workgroup holds.

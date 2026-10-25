@@ -1,5 +1,37 @@
 #[test]
 #[ignore = "needs a Vulkan device"]
+fn a_wide_gemv_agrees_with_the_reference() {
+    // `conv_vec_int8.comp`'s sixteen-tap path over several strides per lane (2,080 inputs is two
+    // passes of 1,024 and a partial third) and an odd channel count, so the last workgroup's second
+    // row reads a clamped row and must not be stored.
+    let (out_channels, in_channels) = (37u32, 2080u32);
+    let kernel: Vec<i8> = (0..(out_channels * in_channels) as i32)
+        .map(|i| ((i * 29) % 253 - 126) as i8)
+        .collect();
+    let scales: Vec<f32> = (0..out_channels).map(|c| 0.000_976_562_5 * (1.0 + (c % 5) as f32)).collect();
+    let blob = write_mixed(
+        graph::SUPERTONIC_VE,
+        &[
+            Fixture::I8(vec![out_channels, in_channels, 1, 1], kernel),
+            Fixture::F16(vec![out_channels], scales),
+            Fixture::F16(vec![out_channels], spread(out_channels as usize, 0.8)),
+        ],
+    );
+    let weights = Weights::parse(&blob, graph::SUPERTONIC_VE).expect("the fixture blob parses");
+    let input = spread(in_channels as usize, 0.6);
+    let mut builder = Builder::new(&weights);
+    let first = builder.input(Shape::new(in_channels, 1, 1));
+    let last = builder.conv_int8(first, 0, out_channels, (1, 1), (1, 1), (1, 1), (0, 0, 0, 0), 1, Act::None);
+    let plan = builder.finish(&[last]).expect("the gemv plan builds");
+    assert!(plan.ops.iter().any(|op| matches!(
+        op,
+        crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvVecInt8, .. }
+    )));
+    compare("a wide int8 gemv", plan, weights.data().to_vec(), &[&input]);
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
 fn the_gemv_and_tiled_int8_shaders_agree_with_each_other() {
     // The same weights over one position and over 16. `Builder` sends the first to
     // `conv_vec_int8.comp` and the second to `conv_point_int8.comp`, and the wide run's position 0

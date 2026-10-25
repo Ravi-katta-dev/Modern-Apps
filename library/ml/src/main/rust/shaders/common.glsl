@@ -260,6 +260,13 @@ int int8_at(uint base, uint index) {
     return bitfieldExtract(int(word), int((index & 3u) << 3u), 8);
 }
 
+/// The four signed bytes of one 32-bit word, low byte first, as floats.
+vec4 unpack_int8x4(uint word) {
+    int w = int(word);
+    return vec4(bitfieldExtract(w, 0, 8), bitfieldExtract(w, 8, 8), bitfieldExtract(w, 16, 8),
+                bitfieldExtract(w, 24, 8));
+}
+
 /// Taps one Q2_K superblock covers. Mirrors `weights::Q2K_BLOCK`.
 #define Q2K_BLOCK 256u
 
