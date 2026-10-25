@@ -195,6 +195,7 @@ impl Net {
         // running at its old plan: a descriptor pointing at a new arena while the recorded
         // command buffer still copies the inputs into the old one would be a wrong answer at the
         // right shape, which is far worse than an error.
+        let staged = std::time::Instant::now();
         let grown_arena = if arena_bytes > self.arena.size {
             Some(Buffer::device_local(&self.context, arena_bytes)?)
         } else {
@@ -205,24 +206,35 @@ impl Net {
         } else {
             None
         };
+        timing!("rebuild-alloc {:.1} ms", staged.elapsed().as_secs_f64() * 1e3);
 
         // SAFETY: a descriptor set may not be rewritten, and a bound buffer may not be freed,
         // while a command buffer using either is pending. `submit` waits on its fence before
         // returning and the check above rejects the one case where it did not, so nothing is in
         // fact pending — but this costs one round trip per length change, not per inference, and
         // it makes that reasoning unnecessary rather than load-bearing.
+        let staged = std::time::Instant::now();
         unsafe {
             let guard = self.context.lock_queue();
             let idle = self.context.device.device_wait_idle();
             drop(guard);
             idle.map_err(|e| format!("device_wait_idle {e:?}"))?;
         }
+        timing!("rebuild-idle {:.1} ms", staged.elapsed().as_secs_f64() * 1e3);
 
         // Past here nothing fails until `record`, so the net cannot be left describing one shape
         // and recording another. Each old `Buffer` frees itself as it is replaced, after the wait
         // above.
         if let Some(arena) = grown_arena {
-            // Carry the old arena over first.
+            // Carry the old arena over first - unless it holds nothing worth keeping.
+            //
+            // A plan with no pinned tensors keeps nothing between submits: every activation is
+            // scratch, rewritten before it is read. Growing into a fresh arena then needs no
+            // copy at all, saving the submit round trip (~10 ms on NLLB's 2 MB).
+            //
+            // When the old plan DOES pin tensors (NLLB's cross/self caches), the copy stays:
+            // offsets are assigned per plan and the scratch above them is written before it is
+            // read - so the correct-by-construction thing is to preserve all of it.
             //
             // A wider plan needs a bigger arena, and a fresh `Buffer` holds undefined memory -
             // so swapping it in silently replaced every **persistent** tensor with rubbish. The
@@ -237,8 +249,19 @@ impl Net {
             // read - so the correct-by-construction thing is to preserve all of it.
             // SAFETY: both buffers are live and owned here, the copy is inside its own submit,
             // and nothing else touches either until the fence is waited on.
-            unsafe { self.copy_arena(&arena)? };
+            //
+            // `self.plan` is still the OLD plan here (it is replaced below), so its pinned list
+            // is what decides: nothing pinned, nothing to carry.
+            if self.plan.pinned.is_empty() {
+                timing!("rebuild-copy skipped, the old plan pins nothing");
+            } else {
+                let staged = std::time::Instant::now();
+                unsafe { self.copy_arena(&arena)? };
+                timing!("rebuild-copy {:.1} ms", staged.elapsed().as_secs_f64() * 1e3);
+            }
+            let staged = std::time::Instant::now();
             self.pipelines.rebind_arena(&self.context.device, arena.buffer, arena.size);
+            timing!("rebuild-rebind {:.1} ms", staged.elapsed().as_secs_f64() * 1e3);
             self.arena = arena;
         }
         if let Some(staging) = grown_staging {
@@ -247,7 +270,9 @@ impl Net {
         self.input_scratch.resize(input_elems, 0);
         self.output_scratch.resize(output_elems, 0);
         self.plan = plan;
+        let staged = std::time::Instant::now();
         self.reset_query_pool()?;
+        timing!("rebuild-query {:.1} ms", staged.elapsed().as_secs_f64() * 1e3);
 
         // A `record` that fails leaves the command buffer part-written, and submitting that is
         // not something a later caller may be allowed to do. There is no way back — both of its

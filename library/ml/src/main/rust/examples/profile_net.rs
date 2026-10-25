@@ -46,10 +46,18 @@ fn nllb_profile(path: Option<&str>) -> Result<(), String> {
     let context = context::shared()?;
 
     let started = Instant::now();
+    // Decode-first construction when MODELRUNNER_DECODE_FIRST=1: the cold record (one-time
+    // driver cost, ~130-166 ms for the 280-op decode plan) and the max-size arena allocation
+    // happen in load, and later switches only re-record (~10-15 ms) with no arena growth.
+    let first = if std::env::var("MODELRUNNER_DECODE_FIRST").as_deref() == Ok("1") {
+        nllb::Mode::DecodeStep { src_len: SRC_LEN }
+    } else {
+        nllb::Mode::Encode { len: SRC_LEN }
+    };
     let mut net = Reshaped::new(
         context,
         &weights,
-        nllb::Mode::Encode { len: SRC_LEN },
+        first,
         |offsets, mode| nllb::build(offsets, mode),
     )?;
     println!("load      {:>8.1} ms (upload + first record)", ms(started));

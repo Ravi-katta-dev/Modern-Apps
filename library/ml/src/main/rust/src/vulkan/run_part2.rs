@@ -4,6 +4,7 @@ impl Net {
     fn record(&self) -> Result<(), String> {
         let device = &self.context.device;
         let buffer = self.command_buffer;
+        let emit_staged = std::time::Instant::now();
         // SAFETY: `buffer` is a primary command buffer from this device's pool, not
         // currently pending, and every handle referenced below outlives it (they are all
         // fields of `self`, dropped after it in `Drop`).
@@ -217,8 +218,14 @@ impl Net {
 
             device
                 .end_command_buffer(buffer)
-                .map_err(|e| format!("end_command_buffer {e:?}"))
+                .map_err(|e| format!("end_command_buffer {e:?}"))?;
         }
+        crate::timing!(
+            "record-emit {:.1} ms for {} ops",
+            emit_staged.elapsed().as_secs_f64() * 1e3,
+            self.plan.ops.len()
+        );
+        Ok(())
     }
 
     /// # Safety
