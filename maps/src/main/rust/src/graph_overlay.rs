@@ -370,6 +370,10 @@ mod overlay_tests {
     /// A ~220 km motorway along the equator with a residential road 1.1 km north
     /// of it, joined by a residential connector at every node. Motorway ids
     /// `0..SPAN`, residential ids `SPAN..2*SPAN`.
+    pub(super) fn corridor_graph() -> Graph {
+        corridor()
+    }
+
     fn corridor() -> Graph {
         let mut nodes = Vec::new();
         for lat in [0, 100_000] {
@@ -459,5 +463,32 @@ mod overlay_tests {
         let bytes = build_overlay(&g, u64::from(g.node_count) + 1);
         assert!(!g.attach_overlay_bytes(bytes));
         assert!(g.overlay().is_none());
+    }
+}
+
+#[cfg(test)]
+mod trip_limit_tests {
+    use crate::geometry::TrafficSpeeds;
+    use crate::graph::{BICYCLE, DRIVING, WALK};
+    use crate::routing::prepare_routing;
+    use crate::state::{RadixHeap, RoutingScratchpad};
+
+    /// A cross-country walk or ride is refused before any search, so it costs
+    /// nothing; driving the same trip is still planned.
+    #[test]
+    fn walking_and_cycling_refuse_cross_country_trips() {
+        let g = super::overlay_tests::corridor_graph();
+        let speeds = TrafficSpeeds::default();
+        let (mut scratch, mut heap) = (RoutingScratchpad::new(), RadixHeap::new());
+        let mut ensure = |_: i32, _: i32| {};
+        let mut plan = |mode, e_lon: f64| {
+            prepare_routing(&g, &speeds, &mut ensure, 0.0101, 0.0001, 0.0101, e_lon, mode, &mut scratch, &mut heap)
+                .is_some()
+        };
+        // ~220 km apart.
+        assert!(plan(DRIVING, 1.9999));
+        assert!(!plan(WALK, 1.9999), "past the walking limit");
+        assert!(plan(BICYCLE, 1.9999), "inside the cycling limit");
+        assert!(plan(WALK, 0.5), "a 55 km walk is still planned");
     }
 }

@@ -127,7 +127,12 @@ fn search(
             // Keep expanding: this anchor may also be on the way to the other.
         }
 
-        if mode == DRIVING {
+        // The search runs on the traffic snapshot taken when it started, so a
+        // prefetch only helps the next route. Across a continent that was ~550
+        // one-degree squares per route, each a request plus a native traffic merge
+        // and a renderer re-push, which stalled the UI for seconds; keep it to the
+        // roads near either end, which are the ones a reroute will need.
+        if mode == DRIVING && (overlay.is_none() || is_local(g, lat_u, lon_u, ctx)) {
             ensure_traffic(lat_u, lon_u);
         }
 

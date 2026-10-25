@@ -190,7 +190,22 @@ pub fn find_nearest_edge(g: &Graph, lat: f64, lon: f64, mode: i32) -> SnappedEdg
     best
 }
 
-/// Snap endpoints, seed the open set. Returns `None` if snapping fails.
+/// Straight-line limit for a walking or cycling route.
+///
+/// Neither mode uses the highway overlay, so a cross-country request is a full
+/// search of every path on the continent: on device LA to NYC on foot ran into
+/// the 25M-expansion cap after ~30 s and gigabytes of scratch, and the route
+/// sheet plans every mode for every selection. Nobody needs those routes.
+fn max_trip_mm(mode: i32) -> Option<u32> {
+    match mode {
+        WALK | PUBLIC_TRANSIT => Some(150_000_000),
+        BICYCLE => Some(300_000_000),
+        _ => None,
+    }
+}
+
+/// Snap endpoints, seed the open set. Returns `None` if snapping fails or the
+/// trip is too far to walk or cycle.
 #[allow(clippy::too_many_arguments)]
 pub fn prepare_routing(
     g: &Graph,
@@ -206,6 +221,12 @@ pub fn prepare_routing(
 ) -> Option<RoutingContext> {
     scratch.reset();
     heap.clear();
+
+    if let Some(max) = max_trip_mm(mode) {
+        if accurate_dist_mm((s_lat * 1e7) as i32, (s_lon * 1e7) as i32, (e_lat * 1e7) as i32, (e_lon * 1e7) as i32) > max {
+            return None;
+        }
+    }
 
     let start = find_nearest_edge(g, s_lat, s_lon, mode);
     let end = find_nearest_edge(g, e_lat, e_lon, mode);
