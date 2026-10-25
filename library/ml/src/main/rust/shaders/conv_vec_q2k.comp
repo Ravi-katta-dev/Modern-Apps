@@ -23,12 +23,28 @@
 //! `p.in_c` the taps, `p.out_c` the output channels and `p.count` the workgroup count,
 //! one per group of [`ROWS`] channels. The superblock byte offset of a row's block is
 //! derived from the two, since rows are contiguous runs of `blocks` superblocks.
+//!
+//! # Word-per-lane mode
+//!
+//! When `in_c % 256 == 0` and the activation base is 4-aligned - every MADLAD projection - a lane
+//! owns one 32-bit word of a superblock's `qs` rather than a whole superblock. That word holds the
+//! 2-bit codes of 16 taps: four bytes, each carrying one code for each of the half's four lanes.
+//! Owning whole superblocks left a 1,024-input projection with four of 64 lanes busy, and re-read
+//! every activation once per row; on a Pixel 8 that streamed MADLAD's weights at 0.6 GB/s and was
+//! 90% of a 2-second token. Here every lane is busy at 1,024 inputs, the sixteen activations are
+//! four `f16vec4` loads shared by all the rows, and the affine dequantisation factors out per
+//! 4-tap group: `sum((dall*lo*c - dmin*hi) * x) = dall*lo*dot(c, x) - dmin*hi*sum(x)`.
 
 // Reductions happen in registers across a subgroup rather than through shared memory across the
 // whole workgroup. See the tail of `main` for why that is worth an extension requirement.
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 #include "common.glsl"
+
+/// The arena as quads of fp16, for the word-per-lane activation loads.
+layout(std430, binding = 0) readonly buffer ArenaQuad {
+    f16vec4 arena_quad[];
+};
 
 /// Output channels one workgroup owns.
 ///
@@ -62,6 +78,50 @@ void main() {
     for (uint r = 0u; r < ROWS; r++) {
         acc[r] = 0.0;
     }
+    bool by_word = (p.in_c % Q2K_BLOCK) == 0u && (p.in0 & 3u) == 0u;
+    if (by_word) {
+        // 16 `qs` words per superblock, so this many units across the row.
+        uint units = blocks * 16u;
+        for (uint unit = lane; unit < units; unit += 64u) {
+            uint block = unit >> 4u;
+            uint w = unit & 15u;
+            uint half_idx = w >> 3u;
+            uint odd = (w >> 2u) & 1u;
+            uint quad = w & 3u;
+            // Taps `half*128 + q*32 + odd*16 + quad*4 + 0..3` for code lane `q` in 0..3.
+            uint first = block * Q2K_BLOCK + half_idx * 128u + odd * 16u + quad * 4u;
+            vec4 x[4];
+            float xsum[4];
+            for (uint q = 0u; q < 4u; q++) {
+                x[q] = vec4(arena_quad[(p.in0 + first + q * 32u) >> 2u]);
+                xsum[q] = x[q].x + x[q].y + x[q].z + x[q].w;
+            }
+            for (uint r = 0u; r < ROWS; r++) {
+                uint row = min(channel_base + r, p.out_c - 1u);
+                uint pair = p.act_weight + row * blocks * 2u + block * 2u;
+                float d = float(weights[pair]);
+                float m = float(weights[pair + 1u]);
+                float dall = d * d;
+                float dmin = m * d;
+                // The superblock as a word index: 84 bytes is 21 words.
+                uint sb = p.weight + (row * blocks + block) * 21u;
+                uint codes = weights32[sb + 4u + w];
+                // Scale bytes `half*8 + q*2 + odd`: lanes 0,1 in one word, 2,3 in the next.
+                uint scales_lo = weights32[sb + half_idx * 2u];
+                uint scales_hi = weights32[sb + half_idx * 2u + 1u];
+                float total = 0.0;
+                for (uint q = 0u; q < 4u; q++) {
+                    uint word = q < 2u ? scales_lo : scales_hi;
+                    uint sc = (word >> ((((q & 1u) << 1u) + odd) << 3u)) & 255u;
+                    uint shift = q << 1u;
+                    vec4 c = vec4(float((codes >> shift) & 3u), float((codes >> (shift + 8u)) & 3u),
+                                  float((codes >> (shift + 16u)) & 3u), float((codes >> (shift + 24u)) & 3u));
+                    total += dall * float(sc & 15u) * dot(c, x[q]) - dmin * float(sc >> 4u) * xsum[q];
+                }
+                acc[r] += total;
+            }
+        }
+    } else {
     // A lane owns whole superblocks rather than a stride-64 scatter, so each row's
     // `(d, dmin)` is fetched once per 256 taps instead of once per tap.
     //
@@ -117,6 +177,7 @@ void main() {
             }
             acc[r] += total;
         }
+    }
     }
     // Reduce inside each subgroup first, then across the few subgroups a workgroup holds.
     for (uint r = 0u; r < ROWS; r++) {

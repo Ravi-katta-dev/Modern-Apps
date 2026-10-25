@@ -376,6 +376,9 @@ pub(crate) enum Fixture {
     /// are masked rather than clamped, so a fixture that overflows shows up as a wrong number
     /// rather than a silently saturated one.
     I4(Vec<u32>, Vec<i8>),
+    /// GGUF Q2_K superblocks, raw: [`Q2K_BYTES`] per [`Q2K_BLOCK`] taps of a `[out, taps]` kernel.
+    /// The `(d, dmin)` pairs are a separate fp16 tensor, as in a converted file.
+    Q2K(Vec<u32>, Vec<u8>),
 }
 
 /// Build a `.maml` blob from a mix of fp16 and int8 tensors, for the fixtures.
@@ -432,6 +435,10 @@ pub(crate) fn write_mixed(graph_id: u32, tensors: &[Fixture]) -> Vec<u8> {
                     })
                     .collect::<Vec<u8>>(),
             ),
+            Fixture::Q2K(dims, bytes) => {
+                let elements: u32 = dims.iter().product();
+                (dims, DTYPE_Q2K, elements, bytes.clone())
+            }
         };
         while !data.len().is_multiple_of(ALIGNMENT as usize) {
             data.push(0);
