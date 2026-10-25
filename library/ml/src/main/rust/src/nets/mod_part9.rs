@@ -449,11 +449,22 @@ impl<'a> Builder<'a> {
             }
             Node::AttnScores { q, k, out, heads, kv_heads, scale } => {
                 let (si, so) = (shape(*q), shape(*out));
+                let (in0, in1) = (at(*q)?, at(*k)?);
+                // The tiled shader reads four queries and four keys per load, so both lengths and
+                // both bases must divide by four. See `shaders/attn_scores.comp`.
+                let tiled = so.h >= 4
+                    && so.h % 4 == 0
+                    && so.w % 4 == 0
+                    && in0 % 4 == 0
+                    && in1 % 4 == 0;
+                let tiles = so.c * so.h.div_ceil(ATTN_TILE) * so.w.div_ceil(ATTN_TILE);
+                let (kw, count, invocations) =
+                    if tiled { (1, tiles, tiles * 64) } else { (0, so.len(), so.len()) };
                 ops.push(Op::Dispatch {
                     kind: Kind::AttnScores,
                     push: Push {
-                        in0: at(*q)?,
-                        in1: at(*k)?,
+                        in0,
+                        in1,
                         out: at(*out)?,
                         in_c: si.c,
                         in_h: si.h,
@@ -464,10 +475,11 @@ impl<'a> Builder<'a> {
                         group: *heads,
                         kv_heads: *kv_heads,
                         param0_bits: scale.to_bits(),
-                        count: so.len(),
+                        count,
+                        kw,
                         ..Push::default()
                     },
-                    invocations: so.len(),
+                    invocations,
                 });
             }
             Node::AttnScoresCached { q, cache, out, heads, kv_heads, scale, dynamic, sliding } => {

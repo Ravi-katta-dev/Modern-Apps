@@ -184,6 +184,63 @@ fn row_mode_plan(
 
 #[test]
 #[ignore = "needs a Vulkan device"]
+fn a_tiled_score_map_agrees_with_the_reference() {
+    // Lengths divisible by four but not by the 32-wide tile, in both axes, so partial tiles run;
+    // a cross-attention shape (queries != keys) so the two strides cannot be confused; and a
+    // grouped case where two query heads share each key head.
+    for (heads, kv_heads, head_dim, queries, keys) in
+        [(2u32, 2u32, 8u32, 36u32, 44u32), (4, 2, 12, 40, 68)]
+    {
+        let q = spread((heads * head_dim * queries) as usize, 0.31);
+        let k = spread((kv_heads * head_dim * keys) as usize, -0.23);
+        let source = Invented::new(0);
+        let plan = row_mode_plan(
+            &source,
+            &[Shape::new(heads * head_dim, 1, queries), Shape::new(kv_heads * head_dim, 1, keys)],
+            crate::nets::Kind::AttnScores,
+            |b, ids| {
+                if heads == kv_heads {
+                    b.attn_scores(ids[0], ids[1], heads)
+                } else {
+                    b.attn_scores_grouped_prescaled(ids[0], ids[1], heads, kv_heads)
+                }
+            },
+        );
+        let what = format!("a tiled score map, {heads}/{kv_heads} heads, {queries}x{keys}");
+        compare(&what, plan, source.into_data(), &[&q, &k]);
+    }
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_tiled_attention_apply_agrees_with_the_reference() {
+    // As above: partial tiles in both axes, queries != keys, and a grouped case.
+    for (heads, kv_heads, head_dim, queries, keys) in
+        [(2u32, 2u32, 8u32, 40u32, 52u32), (4, 2, 12, 44, 36)]
+    {
+        // Probabilities need not sum to one for the arithmetic under test.
+        let probs = spread((heads * queries * keys) as usize, 0.17);
+        let v = spread((kv_heads * head_dim * keys) as usize, 0.53);
+        let source = Invented::new(0);
+        let plan = row_mode_plan(
+            &source,
+            &[Shape::new(heads, queries, keys), Shape::new(kv_heads * head_dim, 1, keys)],
+            crate::nets::Kind::AttnApply,
+            |b, ids| {
+                if heads == kv_heads {
+                    b.attn_apply(ids[0], ids[1], heads)
+                } else {
+                    b.attn_apply_grouped(ids[0], ids[1], heads, kv_heads)
+                }
+            },
+        );
+        let what = format!("a tiled attention apply, {heads}/{kv_heads} heads, {queries}x{keys}");
+        compare(&what, plan, source.into_data(), &[&probs, &v]);
+    }
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
 fn a_row_mode_layer_norm_agrees_with_the_reference() {
     // A decode step's shape - one position of d_model 1,024 - and a short sentence's, five
     // positions, where the channels a lane reads are a stride apart. 1,024 is not a multiple of

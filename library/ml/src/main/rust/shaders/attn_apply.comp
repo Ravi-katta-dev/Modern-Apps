@@ -28,10 +28,90 @@
 //! sum of a convex combination cannot exceed `V`'s range. Accumulating in `float` like
 //! everywhere else here is more than enough; the fp16 store at the end is the only
 //! rounding.
+//!
+//! # Tiled mode
+//!
+//! With `p.kw == 1` each invocation owns four channels by four queries and a workgroup a 32 x 32
+//! block, reading both operands four keys at a time through a read-only `f16vec4` view: each pair
+//! of quads is a `dot` per output. `nets` picks it when the key count and both bases are divisible
+//! by four, and then `p.count` is the workgroup count. One invocation per output re-read every
+//! row of `S` and `V` from memory per element; on a Pixel 8 that made whisper's six 1,500-key
+//! applications 1.5 s of a 3.4 s encoder.
 
 #include "common.glsl"
 
+layout(std430, binding = 0) readonly buffer ArenaQuad {
+    f16vec4 arena_quad[];
+};
+
+#define TILE 32u
+#define BLOCK 4u
+
+void tiled() {
+    uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    if (tile >= p.count) {
+        return;
+    }
+    uint queries = p.out_w;
+    uint keys = p.in_w;
+    uint head_dim = p.out_c / p.group;
+    uint tiles_across = (queries + TILE - 1u) / TILE;
+    uint lid = gl_LocalInvocationID.x;
+    uint channel_base = (tile / tiles_across) * TILE + (lid >> 3u) * BLOCK;
+    uint query_base = (tile % tiles_across) * TILE + (lid & 7u) * BLOCK;
+    if (channel_base >= p.out_c || query_base >= queries) {
+        return;
+    }
+    // `head_dim` is a multiple of four, so a block of four channels never spans two heads.
+    uint head = channel_base / head_dim;
+    uint quads = keys >> 2u;
+    uint value_row[BLOCK];
+    uint prob_row[BLOCK];
+    for (uint i = 0u; i < BLOCK; i++) {
+        uint channel = min(channel_base + i, p.out_c - 1u);
+        value_row[i] = ((p.in1 + (kv_head_of(head) * head_dim + channel % head_dim) * keys) >> 2u);
+        uint query = min(query_base + i, queries - 1u);
+        prob_row[i] = ((p.in0 + (head * queries + query) * keys) >> 2u);
+    }
+    float acc[BLOCK][BLOCK];
+    for (uint i = 0u; i < BLOCK; i++) {
+        for (uint j = 0u; j < BLOCK; j++) {
+            acc[i][j] = 0.0;
+        }
+    }
+    for (uint q = 0u; q < quads; q++) {
+        vec4 v[BLOCK];
+        vec4 s[BLOCK];
+        for (uint i = 0u; i < BLOCK; i++) {
+            v[i] = vec4(arena_quad[value_row[i] + q]);
+            s[i] = vec4(arena_quad[prob_row[i] + q]);
+        }
+        for (uint i = 0u; i < BLOCK; i++) {
+            for (uint j = 0u; j < BLOCK; j++) {
+                acc[i][j] += dot(v[i], s[j]);
+            }
+        }
+    }
+    for (uint i = 0u; i < BLOCK; i++) {
+        uint channel = channel_base + i;
+        if (channel >= p.out_c) {
+            break;
+        }
+        for (uint j = 0u; j < BLOCK; j++) {
+            uint query = query_base + j;
+            if (query >= queries) {
+                break;
+            }
+            arena[p.out_at + channel * queries + query] = float16_t(acc[i][j]);
+        }
+    }
+}
+
 void main() {
+    if (p.kw == 1u) {
+        tiled();
+        return;
+    }
     uint index = global_index();
     if (index >= p.count) {
         return;

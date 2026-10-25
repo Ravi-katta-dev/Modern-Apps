@@ -41,10 +41,67 @@
 //! Applied here, to the accumulator, rather than to Q's projection weights: folding it
 //! there would work and would make the scale invisible in the one place a reader looks
 //! to check it.
+//!
+//! # Tiled mode
+//!
+//! With `p.kw == 1` each invocation owns four queries by four keys of one head and a workgroup a
+//! 32 x 32 block; each step of the `head_dim` reduction reads four queries and four keys as one
+//! `f16vec4` each and accumulates their outer product. `nets` picks it when both lengths and both
+//! bases are divisible by four, and then `p.count` is the workgroup count. On a Pixel 8 one
+//! invocation per score made whisper's six 1,500 x 1,500 maps 570 ms.
 
 #include "common.glsl"
 
+layout(std430, binding = 0) readonly buffer ArenaQuad {
+    f16vec4 arena_quad[];
+};
+
+#define TILE 32u
+
+void tiled() {
+    uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    if (tile >= p.count) {
+        return;
+    }
+    uint queries = p.out_h;
+    uint keys = p.out_w;
+    uint head_dim = p.in_c / p.group;
+    uint across = (keys + TILE - 1u) / TILE;
+    uint down = (queries + TILE - 1u) / TILE;
+    uint head = tile / (across * down);
+    uint within = tile % (across * down);
+    uint lid = gl_LocalInvocationID.x;
+    uint query_base = (within / across) * TILE + (lid >> 3u) * 4u;
+    uint key_base = (within % across) * TILE + (lid & 7u) * 4u;
+    if (query_base >= queries || key_base >= keys) {
+        return;
+    }
+    // Both lengths are multiples of four, so a quad is wholly inside its sequence.
+    uint q_quad = (p.in0 + head * head_dim * queries + query_base) >> 2u;
+    uint k_quad = (p.in1 + kv_head_of(head) * head_dim * keys + key_base) >> 2u;
+    uint q_stride = queries >> 2u;
+    uint k_stride = keys >> 2u;
+    mat4 acc = mat4(0.0);
+    for (uint d = 0u; d < head_dim; d++) {
+        vec4 q = vec4(arena_quad[q_quad + d * q_stride]);
+        vec4 k = vec4(arena_quad[k_quad + d * k_stride]);
+        // Column `j` of `acc` is key `j`: `acc[j][i] += q[i] * k[j]`.
+        acc += outerProduct(q, k);
+    }
+    float scale = uintBitsToFloat(p.param0_bits);
+    for (uint j = 0u; j < 4u; j++) {
+        for (uint i = 0u; i < 4u; i++) {
+            uint at = (head * queries + query_base + i) * keys + key_base + j;
+            arena[p.out_at + at] = float16_t(acc[j][i] * scale);
+        }
+    }
+}
+
 void main() {
+    if (p.kw == 1u) {
+        tiled();
+        return;
+    }
     uint index = global_index();
     if (index >= p.count) {
         return;

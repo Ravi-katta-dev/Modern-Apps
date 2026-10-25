@@ -57,16 +57,24 @@ pub(crate) mod tests {
     /// mismatch leaves part of every projection unwritten - plausible wrong numbers, not an error.
     #[test]
     fn the_int8_tile_matches_its_shader() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("shaders")
-            .join("conv_point_int8.comp");
+        assert_eq!(tile_of("conv_point_int8.comp"), CONV_POINT_INT8_TILE);
+    }
+
+    /// `ATTN_TILE` must equal `TILE` in both attention shaders' tiled modes, for the same reason.
+    #[test]
+    fn the_attention_tiles_match_their_shaders() {
+        assert_eq!(tile_of("attn_scores.comp"), ATTN_TILE);
+        assert_eq!(tile_of("attn_apply.comp"), ATTN_TILE);
+    }
+
+    fn tile_of(shader: &str) -> u32 {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("shaders").join(shader);
         let source = std::fs::read_to_string(&path).expect("the shader reads");
-        let tile: u32 = source
+        source
             .lines()
             .find_map(|line| line.trim_start().strip_prefix("#define TILE"))
             .and_then(|rest| rest.trim().trim_end_matches('u').parse().ok())
-            .expect("conv_point_int8.comp declares TILE");
-        assert_eq!(tile, CONV_POINT_INT8_TILE);
+            .unwrap_or_else(|| panic!("{shader} declares no TILE"))
     }
     use super::*;
 

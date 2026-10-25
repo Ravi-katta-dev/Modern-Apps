@@ -392,11 +392,24 @@ impl<'a> Builder<'a> {
             }
             Node::AttnApply { probs, v, out, heads, kv_heads } => {
                 let (sv, so) = (shape(*v), shape(*out));
+                let (in0, in1) = (at(*probs)?, at(*v)?);
+                // The tiled shader reads both operands four keys per load and owns four channels of
+                // one head per invocation. A single query would waste three of every four lanes'
+                // work, so a decode step stays on the per-element shader.
+                let head_dim = so.c / (*heads).max(1);
+                let tiled = so.w >= 8
+                    && sv.w % 4 == 0
+                    && head_dim % 4 == 0
+                    && in0 % 4 == 0
+                    && in1 % 4 == 0;
+                let tiles = so.c.div_ceil(ATTN_TILE) * so.w.div_ceil(ATTN_TILE);
+                let (kw, count, invocations) =
+                    if tiled { (1, tiles, tiles * 64) } else { (0, so.len(), so.len()) };
                 ops.push(Op::Dispatch {
                     kind: Kind::AttnApply,
                     push: Push {
-                        in0: at(*probs)?,
-                        in1: at(*v)?,
+                        in0,
+                        in1,
                         out: at(*out)?,
                         in_c: so.c,
                         in_h: so.h,
@@ -408,10 +421,11 @@ impl<'a> Builder<'a> {
                         out_w: so.w,
                         group: *heads,
                         kv_heads: *kv_heads,
-                        count: so.len(),
+                        count,
+                        kw,
                         ..Push::default()
                     },
-                    invocations: so.len(),
+                    invocations,
                 });
             }
             Node::Rotary { input, angles, out, heads, axes } => {

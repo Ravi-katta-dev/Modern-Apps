@@ -11,6 +11,11 @@ const CONV_POINT_TILE: u32 = 16;
 /// register blocking and covers a larger tile - see its header. **Must equal `TILE` there.**
 const CONV_POINT_INT8_TILE: u32 = 32;
 
+/// `TILE` in the tiled modes of `shaders/attn_scores.comp` and `shaders/attn_apply.comp`.
+///
+/// **Must equal `TILE` in both.** Held by `the_attention_tiles_match_their_shaders`.
+const ATTN_TILE: u32 = 32;
+
 /// `ROWS` in `shaders/conv_vec_int8.comp`: output channels per workgroup.
 ///
 /// That shader is dispatched one workgroup per group of this many channels, so [`Builder::emit`]
