@@ -185,7 +185,61 @@ impl<'a> Builder<'a> {
                             shift: Self::fuse_offset(*shift, &at)?,
                             ..Push::default()
                         },
-                        // 64 invocations a workgroup, so this asks for exactly `tiles` of them.
+                    // 64 invocations a workgroup, so this asks for exactly `tiles` of them.
+                        invocations: tiles * 64,
+                    });
+                    return Ok(());
+                }
+                // A spatial convolution on the register-blocked tiled path, when the
+                // net opted in with `Builder::spatial_tiling`. Same `Kind::Conv` and
+                // the same push block the untiled path below writes — only `in1`
+                // differs (1, which no untiled dispatch sets) and the invocation
+                // count is workgroups rather than output elements. `conv.comp`
+                // branches on `in1`, so a net that never opts in keeps the exact
+                // dispatches it has today.
+                //
+                // Any kernel, stride, dilation and group: the tiled shader indexes
+                // them all from the push block the way the untiled one does. The
+                // exclusions are the ones it cannot share semantics with — a
+                // transposed convolution (different weight layout) and edge
+                // padding (a Supertonic mode vision never uses).
+                if self.spatial_tiled && !*transpose && !*pad_edge {
+                    let positions = so.h * so.w;
+                    let tiles = so.c.div_ceil(SPATIAL_TILE_OC)
+                        * positions.div_ceil(SPATIAL_TILE_POS);
+                    ops.push(Op::Dispatch {
+                        kind: Kind::Conv,
+                        push: Push {
+                            in0: at(*input)?,
+                            // The tiled selector. See `Push::in1`.
+                            in1: 1,
+                            out: at(*out)?,
+                            weight: *weight,
+                            bias: *bias,
+                            in_c: si.c,
+                            in_h: si.h,
+                            in_w: si.w,
+                            out_c: so.c,
+                            out_h: so.h,
+                            out_w: so.w,
+                            kh: kernel.0,
+                            kw: kernel.1,
+                            stride_h: stride.0,
+                            stride_w: stride.1,
+                            dil_h: dilation.0,
+                            dil_w: dilation.1,
+                            pad_t: pad.0,
+                            pad_l: pad.1,
+                            pad_edge: u32::from(*pad_edge),
+                            group: *group,
+                            act: act.code(),
+                            act_weight: *act_weight,
+                            count: so.len(),
+                            res: Self::fuse_offset(*res, &at)?,
+                            shift: Self::fuse_offset(*shift, &at)?,
+                            ..Push::default()
+                        },
+                        // One workgroup of 64 per tile, as for `Kind::ConvPoint`.
                         invocations: tiles * 64,
                     });
                     return Ok(());
@@ -290,6 +344,10 @@ impl<'a> Builder<'a> {
             }
             Node::GlobalAvgPool { input, out } => {
                 let (si, so) = (shape(*input), shape(*out));
+                // One invocation per channel, each reducing over its own plane, so
+                // the dispatch is the channel count — or, for large planes, one
+                // workgroup each. See `row_reduce_plane`.
+                let (kw, invocations) = row_reduce_plane(si.c, si.h * si.w);
                 ops.push(Op::Dispatch {
                     kind: Kind::GlobalAvgPool,
                     push: Push {
@@ -302,9 +360,10 @@ impl<'a> Builder<'a> {
                         out_h: 1,
                         out_w: 1,
                         count: so.len(),
+                        kw,
                         ..Push::default()
                     },
-                    invocations: so.len(),
+                    invocations,
                 });
             }
             Node::Binary { kind, a, b, out } => {
@@ -392,7 +451,9 @@ impl<'a> Builder<'a> {
             Node::InstanceNorm { input, out, epsilon } => {
                 let so = shape(*out);
                 // One invocation per channel, each reducing over its own plane, so
-                // the dispatch is the channel count rather than the element count.
+                // the dispatch is the channel count rather than the element count —
+                // or, for large planes, one workgroup each. See `row_reduce_plane`.
+                let (kw, invocations) = row_reduce_plane(so.c, so.h * so.w);
                 ops.push(Op::Dispatch {
                     kind: Kind::InstanceNorm,
                     push: Push {
@@ -406,9 +467,10 @@ impl<'a> Builder<'a> {
                         out_w: so.w,
                         param1_bits: epsilon.to_bits(),
                         count: so.c,
+                        kw,
                         ..Push::default()
                     },
-                    invocations: so.c,
+                    invocations,
                 });
             }
             Node::RmsNorm { input, out, gamma, epsilon, groups, res, quant_scale } => {

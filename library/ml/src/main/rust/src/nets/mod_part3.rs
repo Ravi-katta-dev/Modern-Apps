@@ -16,6 +16,22 @@ const CONV_POINT_INT8_TILE: u32 = 32;
 /// **Must equal `TILE` in both.** Held by `the_attention_tiles_match_their_shaders`.
 const ATTN_TILE: u32 = 32;
 
+/// `TILE_OC` in `shaders/conv_tiled.glsl`: output channels per workgroup.
+///
+/// **Must equal `TILE_OC` there.** Held by `the_spatial_tiles_match_their_shader`.
+const SPATIAL_TILE_OC: u32 = 32;
+
+/// `TILE_POS` in `shaders/conv_tiled.glsl`: output positions per workgroup.
+///
+/// **Must equal `TILE_POS` there.** Held by the same test.
+const SPATIAL_TILE_POS: u32 = 32;
+
+/// `BLOCK` in `shaders/conv_tiled.glsl`: output channels and positions each
+/// invocation of the tiled spatial path owns.
+///
+/// **Must equal `BLOCK` there.** Held by the same test.
+const SPATIAL_BLOCK: u32 = 4;
+
 /// `ROWS` in `shaders/conv_vec_int8.comp`: output channels per workgroup.
 ///
 /// That shader is dispatched one workgroup per group of this many channels, so [`Builder::emit`]
@@ -66,6 +82,23 @@ fn row_reduce(rows: u32, len: u32) -> (u32, u32) {
         (1, rows * ROW_REDUCE_LANES)
     } else {
         (0, rows)
+    }
+}
+
+/// [`row_reduce`] for a per-channel plane reduction (instance norm, global average
+/// pool), whose rows are contiguous planes rather than strided channel gathers.
+///
+/// The threshold differs from [`row_reduce`]: a plane reduction's serial cost grows
+/// with the plane, not the row count, so planes of at least [`ROW_REDUCE_MIN_LEN`]
+/// elements go row mode however many channels there are — MODNet's 16-channel
+/// 128x128 planes (16 ms each serially) are the case that motivated this. `count`
+/// stays the channel count either way, so the reference interpreter and
+/// `Kind::arena_reads` need no change.
+fn row_reduce_plane(channels: u32, plane: u32) -> (u32, u32) {
+    if plane >= ROW_REDUCE_MIN_LEN {
+        (1, channels * ROW_REDUCE_LANES)
+    } else {
+        (0, channels)
     }
 }
 
