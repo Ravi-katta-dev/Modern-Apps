@@ -63,8 +63,65 @@ impl Net {
             }
             self.barrier(buffer);
 
+            // `MODELRUNNER_BARRIER=scheduled`: only the barriers `nets::schedule` proves
+            // necessary, instead of one after every op. Measured behind the knob; the default
+            // stays a barrier per op unless this is >=5% faster with all parity green.
+            let scheduled = crate::knobs::get("barrier").as_deref() == Some("scheduled");
+            let schedule = scheduled.then(|| crate::nets::schedule::schedule(&self.plan));
+            if let Some(schedule) = &schedule {
+                crate::timing!(
+                    "scheduled barriers: {} of {} ops ({:.0}%)",
+                    schedule.barriers(),
+                    schedule.steps.len(),
+                    100.0 * schedule.barriers() as f64 / schedule.steps.len().max(1) as f64
+                );
+            }
             let mut stamp_next = 0u32;
+
+            // MODELRUNNER_TIMING only: where record's CPU time goes, per phase and per kind.
+            let clock = crate::timing::enabled();
+            let mut lap = std::time::Instant::now();
+            // bind pipeline, offsets, descriptors + push, dispatch, barrier.
+            let mut phases = [0f64; 5];
+            // (kind, total ms, first bind ms, binds)
+            let mut binds: Vec<(crate::nets::Kind, f64, f64, u32)> = Vec::new();
+            let mut slowest = (0f64, 0usize, None, 0u32);
+            macro_rules! lap {
+                ($slot:expr) => {
+                    if clock {
+                        let now = std::time::Instant::now();
+                        phases[$slot] += (now - lap).as_secs_f64() * 1e3;
+                        lap = now;
+                    }
+                };
+            }
+            let mut stamp_next = 0u32;
+            // Writes since the last emitted barrier, as a byte-range union, for the
+            // `scheduled` path. `None` is clean (nothing pending); `(0, u64::MAX)` is
+            // the unbounded marker. See `dirty_union`.
+            let mut dirty: Option<(u64, u64)> = None;
             for (step, op) in self.plan.ops.iter().enumerate() {
+                // `scheduled` barriers go BEFORE the op that needs them: `steps[step]`
+                // says whether anything written since the last barrier conflicts with
+                // this op, so the barrier precedes this op's dispatch, not follows the
+                // previous one. Emitting it after (like the default path's per-op
+                // barrier) would order the wrong edge.
+                if let Some(needed) = schedule.as_ref().and_then(|s| s.steps.get(step).copied())
+                {
+                    if needed.barrier {
+                        if needed.transfer {
+                            self.barrier(buffer);
+                        } else {
+                            match dirty {
+                                Some((0, u64::MAX)) | None => self.barrier(buffer),
+                                Some((lo, hi)) => unsafe {
+                                    self.barrier_compute(buffer, lo, hi - lo)
+                                },
+                            }
+                        }
+                        dirty = None;
+                    }
+                }
                 // Timestamp pairs count dispatches, not ops: copies take no
                 // queries, so the pair index is separate from the step.
                 match *op {
@@ -85,11 +142,14 @@ impl Net {
                         } else {
                             None
                         };
+                        lap!(4);
                         device.cmd_bind_pipeline(
                             buffer,
                             vk::PipelineBindPoint::COMPUTE,
                             self.pipelines.for_kind(kind),
                         );
+                        lap!(0);
+                        // File offsets
                         // File offsets made relative to the uploaded window, then to the
                         // descriptor window inside it. Both are the identity for a plan that
                         // reads from byte 0 of a file one descriptor can hold.
@@ -109,6 +169,7 @@ impl Net {
                             &[],
                         );
                         let push = self.segments.rebase(segment, kind, &push);
+                        lap!(1);
                         device.cmd_push_constants(
                             buffer,
                             self.pipelines.layout(),
@@ -122,12 +183,27 @@ impl Net {
                         // flattens the grid back, and the grid over-covers, which is what
                         // `push.count` is checked against.
                         let groups = invocations.div_ceil(WORKGROUP);
+                        lap!(2);
                         device.cmd_dispatch(
                             buffer,
                             groups.min(MAX_WORKGROUPS_PER_DIM),
                             groups.div_ceil(MAX_WORKGROUPS_PER_DIM),
                             1,
                         );
+                        if clock {
+                            let ms = lap.elapsed().as_secs_f64() * 1e3;
+                            if ms > slowest.0 {
+                                slowest = (ms, step, Some(kind), groups);
+                            }
+                            match binds.iter_mut().find(|entry| entry.0 == kind) {
+                                Some(entry) => {
+                                    entry.1 += ms;
+                                    entry.3 += 1;
+                                }
+                                None => binds.push((kind, ms, ms, 1)),
+                            }
+                        }
+                        lap!(3);
                         // Close the bracket opened above, before the barrier:
                         // with the barrier between every op, the delta covers
                         // the dispatch's execution and nothing else's.
@@ -156,8 +232,8 @@ impl Net {
                         );
                     }
                 }
-                // Only what this op wrote. See `barrier_over`: the whole-arena form cost more
-                // than the arithmetic it was protecting.
+                // Record this op's writes as pending for the `scheduled` path; the default
+                // path emits its barrier below instead and needs no tracking.
                 let (offset, size) = match *op {
                     Op::Dispatch { push, .. } => {
                         let elems = u64::from(push.out_c)
@@ -167,6 +243,12 @@ impl Net {
                     }
                     Op::Copy { dst, elems, .. } => (u64::from(dst) * 2, u64::from(elems) * 2),
                 };
+                if schedule.is_some() {
+                    dirty = dirty_union(dirty, offset, size, self.arena.size);
+                    continue;
+                }
+                // Only what this op wrote. See `barrier_over`: the whole-arena form cost more
+                // than the arithmetic it was protecting.
                 // A zero-length range is not a barrier at all, and a shape this could not read
                 // is a plan bug rather than something to guess around - so fall back to the
                 // whole arena, which is always correct if slower.
@@ -175,6 +257,35 @@ impl Net {
                 } else {
                     self.barrier_over(buffer, offset, size);
                 }
+            }
+            lap!(4);
+            // A scheduled run may have skipped the last op's barrier, but the readback
+            // below is a transfer copy of whatever is still dirty: order it with a full
+            // barrier. The default path needs nothing here — its last op was barriered.
+            if schedule.is_some() && dirty.is_some() {
+                self.barrier(buffer);
+                dirty = None;
+            }
+            if clock {
+                binds.sort_by(|a, b| b.1.total_cmp(&a.1));
+                let top: Vec<String> = binds
+                    .iter()
+                    .take(8)
+                    .map(|(kind, total, first, n)| {
+                        format!("{kind:?} {total:.1} ms/{n} (first {first:.1})")
+                    })
+                    .collect();
+                crate::timing!(
+                    "record-phases bind {:.1} offsets+set {:.1} push {:.1} dispatch {:.1} \
+barrier+copy {:.1} ms; slowest {:?}; dispatch by kind: {}",
+                    phases[0],
+                    phases[1],
+                    phases[2],
+                    phases[3],
+                    phases[4],
+                    slowest,
+                    top.join(", ")
+                );
             }
 
             let mut read_back = 0u64;
@@ -313,6 +424,38 @@ impl Net {
             buffer,
             src_stage,
             dst_stage,
+            vk::DependencyFlags::empty(),
+            &[],
+            std::slice::from_ref(&barrier),
+            &[],
+        );
+    }
+
+    /// A compute-only barrier over `offset .. offset + size` of the arena, in bytes.
+    ///
+    /// The `scheduled` barrier spelling for a dependency with no transfer on either side:
+    /// [`crate::nets::schedule`] proved no copy is involved, so naming only
+    /// `COMPUTE_SHADER` with the shader accesses is sound — unlike [`Formulation::Narrow`],
+    /// which dropped the transfer edge unconditionally and corrupted the upload/readback.
+    ///
+    /// # Safety
+    ///
+    /// `buffer` must be inside a `begin`/`end` pair, and the range must be inside the arena.
+    /// The caller must have established (via the schedule) that neither the pending ops nor
+    /// this one move data through `TRANSFER`.
+    unsafe fn barrier_compute(&self, buffer: vk::CommandBuffer, offset: u64, size: u64) {
+        let barrier = vk::BufferMemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::SHADER_WRITE)
+            .dst_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .buffer(self.arena.buffer)
+            .offset(offset)
+            .size(size);
+        self.context.device.cmd_pipeline_barrier(
+            buffer,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
             vk::DependencyFlags::empty(),
             &[],
             std::slice::from_ref(&barrier),
@@ -500,5 +643,26 @@ impl Net {
             at = end;
         }
         Ok(outputs)
+    }
+}
+
+/// Extend a pending-write byte range with one op's `(offset, size)` write.
+///
+/// `(0, u64::MAX)` is the unbounded marker (a zero-length or arena-overflowing range,
+/// the same cases `record` falls back to the whole arena for): the union of anything
+/// with an unbounded range is unbounded, and it stays that way.
+fn dirty_union(
+    dirty: Option<(u64, u64)>,
+    offset: u64,
+    size: u64,
+    arena_size: u64,
+) -> Option<(u64, u64)> {
+    if size == 0 || offset + size > arena_size {
+        return Some((0, u64::MAX));
+    }
+    match dirty {
+        Some((0, u64::MAX)) => dirty,
+        Some((lo, hi)) => Some((lo.min(offset), hi.max(offset + size))),
+        None => Some((offset, offset + size)),
     }
 }
