@@ -22,16 +22,12 @@ fn gather_combine_host(
     crate::nets::gemma4::combine_cached(&embed.reader(), hidden, embedded)
 }
 
-fn gemma4_head_greedy_plan(offsets: &Offsets, _: ()) -> Result<Plan, String> {
-    crate::nets::gemma4_head::build_plan_greedy(offsets)
-}
-
 /// The device combine plan over an EMBED file, or `None` when the file
 /// predates the plan's tensor expectations (see `nets::gemma4_gather`).
 ///
-/// Upload-once at construction alongside the head nets (same resident
-/// upload, one more recording). The step path (`gather()` above) submits
-/// per token with host fallback on shape mismatch.
+/// Unused until `Net::new` uploads only the tensors a plan reads: today this
+/// uploads the whole 3.6 GB EMBED file.
+#[allow(dead_code)]
 fn gemma4_gather_plan(embed: &Streamed) -> Option<Reshaped<()>> {
     Reshaped::streamed(
         context::shared().ok()?,
@@ -78,50 +74,6 @@ fn gemma4_head_file_plan_greedy(head: &Streamed) -> Option<Reshaped<()>> {
         head,
         (),
         |offsets, ()| crate::nets::gemma4_head::build_plan_standalone(offsets, true),
-    )
-    .ok()
-}
-
-/// The GPU tied-head plan over an EMBED file, or `None` when the file has
-/// no head chunks (see `nets::gemma4_head`).
-///
-/// Prefer the standalone head file when one was opened (see
-/// `gemma4_head_file_plan`): its 402 MB upload replaces the 3.6 GB EMBED
-/// upload the EMBED-resident chunks would force. Falls back to the
-/// EMBED-resident chunks (host flow) when no head file is present.
-fn gemma4_head_plan(embed: &Streamed) -> Option<Reshaped<()>> {
-    let offsets = embed.offsets();
-    if offsets.len() < crate::nets::gemma4_head::TENSORS_WITH_HEAD {
-        return None;
-    }
-    Reshaped::streamed(
-        context::shared().ok()?,
-        offsets,
-        embed,
-        (),
-        |offsets, ()| crate::nets::gemma4_head::build_plan(offsets),
-    )
-    .ok()
-}
-
-/// The greedy head plan over an EMBED file: 16 splits + device argmax id.
-///
-/// `None` on files without int8 chunks (the greedy path needs the vector
-/// routing; fp16 `ConvPoint` at 1 position is correct but the extra dispatch
-/// mix is unmeasured — greedy stays on the int8 plan). The caller reads back
-/// 17 outputs (16 splits for the sampling path + 1 two-lane id) and takes
-/// the id for greedy decoding.
-fn gemma4_head_plan_greedy(embed: &Streamed) -> Option<Reshaped<()>> {
-    let offsets = embed.offsets();
-    if offsets.len() < crate::nets::gemma4_head::TENSORS_WITH_HEAD8 {
-        return None;
-    }
-    Reshaped::streamed(
-        context::shared().ok()?,
-        offsets,
-        embed,
-        (),
-        gemma4_head_greedy_plan,
     )
     .ok()
 }
@@ -298,25 +250,15 @@ fn build_gemma4<'l>(
         gemma4::Mode::DecodeStep.at(gemma4::CONTEXT_TIERS[0]),
         gemma4_plan,
     )?;
-    // The GPU tied head, upload-once. Prefer the standalone head file when
-    // one was opened: its ~402 MB upload replaces the 3.6 GB EMBED upload
-    // (TEXT 1.1 GB + EMBED 3.6 GB = OOM-reboot on a Pixel 8, twice,
-    // 2026-09-26). Falls back to the EMBED-resident chunks, then the host
-    // head, when no head file is present.
+    // Never a net over EMBED: `Reshaped::streamed` uploads the whole 3.6 GB
+    // file, which on top of TEXT OOM-kills a Pixel 8. The head comes from the
+    // ~402 MB head file or the host; the combine stays on the host until
+    // uploads are windowed.
     let (head, head_greedy) = match &head_file {
         Some(file) => (gemma4_head_file_plan(file), gemma4_head_file_plan_greedy(file)),
-        None => (gemma4_head_plan(&embed), gemma4_head_plan_greedy(&embed)),
+        None => (None, None),
     };
-    // The device combine: built (plan verified by unit tests) but NOT YET
-    // WIRED into the step path — `gather_net: None` until the parity gate
-    // below passes. The recording is cheap; the behavior change is not, so
-    // it lands separately after host + P8 bit-parity is proven.
-    //
-    // GATE PASSED on host (2026-09-26): `--gather-parity` reports cosine
-    // 1.000000 over all 6 golden-prompt tokens, device vs host. Wire it:
-    // the combine submit replaces the host SGEMV in `gather()` above, with
-    // host fallback on shape mismatch (same contract as the head nets).
-    let gather_net: Option<Reshaped<()>> = gemma4_gather_plan(&embed);
+    let gather_net: Option<Reshaped<()>> = None;
     Ok(Gemma4Handle {
         net,
         head,
