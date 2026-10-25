@@ -56,9 +56,13 @@ fun rememberTimePickerState(
 }
 
 @Composable
-fun rememberDatePickerState(initialSelectedDateMillis: Long? = null) =
+fun rememberDatePickerState(
+    initialSelectedDateMillis: Long? = null,
+    selectableDates: SelectableDates = androidx.compose.material3.DatePickerDefaults.AllDates,
+) =
     androidx.compose.material3.rememberDatePickerState(
         initialSelectedDateMillis = initialSelectedDateMillis,
+        selectableDates = selectableDates,
     )
 
 // --- Color scheme builder (params limited to those app themes set) ---

@@ -260,6 +260,7 @@ import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Dashboard
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.Remove
@@ -1461,6 +1462,10 @@ fun IconCheckCircle(modifier: Modifier = Modifier, tint: Color = LocalContentCol
 @Composable
 fun IconContacts(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
     AppIcon(Icons.Filled.Contacts, "Contacts", modifier, tint)
+
+@Composable
+fun IconCar(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.DirectionsCar, "Car", modifier, tint)
 
 @Composable
 fun IconFlight(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =

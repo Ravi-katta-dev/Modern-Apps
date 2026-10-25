@@ -55,3 +55,18 @@ fun isMediumWidth(): Boolean = currentWindowWidthClass() != WindowWidthClass.Com
  */
 @Composable
 fun isExpandedWidth(): Boolean = currentWindowWidthClass() == WindowWidthClass.Expanded
+
+/**
+ * True when the window is short — landscape phones and anything with less
+ * than 480dp of vertical space ([WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND]).
+ *
+ * Stacked layouts (display over keypad, board over controls) assume portrait
+ * height and clip on these windows, so gate the side-by-side variant on
+ * `isExpandedWidth() || isCompactHeight()`: wide windows split because they
+ * have the columns, short windows split because stacking cannot fit.
+ */
+@OptIn(ExperimentalMaterial3AdaptiveApi::class)
+@Composable
+fun isCompactHeight(): Boolean =
+    !currentWindowAdaptiveInfo().windowSizeClass
+        .isHeightAtLeastBreakpoint(WindowSizeClass.HEIGHT_DP_MEDIUM_LOWER_BOUND)
