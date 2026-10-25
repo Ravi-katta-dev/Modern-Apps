@@ -1,26 +1,30 @@
 #version 450
-//! Greedy argmax over a logits row, second stage: fold `argmax.comp`'s partials.
+//! Greedy argmax over a logits row, second stage: re-read the candidates, keep the greatest.
 //!
-//! One workgroup reads the `p.in_c` triples `(value, lo, hi)` the first stage wrote and
-//! stores the winner as TWO fp16 values: `lo = id % 2048`, `hi = id / 2048`. Both are
-//! exactly representable (fp16 integers are exact to 2048; ids < 262144 give hi < 128);
-//! the host reconstructs `hi * 2048 + lo`.
+//! One workgroup reads the `p.in_c` candidate indices (`lo + 2048 * hi` pairs) the first
+//! stage wrote, loads each candidate's logit from the row at `p.in1` in fp32, and stores
+//! the winner as TWO fp16 values: `lo = id % 2048`, `hi = id / 2048`. Both are exactly
+//! representable (fp16 integers are exact to 2048; ids < 262144 give hi < 128); the host
+//! reconstructs `hi * 2048 + lo`.
 //!
-//! Ties keep the FIRST index (strict `>` with an index comparison on equality),
-//! matching the host loop's `value > best.0` and the first stage's own tie-break.
+//! Re-reading rather than comparing stored values is what keeps near-ties exact: a value
+//! the fp16 store would round is compared here at the fp32 the row holds, with strict `>`
+//! so ties keep the FIRST index — exactly the single-stage scan, whatever the slices were.
 #include "common.glsl"
 shared uint best_idx[64];
 shared float best_val[64];
 void main() {
     uint lane = gl_LocalInvocationID.x;
     uint groups = max(p.in_c, 1u);
-    // Grid-stride over the triples: one workgroup covers all 64 at most, usually fewer.
+    // Grid-stride over the candidates: one workgroup covers all 64 at most, usually fewer.
+    // `p.in1` is the logits row; `p.in0` the candidate pairs. Lanes with no candidate keep
+    // (-65504, 0), which only wins an all-minimum row whose answer is index 0 anyway.
     float mine_val = -65504.0;
     uint mine_idx = 0u;
     for (uint g = lane; g < groups; g += 64u) {
-        float v = float(arena[p.in0 + g * 3u]);
-        uint idx = uint(float(arena[p.in0 + g * 3u + 1u])) + 2048u * uint(float(arena[p.in0 + g * 3u + 2u]));
-        if (v > mine_val || (v == mine_val && idx < mine_idx)) {
+        uint idx = uint(float(arena[p.in0 + g * 2u])) + 2048u * uint(float(arena[p.in0 + g * 2u + 1u]));
+        float v = float(arena[p.in1 + idx]);
+        if (v > mine_val) {
             mine_val = v;
             mine_idx = idx;
         }
@@ -28,6 +32,7 @@ void main() {
     best_val[lane] = mine_val;
     best_idx[lane] = mine_idx;
     barrier();
+    // Lane 0 folds the 64 lane-maxima with the same first-index tie-break as the row scan.
     if (lane == 0u) {
         float top_val = best_val[0];
         uint top_idx = best_idx[0];

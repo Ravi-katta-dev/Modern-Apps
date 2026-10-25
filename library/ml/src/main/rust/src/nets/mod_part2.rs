@@ -285,6 +285,8 @@ pub(crate) enum Node {
         dynamic: bool,
         /// Whether this layer's window applies. See [`Push::sliding`].
         sliding: bool,
+        /// Keys a sliding query sees when Q holds several queries (`gemma4_part7.rs`), else 0.
+        window: u32,
     },
     /// One query against a position-major V cache. See [`Kind::AttnApplyCached`].
     AttnApplyCached {
@@ -298,6 +300,8 @@ pub(crate) enum Node {
         dynamic: bool,
         /// Whether this layer's window applies. See [`Push::sliding`].
         sliding: bool,
+        /// As on [`Node::AttnScoresCached`].
+        window: u32,
         /// An int8 round-trip scale folded into the store, or `None` for none.
         ///
         /// As on [`Node::RmsNorm::quant_scale`]: the attention mixture's
@@ -336,8 +340,12 @@ pub(crate) enum Node {
         out: Id,
     },
     /// Fold [`Node::Argmax`]'s partials to the winning index. See [`Kind::ArgmaxFold`].
+    ///
+    /// `row` is the logits row, re-read at the candidate indices so near-ties are
+    /// decided on fp32 values exactly as a single scan would decide them.
     ArgmaxFold {
         input: Id,
+        row: Id,
         out: Id,
     },
     /// `clamp(round(x / scale), -128, 127) * scale`. See [`Kind::Quantize`].

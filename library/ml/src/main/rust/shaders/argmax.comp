@@ -1,13 +1,13 @@
 #version 450
-//! Greedy argmax over a logits row, first stage: one `(value, lo, hi)` partial per workgroup.
+//! Greedy argmax over a logits row, first stage: one `(lo, hi)` index pair per workgroup.
 //!
 //! # Why two stages
 //!
 //! One 64-lane workgroup grid-striding over 262,144 logits leaves the GPU idle: 64 lanes
 //! each scan 4,096 values (~1.6 ms of a 24 ms NLLB decode step on a Pixel 8). Here up to
-//! 64 workgroups (see `argmax_groups` in `nets`) each reduce a slice to the slice maximum,
-//! and `argmax_fold.comp` folds the partials to the winning index. Same `[lo, hi]` fp16
-//! output contract, same lowest-index tie-break.
+//! 64 workgroups (see `argmax_groups` in `nets`) each keep their slice's first maximum,
+//! and `argmax_fold.comp` re-reads the candidates and keeps the greatest. Same `[lo, hi]`
+//! fp16 output contract, same lowest-index tie-break, decided on fp32 values throughout.
 //!
 //! # How
 //!
@@ -16,8 +16,10 @@
 //! 64 lanes grid-stride within the slice, each keeping its local (value, index) maximum
 //! with strict `>` (first index wins); a shared 64-entry reduction folds them with the
 //! same tie-break lane 0 of the single-stage shader used (equal values compare indices).
-//! Lane 0 stores `(value, lo = id % 2048, hi = id / 2048)` — both exactly representable,
-//! like the final pair. `PER_LANE` must equal `ARGMAX_PER_LANE` in `nets`.
+//! Lane 0 stores the winner as `(lo = id % 2048, hi = id / 2048)` — both exactly
+//! representable, like the final pair. The fold re-reads the row at these indices, so
+//! the fp16 store here never decides a near-tie. `PER_LANE` must equal
+//! `ARGMAX_PER_LANE` in `nets`.
 #include "common.glsl"
 #define PER_LANE 64u
 shared uint best_idx[64];
@@ -56,8 +58,7 @@ void main() {
                 top_idx = best_idx[l];
             }
         }
-        arena[p.out_at + group * 3u] = float16_t(top_val);
-        arena[p.out_at + group * 3u + 1u] = float16_t(float(top_idx % 2048u));
-        arena[p.out_at + group * 3u + 2u] = float16_t(float(top_idx / 2048u));
+        arena[p.out_at + group * 2u] = float16_t(float(top_idx % 2048u));
+        arena[p.out_at + group * 2u + 1u] = float16_t(float(top_idx / 2048u));
     }
 }

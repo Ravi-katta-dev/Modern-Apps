@@ -53,7 +53,7 @@ impl<'a> Builder<'a> {
         // that, so taking the width from the cache would silently produce a shorter tensor.
         let head_dim = sc.w.checked_div(kv_heads.max(1)).unwrap_or(0);
         let out = self.tensor(Shape::new(heads * head_dim, 1, 1));
-        self.nodes.push(Node::AttnApplyCached { probs, cache, out, heads, kv_heads, dynamic, sliding, quant_scale: None });
+        self.nodes.push(Node::AttnApplyCached { probs, cache, out, heads, kv_heads, dynamic, sliding, window: 0, quant_scale: None });
         out
     }
 
@@ -246,16 +246,20 @@ impl<'a> Builder<'a> {
     /// `hi * 2048 + lo`. Ties keep the FIRST index (strict `>` in the
     /// shader), matching the host `argmax` loop.
     ///
-    /// Two dispatches: [`Node::Argmax`] reduces the row to one `(value, lo, hi)`
-    /// triple per workgroup (see [`argmax_groups`]), then [`Node::ArgmaxFold`]
-    /// folds the triples. One workgroup over 262k logits leaves the GPU idle;
-    /// 63 workgroups do not.
+    /// Two dispatches: [`Node::Argmax`] reduces the row to one `(lo, hi)` index pair
+    /// per workgroup (see [`argmax_groups`]), then [`Node::ArgmaxFold`] re-reads the
+    /// candidates' logits and keeps the greatest, exactly as a single scan would.
+    /// One workgroup over 262k logits leaves the GPU idle; 63 workgroups do not.
+    ///
+    /// The fold re-reads rather than comparing the partials' values so a near-tie the
+    /// fp16 store would round is still decided the way the single-stage scan decided
+    /// it: on the fp32 values, keeping the first index.
     pub fn argmax(&mut self, input: Id) -> Id {
         let groups = argmax_groups(self.shape_of(input).len());
-        let partials = self.tensor(Shape::new(groups * 3, 1, 1));
+        let partials = self.tensor(Shape::new(groups * 2, 1, 1));
         self.nodes.push(Node::Argmax { input, out: partials });
         let out = self.tensor(Shape::new(2, 1, 1));
-        self.nodes.push(Node::ArgmaxFold { input: partials, out });
+        self.nodes.push(Node::ArgmaxFold { input: partials, row: input, out });
         out
     }
 

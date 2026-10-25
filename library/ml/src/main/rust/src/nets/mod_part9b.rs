@@ -7,7 +7,7 @@ impl<'a> Builder<'a> {
         ops: &mut Vec<Op>,
     ) -> Result<(), String> {
         match node {
-            Node::AttnApplyCached { probs, cache, out, heads, kv_heads, dynamic, sliding, quant_scale } => {
+            Node::AttnApplyCached { probs, cache, out, heads, kv_heads, dynamic, sliding, window, quant_scale } => {
                 let (sc, so) = (shape(*cache), shape(*out));
                 ops.push(Op::Dispatch {
                     kind: Kind::AttnApplyCached,
@@ -34,6 +34,9 @@ impl<'a> Builder<'a> {
                         // this kind (it carries no other scalar); `quant_store`
                         // in the shader reads it.
                         param0_bits: quant_scale.map_or(0, f32::to_bits),
+                        // `[d_model, 1, queries]`: several queries take the per-query path.
+                        dil_h: if so.w > 1 { so.w } else { 0 },
+                        dil_w: *window,
                         ..Push::default()
                     },
                     invocations: so.len(),
@@ -321,22 +324,26 @@ impl<'a> Builder<'a> {
                     invocations: groups * 64,
                 });
             }
-            Node::ArgmaxFold { input, out } => {
+            Node::ArgmaxFold { input, row, out } => {
                 let si = shape(*input);
-                let groups = si.len() / 3;
+                let sr = shape(*row);
+                let groups = si.len() / 2;
                 ops.push(Op::Dispatch {
                     kind: Kind::ArgmaxFold,
                     push: Push {
                         in0: at(*input)?,
-                        out: at(*out)?,
+                        // The logits row, re-read at the candidate indices.
+                        in1: at(*row)?,
                         in_c: groups,
+                        in_w: sr.len(),
+                        out: at(*out)?,
                         out_c: 2,
                         out_h: 1,
                         out_w: 1,
                         count: groups,
                         ..Push::default()
                     },
-                    // One workgroup folds every triple.
+                    // One workgroup folds every candidate.
                     invocations: 64,
                 });
             }
@@ -392,6 +399,9 @@ impl<'a> Builder<'a> {
                         // Only the causal shader reads it, and only when non-zero.
                         kh: *window,
                         kw,
+                        // A prefix softmax over several queries' rows (`[heads, queries, keys]`).
+                        dil_h: if *mode == SoftmaxMode::Prefix && so.h > 1 { so.h } else { 0 },
+                        dil_w: if *mode == SoftmaxMode::Prefix { *window } else { 0 },
                         ..Push::default()
                     },
                     invocations,

@@ -118,6 +118,9 @@ fn a_two_stage_argmax_keeps_the_first_of_ties_across_slices() {
     for (count, peaks) in [
         (262_144usize, vec![4096u32, 131_073, 262_143]),
         (262_143usize, vec![7u32, 200_000]),
+        // NLLB's exact vocabulary: 63 groups with a short tail group, ties in the
+        // first, a middle and the tail slice.
+        (256_206usize, vec![4_000u32, 128_104, 256_205]),
         (1_000usize, vec![999u32, 3]),
     ] {
         let (plan, data, logits) = argmax_fixture(count, &peaks);
@@ -129,5 +132,31 @@ fn a_two_stage_argmax_keeps_the_first_of_ties_across_slices() {
         assert_eq!(pair.len(), 2, "the [lo, hi] pair");
         let id = pair[1] as u32 * 2048 + pair[0] as u32;
         assert_eq!(id, want, "the first peak of {count} logits");
+    }
+
+    // Two leaders closer than the fp16 input can hold: 20.00005 and 20.00015 both round
+    // to fp16 20.0 on upload, so the row holds a genuine tie and the FIRST index must win
+    // — on the host and on the device alike. (Above the background, whose scaled values
+    // top out near 16.)
+    {
+        const COUNT: usize = 262_144;
+        let mut logits = spread(COUNT, 2.1);
+        for value in logits.iter_mut() {
+            *value = (*value - 0.1) * 20.0;
+        }
+        logits[5_000] = 20.00005;
+        logits[200_000] = 20.00015;
+        let source = Invented::new(0);
+        let mut builder = Builder::new(&source);
+        let row = builder.input(Shape::new(COUNT as u32, 1, 1));
+        let id = builder.argmax(row);
+        let plan = builder.finish(&[id]).expect("the near-tie plan builds");
+        let data = source.into_data();
+        let host = run_multi(&plan, &data, &[&logits]).expect("the interpreter runs");
+        let got = on_device(plan, data, &[&logits]);
+        matches("a sub-fp16 near-tie across slices", &host, &got);
+        let pair = got.into_iter().next().expect("one output");
+        let id = pair[1] as u32 * 2048 + pair[0] as u32;
+        assert_eq!(id, 5_000, "the first of an fp16 tie");
     }
 }

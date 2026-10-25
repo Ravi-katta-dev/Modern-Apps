@@ -15,10 +15,10 @@ pub struct Push {
     pub in0: u32,
     /// Element offset of the second input, for the binary ops.
     ///
-    /// [`Kind::Conv`] reuses this as the tiled-path selector: 1 routes to the
-    /// register-blocked spatial implementation in `shaders/conv_tiled.glsl`, 0 to
-    /// the one-invocation-per-element one. The binary ops are the only other
-    /// readers and no convolution is one, so the two uses cannot meet. Set by
+    /// [`Kind::Conv`] reuses this as the blocked-path selector: 1 routes to the
+    /// register-blocked implementation in `shaders/conv_tiled.glsl`, 0 to the
+    /// one-invocation-per-element one. The binary ops are the only other readers and
+    /// no convolution is one, so the two uses cannot meet. Set by
     /// [`Builder::spatial_tiling`]; zero everywhere that never opts in.
     pub in1: u32,
     /// Element offset of the output in the arena.
@@ -408,22 +408,25 @@ impl Kind {
             Kind::AttnScoresCached => {
                 let head_dim = push.in_c / push.group.max(1);
                 let kv = if push.kv_heads == 0 { push.group } else { push.kv_heads };
-                two((push.in0, push.in_c), (push.in1, push.out_w * kv * head_dim))
+                let queries = push.dil_h.max(1);
+                two((push.in0, push.in_c * queries), (push.in1, push.out_w * kv * head_dim))
             }
             // One query's row of probabilities is `in_w` keys long, and the cache is `in_w`
             // positions of `kv_heads * head_dim`.
             Kind::AttnApplyCached => {
                 let head_dim = push.out_c / push.group.max(1);
                 let kv = if push.kv_heads == 0 { push.group } else { push.kv_heads };
-                two((push.in0, push.group * push.in_w), (push.in1, push.in_w * kv * head_dim))
+                let queries = push.dil_h.max(1);
+                two((push.in0, push.group * queries * push.in_w), (push.in1, push.in_w * kv * head_dim))
             }
             // One id per position per lane, so the read is `in_c * out_w` and not `dense` -
             // `in_w` here is the *table's* row count.
             Kind::Embed => one(push.in0, push.in_c * push.out_w),
             // The whole logits row, whatever the group count. See `Builder::argmax`.
             Kind::Argmax => one(push.in0, dense),
-            // One `(value, lo, hi)` triple per group: `in_c` carries the group count.
-            Kind::ArgmaxFold => one(push.in0, push.in_c * 3),
+            // The candidate pairs plus the whole logits row, re-read at the candidates.
+            // `in_c` is the group count, `in_w` the row length.
+            Kind::ArgmaxFold => two((push.in0, push.in_c * 2), (push.in1, push.in_w)),
             // One row in. Not `dense`: `in_h` here is the cache's capacity, not a spatial extent.
             Kind::CacheWrite => one(push.in0, push.count),
             // Convolutions, whose store may also add a folded residual and a folded

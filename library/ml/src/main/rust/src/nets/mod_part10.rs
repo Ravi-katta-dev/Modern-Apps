@@ -64,7 +64,6 @@ impl Node {
             | Node::Softmax { input, .. }
             | Node::Softcap { input, .. }
             | Node::Argmax { input, .. }
-            | Node::ArgmaxFold { input, .. }
             | Node::Quantize { input, .. }
             | Node::GatedActivate { input, .. }
             | Node::Activate { input, .. }
@@ -73,6 +72,7 @@ impl Node {
             | Node::Embed { ids: input, .. }
             | Node::SliceChannels { input, .. }
             | Node::GlobalAvgPool { input, .. } => vec![*input],
+            Node::ArgmaxFold { input, row, .. } => vec![*input, *row],
             Node::RmsNorm { input, res, .. } => {
                 let mut reads = vec![*input];
                 reads.extend(res.iter().copied());

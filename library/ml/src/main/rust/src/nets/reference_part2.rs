@@ -259,7 +259,7 @@ impl Reference {
     /// The first of the two stages [`Builder::argmax`](super::Builder::argmax) emits,
     /// mirroring `shaders/argmax.comp`: the row splits into [`argmax_groups`](super::argmax_groups)
     /// slices and each workgroup keeps its slice's first maximum (strict `>`), stored
-    /// as a `(value, lo, hi)` triple with `lo = id % 2048`, `hi = id / 2048`.
+    /// as a `(lo, hi)` index pair with `lo = id % 2048`, `hi = id / 2048`.
     /// See `Builder::argmax`.
     fn argmax(&mut self, p: &Push) -> Result<(), String> {
         let len = (p.in_c * p.in_h * p.in_w).max(1);
@@ -276,28 +276,34 @@ impl Reference {
                     top_idx = i;
                 }
             }
-            let at = p.out + group * 3;
-            self.store(at, 0, top_val)?;
-            self.store(at, 1, (top_idx % 2048) as f32)?;
-            self.store(at, 2, (top_idx / 2048) as f32)?;
+            let at = p.out + group * 2;
+            self.store(at, 0, (top_idx % 2048) as f32)?;
+            self.store(at, 1, (top_idx / 2048) as f32)?;
+            // The slice maximum, kept only to mirror the shader's lane reduction. The
+            // fold below re-reads the row rather than trusting this fp16 value, so a
+            // near-tie the store would round is still decided exactly.
+            let _ = top_val;
         }
         Ok(())
     }
 
     /// Fold [`Reference::argmax`]'s partials to the winning index.
     ///
-    /// Mirrors `shaders/argmax_fold.comp`: the greatest value wins, ties keep the
-    /// FIRST index, stored as `lo = id % 2048`, `hi = id / 2048` fp16 values.
-    /// See `Builder::argmax`.
+    /// Mirrors `shaders/argmax_fold.comp`: each candidate index is re-read from the row
+    /// at fp32 and the greatest wins, keeping the FIRST index on ties — exactly the
+    /// single-stage scan, whatever the fp16 store above rounded. Stored as
+    /// `lo = id % 2048`, `hi = id / 2048` fp16 values. See `Builder::argmax`.
     fn argmax_fold(&mut self, p: &Push) -> Result<(), String> {
         let groups = p.in_c.max(1);
         let mut top_val = f32::NEG_INFINITY;
         let mut top_idx = 0u32;
         for group in 0..groups {
-            let at = p.in0 + group * 3;
-            let value = self.load(at, 0)?;
-            let index = self.load(at, 1)? as u32 + 2048 * self.load(at, 2)? as u32;
-            if value > top_val || (value == top_val && index < top_idx) {
+            let at = p.in0 + group * 2;
+            let index = self.load(at, 0)? as u32 + 2048 * self.load(at, 1)? as u32;
+            // Loud on a bad index rather than clamped: every candidate comes from a
+            // slice of this row, so an out-of-range one is a builder bug.
+            let value = self.load(p.in1, index)?;
+            if value > top_val {
                 top_val = value;
                 top_idx = index;
             }
@@ -470,7 +476,7 @@ impl Reference {
                 // denominator can never be empty.
                 SoftmaxMode::Causal => ((row % p.out_h.max(1)) + 1).min(p.out_w),
                 SoftmaxMode::Prefix => {
-                    let (first, last) = self.attended(p, p.out_w);
+                    let (first, last) = self.attended_q(p, p.out_w, row % p.dil_h.max(1));
                     let mut peak = -65504.0f32;
                     for i in first..=last {
                         peak = peak.max(self.load(p.in0, at + i)?);
