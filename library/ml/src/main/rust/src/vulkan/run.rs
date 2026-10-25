@@ -273,8 +273,12 @@ pub struct Net {
     ///
     /// Almost always one window over the whole file. See [`super::segment`].
     segments: Segments,
-    /// The `.maml` tensor table, for [`Segments::for_op`].
+    /// The `.maml` tensors inside the uploaded window, offsets relative to its start, for
+    /// [`Segments::for_op`].
     tensors: Vec<crate::weights::Tensor>,
+    /// The `[lo, hi)` data-section bytes in the weights buffer. Byte 0 of the buffer is file
+    /// byte `lo`; a plan reading outside the window is refused at record time.
+    window: (u64, u64),
     /// This net's own command pool, not the context's.
     ///
     /// A `VkCommandPool` is externally synchronised across *recording* as well as across

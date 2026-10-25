@@ -140,37 +140,7 @@ impl Segments {
     /// The kinds named below must stay in step with the word-unit arm of [`Kind::weight_reads`],
     /// which is the only place that decides what a `weight` offset counts in.
     pub fn rebase(&self, index: usize, kind: Kind, push: &Push) -> Push {
-        let base = self.segments.get(index).map_or(0, |segment| segment.base);
-        if base == 0 {
-            return *push;
-        }
-        let elems = (base / 2) as u32;
-        let words = (base / 4) as u32;
-        let mut out = *push;
-        for read in kind.weight_reads(push) {
-            match read.field {
-                "weight"
-                    if matches!(
-                        kind,
-                        Kind::ConvInt8
-                            | Kind::ConvPointInt8
-                            | Kind::ConvVecInt8
-                            | Kind::ConvVecInt4
-                            | Kind::ConvPointInt4
-                            | Kind::ConvQ2K
-                            | Kind::ConvVecQ2K
-                            | Kind::ConvPointQ2K
-                    ) =>
-                {
-                    out.weight = push.weight.saturating_sub(words);
-                }
-                "weight" => out.weight = push.weight.saturating_sub(elems),
-                "bias" => out.bias = push.bias.saturating_sub(elems),
-                "act_weight" => out.act_weight = push.act_weight.saturating_sub(elems),
-                _ => {}
-            }
-        }
-        out
+        rebase_push(self.segments.get(index).map_or(0, |segment| segment.base), kind, push)
     }
 
     /// The `[from, to)` byte span of the weights one op reads, or `None` if it reads none.
@@ -209,13 +179,98 @@ impl Segments {
     }
 }
 
-/// The end of the tensor containing byte `at`.
+/// `push` with every weights offset it reads moved down by `base` bytes, a multiple of
+/// [`ALIGNMENT`]. Callers must have checked that no read lies below `base`.
+pub(crate) fn rebase_push(base: u64, kind: Kind, push: &Push) -> Push {
+    if base == 0 {
+        return *push;
+    }
+    let elems = (base / 2) as u32;
+    let words = (base / 4) as u32;
+    let mut out = *push;
+    for read in kind.weight_reads(push) {
+        match read.field {
+            "weight"
+                if matches!(
+                    kind,
+                    Kind::ConvInt8
+                        | Kind::ConvPointInt8
+                        | Kind::ConvVecInt8
+                        | Kind::ConvVecInt4
+                        | Kind::ConvPointInt4
+                        | Kind::ConvQ2K
+                        | Kind::ConvVecQ2K
+                        | Kind::ConvPointQ2K
+                ) =>
+            {
+                out.weight = push.weight.saturating_sub(words);
+            }
+            "weight" => out.weight = push.weight.saturating_sub(elems),
+            "bias" => out.bias = push.bias.saturating_sub(elems),
+            "act_weight" => out.act_weight = push.act_weight.saturating_sub(elems),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// The `[start, end)` byte extent of the tensor containing byte `at`.
 ///
 /// A linear scan, run once per op per recording over a table of at most a few hundred entries.
-fn tensor_end(at: u64, tensors: &[Tensor]) -> Option<u64> {
+fn tensor_extent(at: u64, tensors: &[Tensor]) -> Option<(u64, u64)> {
     tensors.iter().find_map(|tensor| {
         let start = u64::from(tensor.offset);
         let bytes = tensor.dtype.bytes(u64::from(tensor.len));
-        (at >= start && at < start + bytes.max(1)).then_some(start + bytes)
+        (at >= start && at < start + bytes.max(1)).then_some((start, start + bytes))
     })
+}
+
+fn tensor_end(at: u64, tensors: &[Tensor]) -> Option<u64> {
+    tensor_extent(at, tensors).map(|(_, end)| end)
+}
+
+/// The `[lo, hi)` bytes of the data section that `plans`' ops read, whole tensors, with `lo`
+/// rounded down to `align`. `(0, 0)` when nothing is read.
+pub(crate) fn read_window(
+    plans: &[&crate::nets::Plan],
+    tensors: &[Tensor],
+    align: u64,
+) -> Result<(u64, u64), String> {
+    let mut lo = u64::MAX;
+    let mut hi = 0u64;
+    for plan in plans {
+        for (step, op) in plan.ops.iter().enumerate() {
+            let crate::nets::Op::Dispatch { kind, push, .. } = op else { continue };
+            for read in kind.weight_reads(push) {
+                let (start, end) = tensor_extent(read.at, tensors).ok_or_else(|| {
+                    format!(
+                        "step {step} ({kind:?}) reads {} at byte {}, which is inside none of the \
+                         {} tensors the file describes",
+                        read.field,
+                        read.at,
+                        tensors.len()
+                    )
+                })?;
+                lo = lo.min(start);
+                hi = hi.max(end);
+            }
+        }
+    }
+    if hi == 0 {
+        return Ok((0, 0));
+    }
+    Ok((lo - lo % align.max(1), hi))
+}
+
+/// The tensors lying wholly inside `[lo, hi)`, with offsets made relative to `lo`.
+pub(crate) fn window_tensors(tensors: &[Tensor], lo: u64, hi: u64) -> Vec<Tensor> {
+    tensors
+        .iter()
+        .filter_map(|tensor| {
+            let start = u64::from(tensor.offset);
+            let end = start + tensor.dtype.bytes(u64::from(tensor.len));
+            (start >= lo && end <= hi)
+                .then(|| Tensor { offset: (start - lo) as u32, ..*tensor })
+        })
+        .collect()
 }

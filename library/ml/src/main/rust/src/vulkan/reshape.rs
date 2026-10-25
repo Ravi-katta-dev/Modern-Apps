@@ -78,7 +78,34 @@ impl<S: Copy + PartialEq> Reshaped<S> {
     ) -> Result<Reshaped<S>, String> {
         let first = plan(&offsets, shape)?;
         let built = vec![(shape, first.clone())];
-        let net = Net::new(context, first, data, RESCALE_ONLY)?;
+        let net = Net::whole(context, first, data, RESCALE_ONLY)?;
+        Ok(Reshaped { net, offsets, at: shape, plan, built })
+    }
+
+    /// [`Reshaped::streamed`], uploading only the tensors the plans at `shapes` read.
+    ///
+    /// Recorded at `shapes[0]`. [`Reshaped::at`] any shape whose plan reads outside that window
+    /// is an error the net survives. For a file much larger than what its plans touch, such as
+    /// Gemma's 3.6 GB EMBED read by a 14 MB gather plan.
+    pub fn windowed(
+        context: Arc<Context>,
+        offsets: Offsets,
+        data: &dyn Blob,
+        shapes: &[S],
+        plan: fn(&Offsets, S) -> Result<Plan, String>,
+    ) -> Result<Reshaped<S>, String> {
+        let Some(&shape) = shapes.first() else {
+            return Err("Reshaped::windowed needs at least one shape".into());
+        };
+        let mut built = Vec::with_capacity(shapes.len());
+        for &each in shapes {
+            built.push((each, plan(&offsets, each)?));
+        }
+        let first = built.first().map(|(_, plan)| plan.clone()).ok_or("no plan was built")?;
+        let also: Vec<&Plan> = built.iter().skip(1).map(|(_, plan)| plan).collect();
+        let net = Net::covering(context, first, &also, data, RESCALE_ONLY)?;
+        let keep = built.len().saturating_sub(BUILT_PLANS);
+        built.drain(..keep);
         Ok(Reshaped { net, offsets, at: shape, plan, built })
     }
 

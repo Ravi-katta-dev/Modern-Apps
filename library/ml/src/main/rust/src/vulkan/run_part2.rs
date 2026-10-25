@@ -89,9 +89,10 @@ impl Net {
                             vk::PipelineBindPoint::COMPUTE,
                             self.pipelines.for_kind(kind),
                         );
-                        // The window an op's weights are visible through, and the push rebased
-                        // into it. Both are the identity unless the file was larger than one
-                        // descriptor's range, so the common case records what it always did.
+                        // File offsets made relative to the uploaded window, then to the
+                        // descriptor window inside it. Both are the identity for a plan that
+                        // reads from byte 0 of a file one descriptor can hold.
+                        let push = self.windowed(step, kind, &push)?;
                         let segment =
                             self.segments.for_op(step, kind, &push, &self.tensors)?.unwrap_or(0);
                         let set = match self.pipelines.descriptor_sets.get(segment) {

@@ -6,20 +6,65 @@ impl Net {
     /// of heap.
     ///
     /// A [`Blob`] rather than a [`crate::weights::Weights`] so that a bundled net can stream
-    /// straight out of the APK. Nothing here reads the tensor table — the [`Plan`] already carries
-    /// every resolved offset — which is what makes the two interchangeable.
+    /// straight out of the APK.
+    ///
+    /// Only the bytes `plan`'s ops read are uploaded: the smallest window of whole tensors
+    /// covering them. A later [`Net::rebuild`] must read inside that window, so a net that
+    /// switches between plans reading different tensors is built with [`Net::covering`] or
+    /// [`Net::whole`].
     pub fn new(
         context: Arc<Context>,
         plan: Plan,
         weights: &dyn Blob,
         normalise: Normalise,
     ) -> Result<Net, String> {
+        Self::covering(context, plan, &[], weights, normalise)
+    }
+
+    /// [`Net::new`], uploading the window that covers `plan` and every plan in `also`.
+    pub fn covering(
+        context: Arc<Context>,
+        plan: Plan,
+        also: &[&Plan],
+        weights: &dyn Blob,
+        normalise: Normalise,
+    ) -> Result<Net, String> {
+        let align = context.limits.min_storage_buffer_offset_alignment.max(super::segment::ALIGNMENT);
+        let mut plans = vec![&plan];
+        plans.extend_from_slice(also);
+        let window = super::segment::read_window(&plans, weights.tensors(), align)?;
+        Self::with_window(context, plan, weights, normalise, window)
+    }
+
+    /// [`Net::new`], uploading the whole data section so any plan over this file can be
+    /// installed by [`Net::rebuild`].
+    pub fn whole(
+        context: Arc<Context>,
+        plan: Plan,
+        weights: &dyn Blob,
+        normalise: Normalise,
+    ) -> Result<Net, String> {
+        let window = (0, weights.data_len());
+        Self::with_window(context, plan, weights, normalise, window)
+    }
+
+    fn with_window(
+        context: Arc<Context>,
+        plan: Plan,
+        weights: &dyn Blob,
+        normalise: Normalise,
+        window: (u64, u64),
+    ) -> Result<Net, String> {
+        let (lo, hi) = window;
+        if lo > hi || hi > weights.data_len() {
+            return Err(format!("weights window {lo}..{hi} of a {}-byte file", weights.data_len()));
+        }
         let arena_bytes = (plan.arena_elems as vk::DeviceSize) * 2;
         // Vulkan forbids a zero-sized buffer, and the descriptor set needs a real one bound to
         // the weights binding whether or not any shader reads it. A plan can legitimately read
         // no weights at all — a purely elementwise one does — so this floors the allocation
         // rather than refusing the plan.
-        let weights_bytes = (weights.data_len() as vk::DeviceSize).max(2);
+        let weights_bytes = ((hi - lo) as vk::DeviceSize).max(2);
         let input_elems = binding_elems(&plan.inputs);
         let output_elems = binding_elems(&plan.outputs);
         // One staging buffer for both directions: the inputs and the outputs are never in
@@ -33,7 +78,7 @@ impl Net {
         let segments = Segments::plan(weights_bytes, &context.limits)?;
         // A few kilobytes, kept because `record` needs each tensor's extent to know which window
         // an op fits in, and `rebuild` installs plans this net was not constructed with.
-        let tensors = weights.tensors().to_vec();
+        let tensors = super::segment::window_tensors(weights.tensors(), lo, hi);
 
         let weights_buffer = Buffer::device_local(&context, weights_bytes)?;
         let arena = Buffer::device_local(&context, arena_bytes)?;
@@ -71,6 +116,7 @@ impl Net {
             pipelines,
             segments,
             tensors,
+            window,
             command_pool,
             command_buffer: vk::CommandBuffer::null(),
             fence: vk::Fence::null(),
@@ -84,8 +130,9 @@ impl Net {
         let staged = std::time::Instant::now();
         net.upload_weights(weights)?;
         timing!(
-            "upload {} MB in {:.0} ms",
+            "upload {} MB of {} MB (bytes {lo}..{hi}) in {:.0} ms",
             weights_bytes / (1024 * 1024),
+            weights.data_len() / (1024 * 1024),
             staged.elapsed().as_secs_f64() * 1000.0
         );
         net.command_buffer = net.allocate_command_buffer()?;
@@ -131,6 +178,13 @@ impl Net {
     pub fn rebuild(&mut self, plan: Plan) -> Result<(), String> {
         if self.poisoned {
             return Err("this network is unusable after an earlier failure".into());
+        }
+        // Before anything changes, so a plan reading past the uploaded window is an error the
+        // net survives rather than one that retires it at record time.
+        for (step, op) in plan.ops.iter().enumerate() {
+            if let Op::Dispatch { kind, push, .. } = op {
+                self.windowed(step, *kind, push)?;
+            }
         }
         let arena_bytes = (plan.arena_elems as vk::DeviceSize) * 2;
         let input_elems = binding_elems(&plan.inputs);
@@ -247,7 +301,8 @@ impl Net {
     /// trip per chunk — 16 for that sampler — against a transfer that is bandwidth-bound anyway,
     /// and it happens once per net rather than once per inference.
     fn upload_weights(&self, weights: &dyn Blob) -> Result<(), String> {
-        let total = weights.data_len();
+        let (lo, hi) = self.window;
+        let total = hi - lo;
         if total == 0 {
             return Ok(());
         }
@@ -270,7 +325,7 @@ impl Net {
                     Some(piece) => piece,
                     None => break Err("a chunk is larger than its buffer".to_string()),
                 };
-                if let Err(e) = weights.read_at(written, piece) {
+                if let Err(e) = weights.read_at(lo + written, piece) {
                     break Err(e);
                 }
                 if let Err(e) = staging.write(piece) {
@@ -310,6 +365,38 @@ impl Net {
             // `staging` drops here, after the last fence has been waited on.
             outcome
         }
+    }
+
+    /// `push` rebased into the uploaded window, or an error if it reads outside it.
+    fn windowed(
+        &self,
+        step: usize,
+        kind: crate::nets::Kind,
+        push: &crate::nets::Push,
+    ) -> Result<crate::nets::Push, String> {
+        let (lo, hi) = self.window;
+        let reads = kind.weight_reads(push);
+        for read in &reads {
+            let inside = read.at >= lo
+                && self.tensors.iter().any(|tensor| {
+                    let start = lo + u64::from(tensor.offset);
+                    let end = start + tensor.dtype.bytes(u64::from(tensor.len));
+                    read.at >= start && read.at < end.max(start + 1)
+                });
+            if !inside {
+                return Err(format!(
+                    "step {step} ({kind:?}) reads {} at byte {}, outside the weights window \
+                     {lo}..{hi} this net uploaded. Build it with Net::covering or Net::whole.",
+                    read.field, read.at
+                ));
+            }
+        }
+        Ok(super::segment::rebase_push(lo, kind, push))
+    }
+
+    /// The `[lo, hi)` data-section bytes this net uploaded.
+    pub fn weights_window(&self) -> (u64, u64) {
+        self.window
     }
 
     fn allocate_command_buffer(&self) -> Result<vk::CommandBuffer, String> {

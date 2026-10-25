@@ -14,6 +14,12 @@ pub struct Push {
     /// Element offset of the first input in the activation arena.
     pub in0: u32,
     /// Element offset of the second input, for the binary ops.
+    ///
+    /// [`Kind::Conv`] reuses this as the tiled-path selector: 1 routes to the
+    /// register-blocked spatial implementation in `shaders/conv_tiled.glsl`, 0 to
+    /// the one-invocation-per-element one. The binary ops are the only other
+    /// readers and no convolution is one, so the two uses cannot meet. Set by
+    /// [`Builder::spatial_tiling`]; zero everywhere that never opts in.
     pub in1: u32,
     /// Element offset of the output in the arena.
     pub out: u32,
@@ -325,15 +331,18 @@ impl Kind {
             | Kind::Quantize
             | Kind::Argmax
             | Kind::GatedActivate => {}
+            // A scalar (`mul_scalar`) or a low/high pair (`clamp`) at `act_weight`.
+            Kind::MulScalar | Kind::Clamp => {
+                reads.push(WeightRead { at: elems(push.act_weight), field: "act_weight" });
+            }
             Kind::Activate
-            | Kind::MulScalar
-            | Kind::Clamp
             | Kind::AttnApply
             | Kind::AttnApplyCached
             | Kind::AttnApplyBanded
             | Kind::Rotary => {}
         }
-        if !reads.is_empty() && push.act == Act::PRelu(0).code() {
+        let applies_act = !reads.is_empty() || matches!(self, Kind::Activate | Kind::GatedActivate);
+        if applies_act && push.act == Act::PRelu(0).code() {
             let slope = WeightRead { at: elems(push.act_weight), field: "act_weight" };
             if !reads.contains(&slope) {
                 reads.push(slope);
