@@ -22,6 +22,7 @@ pub mod context;
 pub mod imageprobe;
 pub mod pipeline;
 pub mod pipeline_extra;
+mod pipeline_cache;
 pub mod reshape;
 pub mod run;
 pub mod segment;

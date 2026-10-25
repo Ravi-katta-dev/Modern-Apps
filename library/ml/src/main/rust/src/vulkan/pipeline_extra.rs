@@ -96,17 +96,29 @@ impl Shaders {
         cleanup.layout = Some(layout);
 
         let mut built = Vec::new();
+        // Seeded from the previous launch's compile, if the driver accepts it. See
+        // `pipeline_cache`.
+        let (cache, seed) = super::pipeline_cache::open(device);
+        let started = std::time::Instant::now();
         for spirv in SPIRV {
-            match compute_pipeline(device, layout, spirv) {
+            match compute_pipeline(device, layout, cache, spirv) {
                 Ok(pipeline) => built.push(pipeline),
                 Err(e) => {
                     for pipeline in built {
                         device.destroy_pipeline(pipeline, None);
                     }
+                    super::pipeline_cache::close(device, cache, &seed);
                     return Err(e);
                 }
             }
         }
+        crate::timing!(
+            "compiled {} pipelines in {:.0} ms ({} cached bytes in)",
+            SPIRV.len(),
+            started.elapsed().as_secs_f64() * 1000.0,
+            seed.len()
+        );
+        super::pipeline_cache::close(device, cache, &seed);
         // A fixed-size array rather than a slice pattern of thirteen bindings, so
         // adding a shader is one entry in `SPIRV` and one name here.
         let [
@@ -336,6 +348,7 @@ impl Shaders {
 pub(crate) unsafe fn compute_pipeline(
     device: &ash::Device,
     layout: vk::PipelineLayout,
+    cache: vk::PipelineCache,
     spirv: &[u8],
 ) -> Result<vk::Pipeline, String> {
     let module = shader_module(device, spirv)?;
@@ -345,7 +358,7 @@ pub(crate) unsafe fn compute_pipeline(
         .name(c"main");
     let info = vk::ComputePipelineCreateInfo::default().stage(stage).layout(layout);
     let result = device
-        .create_compute_pipelines(vk::PipelineCache::null(), std::slice::from_ref(&info), None)
+        .create_compute_pipelines(cache, std::slice::from_ref(&info), None)
         .map_err(|(_, e)| format!("create_compute_pipelines {e:?}"))
         .and_then(|pipelines| {
             pipelines

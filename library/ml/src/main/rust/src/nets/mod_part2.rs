@@ -36,7 +36,7 @@ pub struct Binding {
 }
 
 /// A compiled forward pass: what to run, and how much scratch it needs.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Plan {
     /// In order. Each depends on the results of the ones before it.
     pub ops: Vec<Op>,

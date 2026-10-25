@@ -31,7 +31,18 @@ pub struct Reshaped<S> {
     offsets: Offsets,
     at: S,
     plan: fn(&Offsets, S) -> Result<Plan, String>,
+    /// The most recently built plans, newest last, so a shape seen again skips the build.
+    ///
+    /// Building a plan is pure CPU work over the graph and costs more than recording it: on a
+    /// Pixel 8, 17-39 ms for NLLB's two passes against 5-8 ms to record. A translation switches
+    /// between the same two shapes for every sentence of the same length, so this turns the
+    /// re-record into a clone of an already-built plan. Keyed by `S` because the plan is a pure
+    /// function of the shape and the table.
+    built: Vec<(S, Plan)>,
 }
+
+/// Plans [`Reshaped`] keeps. Enough for an encoder and a decoder at a couple of lengths.
+const BUILT_PLANS: usize = 4;
 
 impl<S: Copy + PartialEq> Reshaped<S> {
     /// Upload `weights`, record at `shape`, and keep only the table.
@@ -65,8 +76,10 @@ impl<S: Copy + PartialEq> Reshaped<S> {
         shape: S,
         plan: fn(&Offsets, S) -> Result<Plan, String>,
     ) -> Result<Reshaped<S>, String> {
-        let net = Net::new(context, plan(&offsets, shape)?, data, RESCALE_ONLY)?;
-        Ok(Reshaped { net, offsets, at: shape, plan })
+        let first = plan(&offsets, shape)?;
+        let built = vec![(shape, first.clone())];
+        let net = Net::new(context, first, data, RESCALE_ONLY)?;
+        Ok(Reshaped { net, offsets, at: shape, plan, built })
     }
 
     /// The net recorded at `shape`, re-recording it first if it is not already.
@@ -77,7 +90,31 @@ impl<S: Copy + PartialEq> Reshaped<S> {
     /// where one is needed.
     pub fn at(&mut self, shape: S) -> Result<&mut Net, String> {
         if shape != self.at {
-            self.net.rebuild((self.plan)(&self.offsets, shape)?)?;
+            let started = std::time::Instant::now();
+            let plan = match self.built.iter().position(|(key, _)| *key == shape) {
+                Some(index) => {
+                    let entry = self.built.remove(index);
+                    let plan = entry.1.clone();
+                    self.built.push(entry);
+                    plan
+                }
+                None => {
+                    let plan = (self.plan)(&self.offsets, shape)?;
+                    if self.built.len() == BUILT_PLANS {
+                        self.built.remove(0);
+                    }
+                    self.built.push((shape, plan.clone()));
+                    plan
+                }
+            };
+            let built = started.elapsed();
+            self.net.rebuild(plan)?;
+            crate::timing!(
+                "reshape {:.1} ms: plan {:.1} ms, rebuild {:.1} ms",
+                started.elapsed().as_secs_f64() * 1e3,
+                built.as_secs_f64() * 1e3,
+                (started.elapsed() - built).as_secs_f64() * 1e3
+            );
             self.at = shape;
         }
         Ok(&mut self.net)
