@@ -228,7 +228,9 @@ private fun SearchContent() {
 private fun UpdatesContent() {
     UpdatesScreen(
         state = UpdatesUiState(
-            updates = listOf(AEGIS),
+            updates = listOf(
+                AEGIS.copy(versionName = "3.4.1", versionCode = 341),
+            ),
             installedIcons = ICONS,
             installedInfos = mapOf(
                 "com.beemdevelopment.aegis" to InstalledInfo(

@@ -1,12 +1,19 @@
 package com.vayunmathur.office.ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.vayunmathur.library.ui.DynamicTheme
+import com.vayunmathur.library.ui.IconDownload
+import com.vayunmathur.library.ui.IconHome
+import com.vayunmathur.library.ui.PagerTab
+import com.vayunmathur.library.ui.TabStyle
+import com.vayunmathur.library.ui.TabbedPagerScaffold
 import com.vayunmathur.library.ui.MaterialTheme
 import com.vayunmathur.library.ui.Surface
 import com.vayunmathur.library.ui.odf.OdfCell
@@ -228,9 +235,7 @@ class MetadataPreviews {
     @Preview(name = "4-home", device = PHONE, group = "phone", showSystemUi = true)
     @Composable
     fun Preview4Home() {
-        DynamicTheme(darkTheme = true) {
-            HomeScreen()
-        }
+        ChromePreview()
     }
 
     @PreviewTest
@@ -243,5 +248,26 @@ class MetadataPreviews {
                 document = { TextDocumentView(doc = SampleTextDocument) },
             )
         }
+    }
+}
+
+/**
+ * The app's real tab chrome around the home content: the same [TabbedPagerScaffold]
+ * with the same Offline/Online tabs the home host declares. The Online tab is
+ * ViewModel-coupled, so it shows an empty page (never visible — the shot stays on
+ * Offline); Offline is the real stateless [HomeScreen].
+ */
+@Composable
+private fun ChromePreview() {
+    DynamicTheme(darkTheme = true) {
+        val tabs = listOf(
+            PagerTab("Offline", { IconHome() }) { HomeScreen() },
+            PagerTab("Online", { IconDownload() }) { Box(Modifier.fillMaxSize()) },
+        )
+        TabbedPagerScaffold(
+            tabs = tabs,
+            pagerState = rememberPagerState(initialPage = 0, pageCount = { tabs.size }),
+            tabStyle = TabStyle.BottomNav,
+        )
     }
 }
