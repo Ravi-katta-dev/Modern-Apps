@@ -1,8 +1,10 @@
 package com.vayunmathur.launcher.ui
 
 import android.content.ComponentName
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.tools.screenshot.PreviewTest
 import com.vayunmathur.launcher.domain.CellRect
@@ -113,7 +115,9 @@ class MetadataPreviews {
     @Composable
     fun Preview4Widgets() {
         DynamicTheme(darkTheme = true) {
-            Surface {
+            // fillMaxSize: without it Layoutlib sizes the shot to the content
+            // (a 1293px-tall crop) instead of the full phone screen.
+            Surface(Modifier.fillMaxSize()) {
                 WidgetPickerContent(
                     state = WidgetPickerUiState(
                         groups = listOf(
