@@ -93,6 +93,10 @@ const WALK_SPEED_M_S: f64 = 1.33;
 const ACCESS_RADIUS_M: f64 = 1000.0;
 const MAX_ROUNDS: usize = 6;
 const SECS_PER_DAY: u32 = 24 * 3600;
+/// Service days after the query day a journey may draw trips from, so a
+/// multi-day long-distance trip, or a connection that only runs tomorrow, is
+/// still found.
+const PLAN_DAYS_AHEAD: i32 = 3;
 
 // --- On-disk fixed records (`#[repr(C, packed)]`, read via `read_at`). ---
 // Variable-length sections (ROUTE_TRIPS, PROFILES) are decoded with `uvarint`.
@@ -305,6 +309,8 @@ pub struct TransitIndex {
     grid_cell_count: u32,
     // Section (offset, len) directory.
     sec: [(usize, usize); SECTION_COUNT],
+    /// Long-distance route classification, built on first use.
+    intercity: std::sync::OnceLock<Intercity>,
 }
 
 // Read-only after load; the raw pointer is sound to share.
@@ -318,6 +324,7 @@ include!("transit_part4.rs");
 include!("transit_part5.rs");
 include!("transit_part10.rs");
 include!("transit_part11.rs");
+include!("transit_part13.rs");
 #[cfg(test)]
 mod tests {
     include!("transit_part6.rs");
@@ -325,4 +332,5 @@ mod tests {
     include!("transit_part8.rs");
     include!("transit_part9.rs");
     include!("transit_part12.rs");
+    include!("transit_part14.rs");
 }

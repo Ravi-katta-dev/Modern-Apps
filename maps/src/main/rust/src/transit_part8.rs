@@ -354,17 +354,30 @@
     }
 
     #[test]
-    fn returns_none_when_nothing_runs_on_the_query_day() {
+    fn nothing_running_today_waits_for_the_next_service_day() {
         let pack = one_route_pack();
         let idx = pack.index();
-        // Sunday is not in the weekday mask and there is no exception.
+        // Sunday is not in the weekday mask and there is no exception, so the
+        // first ride is Monday's 08:00, one service day later.
         let sunday = QueryDay {
             weekday: 6,
             date: 20_240_107,
             prev_weekday: 5,
             prev_date: 20_240_106,
         };
-        assert!(plan(&idx, 37.700, -122.400, 37.720, -122.400, 25_000, sched(sunday)).is_none());
+        let legs = plan(&idx, 37.700, -122.400, 37.720, -122.400, 25_000, sched(sunday))
+            .expect("Monday's service is within the planning horizon");
+        let ride = legs.iter().find(|l| l.kind == LegKind::Ride).expect("a ride leg");
+        assert_eq!(ride.dep_secs, SECS_PER_DAY + 28_800, "Monday 08:00 in Sunday's frame");
+    }
+
+    #[test]
+    fn nothing_within_the_horizon_is_no_journey() {
+        let mut pack = one_route_pack();
+        // Service ends on the query day's eve, so no day in the horizon runs it.
+        pack.services[0].end = 20_240_102;
+        let idx = pack.index();
+        assert!(plan(&idx, 37.700, -122.400, 37.720, -122.400, 25_000, sched(wednesday())).is_none());
     }
 
     /// The hand-built harness above is an independent *reimplementation* of the

@@ -21,7 +21,7 @@ mod jni;
 mod mvt;
 pub mod routing;
 pub mod state;
-mod transit;
+pub mod transit;
 
 #[cfg(test)]
 mod tests {

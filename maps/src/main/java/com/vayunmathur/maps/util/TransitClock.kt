@@ -53,13 +53,17 @@ private fun yyyymmdd(d: LocalDate): Int =
     d.year * YEAR_MULTIPLIER + d.monthValue * MONTH_MULTIPLIER + d.dayOfMonth
 
 /**
- * Format a GTFS service-day time (which may exceed 86400 for a trip running
- * past midnight) as a wall clock `HH:mm`. Empty for a missing time.
+ * Format a time in the query day's frame (which exceeds 86400 for anything
+ * after midnight, and spans several days on a long-distance journey) as a wall
+ * clock `HH:mm`, with a `+N` day marker once it falls on a later day, as
+ * timetables print it. Empty for a missing time.
  */
 internal fun formatServiceTime(secs: Int): String {
     if (secs <= 0) return ""
+    val day = secs / SECONDS_PER_DAY
     val s = secs % SECONDS_PER_DAY
-    return "%02d:%02d".format(Locale.ROOT, s / SECONDS_PER_HOUR, (s % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE)
+    val clock = "%02d:%02d".format(Locale.ROOT, s / SECONDS_PER_HOUR, (s % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE)
+    return if (day > 0) "$clock +$day" else clock
 }
 
 /** DayOfWeek is Mon=1..Sun=7; the index wants Mon=0..Sun=6. */

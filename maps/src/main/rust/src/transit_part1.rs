@@ -88,6 +88,7 @@ impl TransitIndex {
             grid_cols,
             grid_cell_count,
             sec,
+            intercity: std::sync::OnceLock::new(),
         })
     }
 

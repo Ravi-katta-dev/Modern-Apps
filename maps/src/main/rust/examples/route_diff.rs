@@ -58,6 +58,7 @@ fn main() -> std::process::ExitCode {
         Some("dump") => dump(&args[1..]),
         Some("dump-compare") => dump_compare(&args[1..]),
         Some("sections") => sections(&args[1..]),
+        Some("transit") => transit(&args[1..]),
         _ => Err(USAGE.to_string()),
     };
     match r {
@@ -80,7 +81,8 @@ usage:
   route_diff dump 
   route_diff dump         --graph DIR --out FILE
   route_diff dump-compare --baseline FILE --candidate FILE [--limit N]
-  route_diff sections     --archive FILE [--dump KIND]";
+  route_diff sections     --archive FILE [--dump KIND]
+  route_diff transit      --graph DIR --from LAT,LON --to LAT,LON --dep SECS --date YYYYMMDD --weekday N";
 
 fn flag(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
@@ -88,6 +90,63 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 
 fn need(args: &[String], name: &str) -> Result<String, String> {
     flag(args, name).ok_or_else(|| format!("missing {name}\n{USAGE}"))
+}
+
+/// Plan one transit journey from an archive's transit section and print its
+/// legs, the time the first plan took (which includes classifying the
+/// intercity routes), and a second, warm plan.
+fn transit(args: &[String]) -> Result<bool, String> {
+    use offlinerouter::transit::{plan, LegKind, QueryDay, Schedule, TransitIndex};
+    let dir = need(args, "--graph")?;
+    let point = |name: &str| -> Result<(f64, f64), String> {
+        let v = need(args, name)?;
+        let (a, b) = v.split_once(',').ok_or_else(|| format!("{name} wants LAT,LON"))?;
+        Ok((a.trim().parse().map_err(|e| format!("{name}: {e}"))?, b.trim().parse().map_err(|e| format!("{name}: {e}"))?))
+    };
+    let num = |name: &str| -> Result<u32, String> { need(args, name)?.parse().map_err(|e| format!("{name}: {e}")) };
+    let (from, to) = (point("--from")?, point("--to")?);
+    let (dep, date, weekday) = (num("--dep")?, num("--date")?, num("--weekday")?);
+    let started = std::time::Instant::now();
+    let idx = TransitIndex::load_archive(&archive_path(&dir)).ok_or("no transit section in the archive")?;
+    println!("  load                   {:>10.1} ms", started.elapsed().as_secs_f64() * 1e3);
+    let sched = Schedule { day: QueryDay::for_date(weekday, date), overlay: None };
+    let hhmm = |s: u32| {
+        let (d, r) = (s / 86_400, s % 86_400);
+        format!("{:02}:{:02}{}", r / 3600, r % 3600 / 60, if d > 0 { format!(" +{d}d") } else { String::new() })
+    };
+    let mut first = None;
+    for pass in ["cold", "warm"] {
+        let t = std::time::Instant::now();
+        let legs = plan(&idx, from.0, from.1, to.0, to.1, dep, sched);
+        println!("  plan ({pass})            {:>10.1} ms", t.elapsed().as_secs_f64() * 1e3);
+        if first.is_none() {
+            first = Some(legs);
+        }
+    }
+    let Some(legs) = first.flatten() else {
+        println!("  no journey");
+        return Ok(false);
+    };
+    for l in &legs {
+        let kind = match l.kind {
+            LegKind::Walk => "walk",
+            LegKind::Wait => "wait",
+            LegKind::Ride => "ride",
+        };
+        println!(
+            "  {kind:<4} {:>9} -> {:<9} {:<28} {} -> {} ({} stops, {:.0} km)",
+            hhmm(l.dep_secs),
+            hhmm(l.arr_secs),
+            l.name,
+            l.from_stop,
+            l.to_stop,
+            l.stop_count,
+            l.dist_m / 1000.0
+        );
+    }
+    let total = legs.last().map_or(0, |l| l.arr_secs).saturating_sub(dep);
+    println!("  total {:.1} h, {} rides", f64::from(total) / 3600.0, legs.iter().filter(|l| l.kind == LegKind::Ride).count());
+    Ok(true)
 }
 
 /// Print `kind offset len` for every sidecar section of a `.mamaps`, reading

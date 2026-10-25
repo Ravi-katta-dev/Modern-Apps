@@ -143,8 +143,13 @@ fn zigzag(u: u64) -> i64 {
 /// (`24:30:00`), so a trip inherited from the previous service day is shifted
 /// back one full day.
 fn abs_time_on(start_time: u32, rel: i32, prev_day: bool) -> u32 {
-    let shift = if prev_day { SECS_PER_DAY as i64 } else { 0 };
-    (start_time as i64 + rel as i64 - shift).max(0) as u32
+    abs_time_day(start_time, rel, if prev_day { -1 } else { 0 })
+}
+
+/// [`abs_time_on`] for a trip on the service day `day` days from the query day
+/// (`-1` is the previous day, `1` tomorrow).
+fn abs_time_day(start_time: u32, rel: i32, day: i32) -> u32 {
+    (start_time as i64 + rel as i64 + day as i64 * SECS_PER_DAY as i64).max(0) as u32
 }
 
 /// The two service days a query may draw trips from: the query day itself, and
@@ -170,11 +175,14 @@ impl Schedule<'_> {
     /// Whether `service_idx` runs on the query day (`prev = false`) or on the
     /// preceding service day (`prev = true`).
     fn runs(&self, idx: &TransitIndex, service_idx: u32, prev: bool) -> bool {
-        if prev {
-            idx.service_runs(service_idx, self.day.prev_weekday, self.day.prev_date)
-        } else {
-            idx.service_runs(service_idx, self.day.weekday, self.day.date)
-        }
+        self.runs_on(idx, service_idx, if prev { -1 } else { 0 })
+    }
+
+    /// Whether `service_idx` runs on the service day `day` days from the query
+    /// day (see [`QueryDay::on`]).
+    fn runs_on(&self, idx: &TransitIndex, service_idx: u32, day: i32) -> bool {
+        let (weekday, date) = self.day.on(day);
+        idx.service_runs(service_idx, weekday, date)
     }
 
     fn adjustment(&self, route: u32, pos: u32, sched: u32) -> Option<Adjustment> {
@@ -276,8 +284,9 @@ fn delayed(sched: u32, delay_secs: i32) -> u32 {
 struct Boarding {
     /// Local index into the route's decoded trip list.
     trip: usize,
-    /// This trip belongs to the previous service day (a `>24:00:00` trip).
-    prev_day: bool,
+    /// The trip's service day relative to the query day: `-1` for a previous-day
+    /// `>24:00:00` trip, `0` today, `1..=PLAN_DAYS_AHEAD` for a later day.
+    day: i32,
     delay_secs: i32,
 }
 

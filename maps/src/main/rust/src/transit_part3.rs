@@ -50,6 +50,10 @@ pub fn plan(
     let mut queue: Vec<u32> = seeds.clone();
     relax_transfers(idx, &mut reach, &seeds, &mut queue);
 
+    // A long journey rides the intercity network between the two local areas;
+    // see [`IntercityScope`].
+    let scope = IntercityScope::for_trip(idx, from_lat, from_lon, to_lat, to_lon);
+
     // --- RAPTOR rounds ---
     for _round in 0..MAX_ROUNDS {
         if queue.is_empty() {
@@ -58,9 +62,13 @@ pub fn plan(
         // Routes to scan, and the earliest marked stop-position on each.
         let mut route_earliest: HashMap<u32, u32> = HashMap::new();
         for &s in &queue {
+            let long_only = scope.as_ref().is_some_and(|sc| sc.long_only_at(idx, s));
             let (rs, re) = idx.stop_routes_range(s);
             for i in rs..re {
                 let r = idx.stop_route(i);
+                if long_only && !scope.as_ref().is_some_and(|sc| sc.is_long(r)) {
+                    continue;
+                }
                 let pos = idx.stop_route_pos(i);
                 route_earliest
                     .entry(r)
@@ -96,7 +104,7 @@ pub fn plan(
                     };
                     if let Some(arr_rel) = arr_rel {
                         let arr = delayed(
-                            abs_time_on(td.start_time, arr_rel, b.prev_day),
+                            abs_time_day(td.start_time, arr_rel, b.day),
                             b.delay_secs,
                         );
                         let how = Reached::Transit { route: r, board_stop, boarding: b };
@@ -400,8 +408,13 @@ pub fn stop_departures(
                     if !sched.runs(idx, td.service_idx, prev_day) {
                         continue;
                     }
-                    let Some(scheduled) = trip_sched_dep(idx, &mut prof_cache, td, pos, prev_day)
-                    else {
+                    let Some(scheduled) = trip_sched_dep(
+                        idx,
+                        &mut prof_cache,
+                        td,
+                        pos,
+                        if prev_day { -1 } else { 0 },
+                    ) else {
                         continue;
                     };
                     let adj = sched.adjustment(r, pos, scheduled);
@@ -446,5 +459,5 @@ fn trip_dep(
         let p = get_profile(cache, idx, trip.profile_id);
         p.dep_rel.get(pos as usize).copied().unwrap_or(0)
     };
-    delayed(abs_time_on(trip.start_time, dep_rel, boarding.prev_day), boarding.delay_secs)
+    delayed(abs_time_day(trip.start_time, dep_rel, boarding.day), boarding.delay_secs)
 }

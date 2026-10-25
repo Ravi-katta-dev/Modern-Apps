@@ -1,20 +1,20 @@
 /// Scheduled (timetable) departure of `trip` at `pos` in the query day's frame,
-/// ignoring realtime. `None` when `prev_day` is set but the trip does not
-/// actually run into the query day — i.e. its GTFS time is below `24:00:00`, so
-/// it belongs wholly to yesterday and must not be considered at all.
+/// ignoring realtime, for the trip as run on service day `day` (see
+/// [`QueryDay::on`]). `None` when a previous-day trip does not actually run into
+/// the query day — i.e. its GTFS time is below `24:00:00`, so it belongs wholly
+/// to yesterday and must not be considered at all.
 fn trip_sched_dep(
     idx: &TransitIndex,
     cache: &mut HashMap<u32, ProfileDec>,
     trip: &TripDec,
     pos: u32,
-    prev_day: bool,
+    day: i32,
 ) -> Option<u32> {
     let dep_rel = {
         let p = get_profile(cache, idx, trip.profile_id);
         p.dep_rel.get(pos as usize).copied().unwrap_or(0)
     };
-    let t = trip.start_time as i64 + dep_rel as i64
-        - if prev_day { SECS_PER_DAY as i64 } else { 0 };
+    let t = trip.start_time as i64 + dep_rel as i64 + day as i64 * SECS_PER_DAY as i64;
     if t < 0 {
         return None;
     }
@@ -66,29 +66,33 @@ fn earliest_trip(
     // earlier by `max_early_secs`.
     let slack = sched.max_early_secs();
     // Previous-day trips first: theirs are the earliest times in this frame.
-    for prev_day in [true, false] {
-        // A previous-day trip departs at `start_time + rel - SECS_PER_DAY` in this
-        // frame, so its `start_time` has to clear the bound by a whole day. The
-        // day belongs in the bound rather than disabling the break: exempting the
-        // pass made it an unconditional scan of every trip on the route, each with
-        // a `service_runs` binary search.
-        let day_shift = if prev_day { SECS_PER_DAY } else { 0 };
+    // Later days follow, so a journey whose next connection leaves tomorrow (a
+    // long-distance train, a last bus missed) is still found.
+    for day in -1..=PLAN_DAYS_AHEAD {
+        // A trip on day `d` departs at `start_time + rel + d * SECS_PER_DAY` in
+        // this frame, and `rel >= 0`, so once that lower bound clears the best
+        // departure no later trip on this day can improve on it. The day belongs
+        // in the bound rather than disabling the break: exempting a pass made it
+        // an unconditional scan of every trip on the route, each with a
+        // `service_runs` binary search.
+        let day_shift = day as i64 * SECS_PER_DAY as i64;
         for i in 0..trips.len() {
             let Some(td) = trips.get(i) else { break };
             if best.is_some()
-                && td.start_time >= best_dep.saturating_add(slack).saturating_add(day_shift)
+                && td.start_time as i64 + day_shift >= best_dep as i64 + slack as i64
             {
                 break;
             }
-            if !sched.runs(idx, td.service_idx, prev_day) {
+            if !sched.runs_on(idx, td.service_idx, day) {
                 continue;
             }
             // A previous-day trip only counts if it actually runs into the query
             // day (a GTFS time at or past 24:00:00).
-            let Some(scheduled) = trip_sched_dep(idx, cache, &td, pos, prev_day) else {
+            let Some(scheduled) = trip_sched_dep(idx, cache, &td, pos, day) else {
                 continue;
             };
-            let adj = sched.adjustment(route_idx, pos, scheduled);
+            // Realtime describes today's vehicles; a later day runs to timetable.
+            let adj = if day <= 0 { sched.adjustment(route_idx, pos, scheduled) } else { None };
             if adj.is_some_and(|a| a.cancelled) {
                 continue;
             }
@@ -96,7 +100,7 @@ fn earliest_trip(
             let dep = delayed(scheduled, delay_secs);
             if dep >= ready && dep < best_dep {
                 best_dep = dep;
-                best = Some(Boarding { trip: i, prev_day, delay_secs });
+                best = Some(Boarding { trip: i, day, delay_secs });
             }
         }
     }
@@ -136,15 +140,15 @@ fn make_transit_leg(
     }
     let (dep, arr) = {
         let p = get_profile(cache, idx, td.profile_id);
-        let dep = abs_time_on(
+        let dep = abs_time_day(
             td.start_time,
             p.dep_rel.get(board_pos as usize).copied().unwrap_or(0),
-            boarding.prev_day,
+            boarding.day,
         );
-        let arr = abs_time_on(
+        let arr = abs_time_day(
             td.start_time,
             p.arr_rel.get(alight_pos as usize).copied().unwrap_or(0),
-            boarding.prev_day,
+            boarding.day,
         );
         (delayed(dep, boarding.delay_secs), delayed(arr, boarding.delay_secs))
     };

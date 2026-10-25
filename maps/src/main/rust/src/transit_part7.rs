@@ -175,10 +175,12 @@
         // exception_type 2 (removed) for the query date.
         pack.exceptions = vec![(0, 20_240_103, 0)];
         let idx = pack.index();
-        assert!(
-            plan(&idx, 37.700, -122.400, 37.720, -122.400, 25_000, sched(wednesday())).is_none(),
-            "service removed for this date, so no journey"
-        );
+        // Wednesday's service is removed, so the journey waits for Thursday's
+        // 08:00 rather than riding a trip that does not run.
+        let legs = plan(&idx, 37.700, -122.400, 37.720, -122.400, 25_000, sched(wednesday()))
+            .expect("Thursday's service is within the planning horizon");
+        let ride = legs.iter().find(|l| l.kind == LegKind::Ride).expect("a ride leg");
+        assert_eq!(ride.dep_secs, SECS_PER_DAY + 28_800, "service removed for this date");
         // The neighbouring date is unaffected — the CSR range is date-keyed.
         let thursday = QueryDay {
             weekday: 3,

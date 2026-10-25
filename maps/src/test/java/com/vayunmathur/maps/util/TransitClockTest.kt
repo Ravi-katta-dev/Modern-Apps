@@ -79,8 +79,10 @@ class TransitClockTest {
     fun `formats a service time as a wall clock`() {
         assertEquals("08:30", formatServiceTime(8 * 3600 + 30 * 60))
         assertEquals("23:59", formatServiceTime(23 * 3600 + 59 * 60))
-        // A GTFS 24:30:00 trip renders as the 00:30 it actually runs at.
-        assertEquals("00:30", formatServiceTime(24 * 3600 + 30 * 60))
+        // A GTFS 24:30:00 trip renders as the 00:30 it actually runs at, marked as
+        // the next day; a multi-day journey counts the days.
+        assertEquals("00:30 +1", formatServiceTime(24 * 3600 + 30 * 60))
+        assertEquals("13:15 +3", formatServiceTime(3 * 86_400 + 13 * 3600 + 15 * 60))
         assertEquals("", formatServiceTime(0))
     }
 }
