@@ -77,6 +77,11 @@ val previewSourcesDir = File(projectDir, "src/screenshotTest")
 // recording mode the images land in the reference dir; they are an intermediate for us (see
 // .gitignore), though keeping them is also what would let `validate…ScreenshotTest` act as
 // UI regression testing later.
+//
+// Order matters: `rendered/` is the fresh output of the `updateScreenshotTest` run this
+// task just depended on; `reference/` accumulates across runs (and across plugin versions,
+// whose filename hashes differ), so it is only a fallback. Reading reference first would
+// publish stale duplicates alongside the fresh renders.
 val referenceDir = File(projectDir, "src/screenshotTestDev/reference")
 // Lazily derived from the build directory provider: no .get() at
 // configuration time, so merely configuring the project creates no tasks.
@@ -112,9 +117,22 @@ abstract class CollectPreviewScreenshots : DefaultTask() {
                     "\nDoes the module have @Preview functions under src/screenshotTest/?"
             )
 
-        // Sorted by path so the listing order is the preview function order (Preview1…,
-        // Preview2…). Anything else would silently shuffle the store listing.
-        val images = source.walkTopDown().filter { it.extension == "png" }.sortedBy { it.invariantSeparatorsPath }.toList()
+        // Sorted by file name so the listing order is the preview function order
+        // (Preview1…, Preview2…) — the generated names embed the function name.
+        // Deliberately NOT the full path: previews live in per-class directories
+        // (e.g. maps' CarMetadataPreviews/ vs MetadataPreviews/), and sorting by
+        // path would put every Car… shot before every Metadata… shot regardless of
+        // number. Anything else would silently shuffle the store listing.
+        // Deduplicated by content: the same preview can render more than once (e.g. a
+        // stale reference image from an older plugin version sitting next to the fresh
+        // render), and the store listing must not show the same shot twice.
+        val seen = mutableSetOf<String>()
+        val images = source.walkTopDown().filter { it.extension == "png" }.sortedBy { it.name }.filter { png ->
+            seen.add(sha256Hex(png.readBytes()))
+        }.toList()
+        if (images.size < seen.size) {
+            logger.lifecycle("Metadata screenshots: dropped ${seen.size - images.size} byte-identical duplicate(s)")
+        }
 
         val groups = readPreviewGroups(previewSources.get(), label.get())
 
@@ -127,7 +145,7 @@ abstract class CollectPreviewScreenshots : DefaultTask() {
             }
             val bucketDir = File(dest, bucket)
             bucketDir.mkdirs()
-            bucketImages.sortedBy { it.invariantSeparatorsPath }.forEachIndexed { index, png ->
+            bucketImages.sortedBy { it.name }.forEachIndexed { index, png ->
                 png.copyTo(File(bucketDir, "${index + 1}.png"), overwrite = true)
             }
         }
@@ -137,6 +155,12 @@ abstract class CollectPreviewScreenshots : DefaultTask() {
 
     /** Rendered filenames look like `Preview1Keypad_1-keypad_<hash>_0.png` — the leading segment is the function name. */
     private fun functionNameOf(png: File): String = png.nameWithoutExtension.substringBefore('_')
+
+    /** Content hash for duplicate detection (a few small PNGs per module — cheap). */
+    private fun sha256Hex(bytes: ByteArray): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        return digest.digest(bytes).joinToString("") { "%02x".format(it) }
+    }
 
     /**
      * Maps preview function names (`Preview1Keypad`) to their `@Preview(group = ...)`
@@ -180,7 +204,7 @@ tasks.register<CollectPreviewScreenshots>("metadata") {
     // `update…` renders the previews and writes them out; `validate…` would additionally
     // diff them against a committed baseline, which we do not keep.
     dependsOn("updateScreenshotTest")
-    sourceDirs.set(renderedDir.map { listOf(referenceDir, it) })
+    sourceDirs.set(renderedDir.map { listOf(it, referenceDir) })
     destination.set(screenshotsOut)
     previewSources.set(previewSourcesDir)
     buckets.set(screenshotBuckets)
