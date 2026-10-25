@@ -35,11 +35,25 @@ class WebContentFiltersActivity : PinGatedActivity() {
     }
 }
 
-/** The single-toggle web-filter editor. */
+/**
+ * The single-toggle web-filter editor.
+ *
+ * [enabled]/[onEnabledChange] are hoisted so screenshot previews can drive the screen with
+ * literals; when left null the screen owns its state and persists it via [WebContentFilters],
+ * which is how the activity uses it.
+ */
 @Composable
-fun WebContentFiltersScreen() {
+fun WebContentFiltersScreen(
+    enabled: Boolean? = null,
+    onEnabledChange: ((Boolean) -> Unit)? = null,
+) {
     val context = LocalContext.current
-    var enabled by remember { mutableStateOf(WebContentFilters.isEnabled(context)) }
+    var stored by remember { mutableStateOf(WebContentFilters.isEnabled(context)) }
+    val checked = enabled ?: stored
+    val onChange: (Boolean) -> Unit = onEnabledChange ?: {
+        stored = it
+        WebContentFilters.setEnabled(context, it)
+    }
 
     LazyListScaffold(
         title = stringResource(R.string.web_filters_title),
@@ -51,11 +65,8 @@ fun WebContentFiltersScreen() {
                 SettingsSwitchRow(
                     title = stringResource(R.string.web_filters_toggle),
                     supportingText = stringResource(R.string.web_filters_toggle_hint),
-                    checked = enabled,
-                    onCheckedChange = {
-                        enabled = it
-                        WebContentFilters.setEnabled(context, it)
-                    },
+                    checked = checked,
+                    onCheckedChange = onChange,
                 )
             }
         }
