@@ -355,6 +355,11 @@ impl Graph {
                 } else {
                     WALK_SPEED_M_S
                 };
+                let speed_m_s = if m != DRIVING as usize && r as u8 == MOTORWAY {
+                    speed_m_s / ACTIVE_MOTORWAY_PENALTY
+                } else {
+                    speed_m_s
+                };
                 *multiplier = ((100.0 / (speed_m_s * 1000.0)) * 4_294_967_296.0) as u64;
             }
         }

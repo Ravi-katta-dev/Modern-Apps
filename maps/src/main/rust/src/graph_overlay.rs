@@ -370,10 +370,6 @@ mod overlay_tests {
     /// A ~220 km motorway along the equator with a residential road 1.1 km north
     /// of it, joined by a residential connector at every node. Motorway ids
     /// `0..SPAN`, residential ids `SPAN..2*SPAN`.
-    pub(super) fn corridor_graph() -> Graph {
-        corridor()
-    }
-
     fn corridor() -> Graph {
         let mut nodes = Vec::new();
         for lat in [0, 100_000] {
@@ -395,29 +391,26 @@ mod overlay_tests {
         build_graph(&nodes, &edges)
     }
 
-    /// `(total time, total distance, iterations, used overlay)` for the corridor's
-    /// end-to-end drive on the residential side.
-    fn drive(g: &Graph) -> (u64, u64, i32, bool) {
+    /// `(total time, total distance, used overlay)` for a route along the corridor
+    /// at `lat`, or `None` when planning refuses it.
+    fn route(g: &Graph, mode: i32, lat: f64, e_lon: f64) -> Option<(u64, u64, bool)> {
         let speeds = TrafficSpeeds::default();
         let (mut scratch, mut heap) = (RoutingScratchpad::new(), RadixHeap::new());
         let mut ensure = |_: i32, _: i32| {};
-        let end_lon = f64::from((SPAN as i32 - 1) * STEP_E7) * 1e-7;
-        let mut ctx = prepare_routing(
-            g, &speeds, &mut ensure, 0.0101, 0.0001, 0.0101, end_lon - 0.0001, DRIVING, &mut scratch,
-            &mut heap,
-        )
-        .expect("both ends snap");
+        let mut ctx =
+            prepare_routing(g, &speeds, &mut ensure, lat, 0.0001, lat, e_lon, mode, &mut scratch, &mut heap)?;
         let hierarchical = ctx.hierarchy;
-        perform_search_loop(g, &speeds, &mut ensure, DRIVING, &mut ctx, &mut scratch, &mut heap);
+        perform_search_loop(g, &speeds, &mut ensure, mode, &mut ctx, &mut scratch, &mut heap);
         assert_ne!(ctx.target_node, 0xFFFF_FFFF, "a route is found");
         assert!(ctx.hierarchy == hierarchical, "the overlay search did not fall back");
-        let steps = reconstruct_path(g, &speeds, DRIVING, &ctx, &mut scratch);
-        (
-            steps.iter().map(|s| s.time_10ms).sum(),
-            steps.iter().map(|s| s.dist_mm).sum(),
-            ctx.iterations,
-            hierarchical,
-        )
+        let steps = reconstruct_path(g, &speeds, mode, &ctx, &mut scratch);
+        Some((steps.iter().map(|s| s.time_10ms).sum(), steps.iter().map(|s| s.dist_mm).sum(), hierarchical))
+    }
+
+    /// The corridor's end-to-end drive on the residential side.
+    fn drive(g: &Graph) -> (u64, u64, bool) {
+        let end_lon = f64::from((SPAN as i32 - 1) * STEP_E7) * 1e-7;
+        route(g, DRIVING, 0.0101, end_lon - 0.0001).expect("both ends snap")
     }
 
     #[test]
@@ -448,12 +441,12 @@ mod overlay_tests {
     #[test]
     fn an_overlay_route_matches_the_full_search() {
         let full = drive(&corridor());
-        assert!(!full.3, "no overlay, no hierarchy");
+        assert!(!full.2, "no overlay, no hierarchy");
         let mut g = corridor();
         let bytes = build_overlay(&g, u64::from(g.node_count));
         assert!(g.attach_overlay_bytes(bytes));
         let hier = drive(&g);
-        assert!(hier.3, "a 220 km drive uses the overlay");
+        assert!(hier.2, "a 220 km drive uses the overlay");
         assert_eq!((hier.0, hier.1), (full.0, full.1), "same time and distance as plain A*");
     }
 
@@ -464,31 +457,29 @@ mod overlay_tests {
         assert!(!g.attach_overlay_bytes(bytes));
         assert!(g.overlay().is_none());
     }
-}
 
-#[cfg(test)]
-mod trip_limit_tests {
-    use crate::geometry::TrafficSpeeds;
-    use crate::graph::{BICYCLE, DRIVING, WALK};
-    use crate::routing::prepare_routing;
-    use crate::state::{RadixHeap, RoutingScratchpad};
-
-    /// A cross-country walk or ride is refused before any search, so it costs
-    /// nothing; driving the same trip is still planned.
     #[test]
-    fn walking_and_cycling_refuse_cross_country_trips() {
-        let g = super::overlay_tests::corridor_graph();
-        let speeds = TrafficSpeeds::default();
-        let (mut scratch, mut heap) = (RoutingScratchpad::new(), RadixHeap::new());
-        let mut ensure = |_: i32, _: i32| {};
-        let mut plan = |mode, e_lon: f64| {
-            prepare_routing(&g, &speeds, &mut ensure, 0.0101, 0.0001, 0.0101, e_lon, mode, &mut scratch, &mut heap)
-                .is_some()
-        };
-        // ~220 km apart.
-        assert!(plan(DRIVING, 1.9999));
-        assert!(!plan(WALK, 1.9999), "past the walking limit");
-        assert!(plan(BICYCLE, 1.9999), "inside the cycling limit");
-        assert!(plan(WALK, 0.5), "a 55 km walk is still planned");
+    fn walking_and_cycling_cross_country_ride_the_overlay() {
+        let mut g = corridor();
+        let bytes = build_overlay(&g, u64::from(g.node_count));
+        assert!(g.attach_overlay_bytes(bytes));
+        for mode in [WALK, BICYCLE] {
+            let (_, _, hierarchical) = route(&g, mode, 0.0101, 1.9999).expect("a 220 km trip is planned");
+            assert!(hierarchical, "mode {mode} uses the overlay past the hierarchy threshold");
+            let (_, _, hierarchical) = route(&g, mode, 0.0101, 0.5).expect("a 55 km trip is planned");
+            assert!(!hierarchical, "mode {mode} searches every road on a short trip");
+        }
+        assert!(route(&g, PUBLIC_TRANSIT, 0.0101, 1.9999).is_none(), "a 220 km transit walk leg is refused");
+    }
+
+    #[test]
+    fn walking_leaves_a_motorway_for_a_parallel_side_road() {
+        let g = corridor();
+        let (_, dist_mm, _) = route(&g, WALK, 0.0001, 0.5).expect("a 55 km walk is planned");
+        let along_motorway = accurate_dist_mm(0, 1_000, 0, 5_000_000);
+        assert!(
+            u64::from(along_motorway) + 2_000_000 < dist_mm,
+            "took the two 1.1 km connectors to the side road: {dist_mm} mm vs {along_motorway} mm"
+        );
     }
 }

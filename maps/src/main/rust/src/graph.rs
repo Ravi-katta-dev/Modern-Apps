@@ -52,6 +52,10 @@ pub const INVALID_EDGE: u64 = 0xFFFF_FFFF_FFFF_FFFF;
 
 pub const WALK_SPEED_M_S: f64 = 4.5 / 3.6;
 pub const BICYCLE_SPEED_M_S: f64 = 16.0 / 3.6;
+/// How many times slower a motorway counts when walking or cycling. A penalty
+/// rather than a ban keeps the overlay connected where a freeway shoulder is the
+/// only way through, and slowing an edge never breaks the A* heuristic.
+pub const ACTIVE_MOTORWAY_PENALTY: f64 = 5.0;
 /// Upper bound on any driving edge's effective speed (km/h). The A* heuristic is
 /// scaled to this speed AND every edge's effective speed is clamped to it in
 /// [`crate::geometry::get_edge_time_10ms`], which together keep the heuristic

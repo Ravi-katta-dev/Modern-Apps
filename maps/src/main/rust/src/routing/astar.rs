@@ -1,4 +1,4 @@
-//! The A* main loop, including the highway-overlay hops for long drives.
+//! The A* main loop, including the highway-overlay hops for long routes.
 use crate::geometry::*;
 use crate::graph::*;
 use crate::state::{RadixHeap, RoutingScratchpad};

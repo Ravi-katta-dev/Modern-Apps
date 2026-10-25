@@ -49,8 +49,9 @@ pub struct RoutingContext {
     pub hierarchy: bool,
 }
 
-/// Driving routes at least this long (straight line) use the highway overlay
-/// when the graph has one.
+/// Driving, walking and cycling routes at least this long (straight line) use the
+/// highway overlay when the graph has one. Walking and cycling cost is distance
+/// over a fixed speed, so the overlay keeps their A* heuristic consistent too.
 const HIERARCHY_MIN_MM: u32 = 150_000_000;
 /// A route from the start projection to the end projection that never leaves the
 /// edge they both snapped to.
@@ -190,22 +191,15 @@ pub fn find_nearest_edge(g: &Graph, lat: f64, lon: f64, mode: i32) -> SnappedEdg
     best
 }
 
-/// Straight-line limit for a walking or cycling route.
-///
-/// Neither mode uses the highway overlay, so a cross-country request is a full
-/// search of every path on the continent: on device LA to NYC on foot ran into
-/// the 25M-expansion cap after ~30 s and gigabytes of scratch, and the route
-/// sheet plans every mode for every selection. Nobody needs those routes.
+/// Straight-line limit for a road-graph route. PUBLIC_TRANSIT reaches the road
+/// graph only for a journey's walk legs and never uses the overlay, so a long one
+/// would be a full-continent search.
 fn max_trip_mm(mode: i32) -> Option<u32> {
-    match mode {
-        WALK | PUBLIC_TRANSIT => Some(150_000_000),
-        BICYCLE => Some(300_000_000),
-        _ => None,
-    }
+    (mode == PUBLIC_TRANSIT).then_some(150_000_000)
 }
 
-/// Snap endpoints, seed the open set. Returns `None` if snapping fails or the
-/// trip is too far to walk or cycle.
+/// Snap endpoints, seed the open set. Returns `None` if snapping fails or a
+/// transit walk leg is implausibly long.
 #[allow(clippy::too_many_arguments)]
 pub fn prepare_routing(
     g: &Graph,
@@ -240,7 +234,7 @@ pub fn prepare_routing(
 
     seed(g, traffic, &start, &end, mode, scratch, heap);
     let direct = direct_path(g, traffic, &start, &end, mode);
-    let hierarchy = mode == DRIVING
+    let hierarchy = mode != PUBLIC_TRANSIT
         && g.overlay().is_some()
         && accurate_dist_mm(start.proj_lat, start.proj_lon, end.proj_lat, end.proj_lon)
             >= HIERARCHY_MIN_MM;
