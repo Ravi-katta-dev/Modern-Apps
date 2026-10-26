@@ -434,7 +434,7 @@ fn blocked_2x2_transposed_convs_agree_with_the_reference() {
 }
 
 /// `conv_point_int8.comp`'s split path (`in1` = 1, two channels per invocation), which a GEMM
-/// with fewer than 128 32 x 32 tiles takes: 40 channels leave the last 16-channel tile part empty,
+/// with fewer than 256 32 x 32 tiles takes: 40 channels leave the last 16-channel tile part empty,
 /// and 52 / 49 positions cover the aligned and the ragged activation loads.
 #[test]
 #[ignore = "needs a Vulkan device"]
@@ -527,4 +527,41 @@ fn a_pointwise_conv_with_prelu_agrees_with_the_reference() {
         crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvPoint, .. }
     )));
     compare("a pointwise conv with PReLU", plan, source.into_data(), &[&input]);
+}
+
+/// Either side of the split threshold: 504 x 481 is 16 x 16 = 256 tiles and stays on the four-row
+/// path; 504 x 450 is 16 x 15 = 240 and splits. Ragged on purpose: 504 channels leave the last
+/// 16- and 32-channel tiles part empty, and neither width is a multiple of four.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn int8_gemms_either_side_of_the_split_threshold_agree_with_the_reference() {
+    let (out_channels, in_channels) = (504u32, 16u32);
+    let kernel: Vec<i8> =
+        (0..(out_channels * in_channels) as i32).map(|i| ((i * 41) % 247 - 123) as i8).collect();
+    let scales: Vec<f32> = (0..out_channels).map(|c| 0.003_906_25 * (1.0 + (c % 9) as f32)).collect();
+    let blob = write_mixed(
+        graph::SUPERTONIC_VE,
+        &[
+            Fixture::I8(vec![out_channels, in_channels, 1, 1], kernel),
+            Fixture::F16(vec![out_channels], scales),
+            Fixture::F16(vec![out_channels], spread(out_channels as usize, 0.9)),
+        ],
+    );
+    let weights = Weights::parse(&blob, graph::SUPERTONIC_VE).expect("the fixture blob parses");
+    for (width, split) in [(481u32, 0u32), (450, 1)] {
+        let input = spread((in_channels * width) as usize, 0.2);
+        let mut builder = Builder::new(&weights);
+        let first = builder.input(Shape::new(in_channels, 1, width));
+        let last = builder.conv_int8(
+            first, 0, out_channels, (1, 1), (1, 1), (1, 1), (0, 0, 0, 0), 1, Act::None,
+        );
+        let plan = builder.finish(&[last]).expect("the plan builds");
+        assert!(plan.ops.iter().any(|op| matches!(
+            op,
+            crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvPointInt8, push, .. }
+                if push.in1 == split
+        )), "width {width} should take in1 = {split}");
+        let what = format!("an int8 gemm {out_channels}x{width} at in1 = {split}");
+        compare(&what, plan, weights.data().to_vec(), &[&input]);
+    }
 }
