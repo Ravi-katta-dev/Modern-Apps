@@ -22,7 +22,58 @@
 
 #include "common.glsl"
 
+// A 2x2 stride-2 unpadded transpose (`p.in1 == 1`): every output reads exactly one tap, so
+// one invocation takes one input pixel for 4 output channels and writes their 2x2 blocks,
+// reading each input once instead of once per output and skipping the divisibility tests.
+void blocked_2x2() {
+    uint oc_blocks = (p.out_c + 3u) / 4u;
+    uint invocation = global_index();
+    if (invocation >= oc_blocks * p.in_h * p.in_w) {
+        return;
+    }
+    uint ix = invocation % p.in_w;
+    uint rest = invocation / p.in_w;
+    uint iy = rest % p.in_h;
+    uint channel_base = (rest / p.in_h) * 4u;
+    uint rows[4];
+    vec4 acc[4];
+    for (uint i = 0u; i < 4u; i++) {
+        rows[i] = min(channel_base + i, p.out_c - 1u);
+        acc[i] = vec4(float(weights[p.bias + rows[i]]));
+    }
+    uint plane = p.in_h * p.in_w;
+    uint at = p.in0 + iy * p.in_w + ix;
+    for (uint ic = 0u; ic < p.in_c; ic++) {
+        float x = float(arena[at + ic * plane]);
+        for (uint i = 0u; i < 4u; i++) {
+            uint k = p.weight + (ic * p.out_c + rows[i]) * 4u;
+            acc[i] += x * vec4(float(weights[k]), float(weights[k + 1u]),
+                float(weights[k + 2u]), float(weights[k + 3u]));
+        }
+    }
+    uint positions = p.out_h * p.out_w;
+    for (uint i = 0u; i < 4u; i++) {
+        uint channel = channel_base + i;
+        if (channel >= p.out_c) {
+            continue;
+        }
+        for (uint t = 0u; t < 4u; t++) {
+            uint oy = iy * 2u + t / 2u;
+            uint ox = ix * 2u + t % 2u;
+            if (oy >= p.out_h || ox >= p.out_w) {
+                continue;
+            }
+            uint index = channel * positions + oy * p.out_w + ox;
+            arena[p.out_at + index] = float16_t(fused_store(acc[i][t], p.act, channel, index));
+        }
+    }
+}
+
 void main() {
+    if (p.in1 == 1u) {
+        blocked_2x2();
+        return;
+    }
     uint index = global_index();
     if (index >= p.count) {
         return;

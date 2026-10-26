@@ -236,10 +236,22 @@ impl<'a> Builder<'a> {
                     });
                     return Ok(());
                 }
+                // A 2x2 stride-2 unpadded transpose under spatial tiling: `in1` = 1 selects
+                // the one-tap-per-output path in `conv_transpose.comp`, one invocation per
+                // input pixel x 4 output channels.
+                let blocked_transpose = self.spatial_tiled
+                    && *transpose
+                    && *group == 1
+                    && kernel == &(2, 2)
+                    && stride == &(2, 2)
+                    && pad == &(0, 0)
+                    && so.h == 2 * si.h
+                    && so.w == 2 * si.w;
                 ops.push(Op::Dispatch {
                     kind: if *transpose { Kind::ConvTranspose } else { Kind::Conv },
                     push: Push {
                         in0: at(*input)?,
+                        in1: u32::from(blocked_transpose),
                         out: at(*out)?,
                         weight: *weight,
                         bias: *bias,
@@ -266,7 +278,11 @@ impl<'a> Builder<'a> {
                         shift: Self::fuse_offset(*shift, &at)?,
                         ..Push::default()
                     },
-                    invocations: so.len(),
+                    invocations: if blocked_transpose {
+                        so.c.div_ceil(4) * si.h * si.w
+                    } else {
+                        so.len()
+                    },
                 });
             }
             Node::MaxPool { input, out, kernel, stride } => {

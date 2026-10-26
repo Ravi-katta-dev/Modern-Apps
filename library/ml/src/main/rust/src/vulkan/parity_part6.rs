@@ -407,3 +407,28 @@ fn an_edge_padded_conv_stays_untiled_under_spatial_tiling() {
     }
     compare("edge-padded convs under spatial tiling", plan, source.into_data(), &[&input]);
 }
+/// 2x2 stride-2 transposed convolutions on the blocked path (`in1` = 1): the ppocr_det head
+/// pair (24 -> 6 -> 1 channels, ragged channel blocks) over an odd 19x37 input, and a fused
+/// residual onto the second.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn blocked_2x2_transposed_convs_agree_with_the_reference() {
+    let input = spread(24 * 19 * 37, 0.5);
+    let source = Invented::new(6);
+    let plan = build(&source, &[Shape::new(24, 19, 37)], |b, ids| {
+        b.spatial_tiling();
+        let x = b.conv_transpose(ids[0], 0, 6, (2, 2), (2, 2), (0, 0, 0, 0), Act::Relu);
+        let y = b.conv_transpose(x, 2, 6, (2, 2), (2, 2), (0, 0, 0, 0), Act::None);
+        let z = b.add(y, y);
+        b.conv_transpose(z, 4, 1, (2, 2), (2, 2), (0, 0, 0, 0), Act::Sigmoid)
+    });
+    let mut seen = 0;
+    for op in &plan.ops {
+        if let crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvTranspose, push, .. } = op {
+            assert_eq!(push.in1, 1, "a 2x2 transpose missed the blocked path");
+            seen += 1;
+        }
+    }
+    assert_eq!(seen, 3);
+    compare("blocked 2x2 transposed convs", plan, source.into_data(), &[&input]);
+}
