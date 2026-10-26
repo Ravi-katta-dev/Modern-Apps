@@ -100,12 +100,16 @@ mod tests {
     fn the_conv_stem_halves_the_frame_count() {
         // 3000 mel frames to 1500 encoder positions, which is `conv2`'s stride 2 and nothing else.
         // A wrong stride gives the right rank and the wrong length, and nothing downstream checks it.
+        // The int8 GEMM's row path (`ConvPointInt8`, `in1` = 2) when the weights are 16-byte
+        // aligned, `ConvInt8` otherwise; the geometry is the same either way.
         let plan = plan(Mode::Encode);
         let convs: Vec<super::super::Push> = plan
             .ops
             .iter()
             .filter_map(|op| match op {
-                Op::Dispatch { kind: Kind::ConvInt8, push, .. } if push.kw == CONV_KERNEL => {
+                Op::Dispatch { kind: Kind::ConvInt8 | Kind::ConvPointInt8, push, .. }
+                    if push.kw == CONV_KERNEL =>
+                {
                     Some(*push)
                 }
                 _ => None,
