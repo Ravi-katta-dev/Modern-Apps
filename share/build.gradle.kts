@@ -28,4 +28,7 @@ rustNativeLib("share_nearby", "share")
 dependencies {
     // ViewModel/Compose already via common-conventions-app; explicit lifecycle for clarity.
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    // @SystemApi NetworkAgent/NetworkProvider for the Mosey `mosey0` AirDrop link; compile-only,
+    // must NOT be packaged. See :library:aosp-stubs.
+    compileOnly(project(":library:aosp-stubs"))
 }

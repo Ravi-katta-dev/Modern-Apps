@@ -18,8 +18,7 @@ import com.vayunmathur.library.util.ensureNotificationChannel
 import com.vayunmathur.share.R
 import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.share.domain.protocol.ShareState
-import com.vayunmathur.share.network.transport.Connection
-import com.vayunmathur.share.network.transport.TcpTransport
+import com.vayunmathur.share.platform.IncomingTransfer
 import com.vayunmathur.share.platform.ReceivedFile
 import com.vayunmathur.share.platform.ReceivedFileStore
 import com.vayunmathur.share.platform.transfer.ShareTransferService
@@ -27,6 +26,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
@@ -96,7 +96,8 @@ private const val MAX_PREVIEW_PX = 1024
 private const val REQUEST_CODES_PER_NOTIF = 2
 
 /**
- * Turns [TcpTransport] state into notifications, which are the only receive UI there is.
+ * Turns incoming transfers — Quick Share and AirDrop alike — into notifications, which are the
+ * only receive UI there is.
  *
  * Owned by [ShareReceiveController] rather than by [ShareTransferService]: the service can be
  * recreated at any time, and two overlapping instances would double-post.
@@ -109,7 +110,8 @@ private const val REQUEST_CODES_PER_NOTIF = 2
  */
 class ShareReceiveNotifier(
     context: Context,
-    private val transport: TcpTransport,
+    private val incoming: Flow<List<IncomingTransfer>>,
+    private val retire: (Long) -> Unit,
 ) {
     private val appContext = context.applicationContext
     private var job: Job? = null
@@ -152,7 +154,7 @@ class ShareReceiveNotifier(
     private suspend fun watch() {
         coroutineScope {
             val children = mutableMapOf<Long, Job>()
-            transport.incomingConnections.collect { conns ->
+            incoming.collect { conns ->
                 val live = conns.associateBy { it.sessionHandle }
                 for ((handle, conn) in live) {
                     if (children.containsKey(handle)) continue
@@ -174,7 +176,7 @@ class ShareReceiveNotifier(
      * `combine` would only add emissions that change nothing — and an emission ordered ahead
      * of the one that carries the file list reported an incoming transfer of no files at all.
      */
-    private suspend fun observe(conn: Connection) {
+    private suspend fun observe(conn: IncomingTransfer) {
         val gate = PostGate()
         combine(
             conn.state,
@@ -226,7 +228,7 @@ class ShareReceiveNotifier(
         ids.getOrPut(handle) { nextId++ }
     }
 
-    private suspend fun post(conn: Connection, kind: Kind, snap: Snapshot, percent: Int) {
+    private suspend fun post(conn: IncomingTransfer, kind: Kind, snap: Snapshot, percent: Int) {
         val handle = conn.sessionHandle
         val id = idFor(handle)
         val notification = when (kind) {
@@ -239,9 +241,9 @@ class ShareReceiveNotifier(
         if (kind == Kind.Done || kind == Kind.Failed) {
             synchronized(idLock) { terminalPosted += handle }
             notify(id, notification)
-            // The user has been told the outcome, so the session's `Connection` and native
-            // handle have no remaining reader. Nothing else disconnects an incoming session.
-            transport.retire(handle)
+            // The user has been told the outcome, so the session has no remaining reader.
+            // Nothing else disconnects an incoming session.
+            retire(handle)
             return
         }
         notify(id, notification)
@@ -261,7 +263,7 @@ class ShareReceiveNotifier(
         .setSmallIcon(R.drawable.ic_tile_share)
         .setGroup(GROUP_KEY)
 
-    private fun requestNotification(conn: Connection, id: Int): android.app.Notification {
+    private fun requestNotification(conn: IncomingTransfer, id: Int): android.app.Notification {
         // A count of zero is a count we do not have: an announcement of text or a link carries
         // no file metadata at all, so say something true instead of promising no files.
         val fileCount = conn.pendingFiles.value.size
@@ -290,7 +292,7 @@ class ShareReceiveNotifier(
     }
 
     private fun progressNotification(
-        conn: Connection,
+        conn: IncomingTransfer,
         id: Int,
         snap: Snapshot,
         percent: Int,
@@ -326,7 +328,7 @@ class ShareReceiveNotifier(
     }
 
     private suspend fun doneNotification(
-        conn: Connection,
+        conn: IncomingTransfer,
         id: Int,
         received: List<ReceivedFile>,
     ): android.app.Notification {

@@ -15,8 +15,11 @@ plugins {
 //                                      are mirrored exactly so javac emits the same invokevirtual +
 //                                      checkcast as against the real SDK. Inlined `static final`
 //                                      constant values matter (TYPE_ALLOWED/BLOCKED/TIME_LIMIT are 0/1/2).
-//   android.nearby.NearbyManager    — @SystemApi, ships in the Connectivity mainline module
+//   android.nearby.NearbyManager    - @SystemApi, ships in the Connectivity mainline module
 //                                      (com.android.tethering); only the powered-off finding surface.
+//   android.net.Network{Agent,AgentConfig,Provider,Score} - @SystemApi local-network agent surface
+//                                      (framework-connectivity); :share registers Mosey's `mosey0`
+//                                      AirDrop link with it. Needs NETWORK_FACTORY on a priv-app.
 //   android.os.UpdateEngine{,Callback} — @SystemApi A/B slot writer; only the surface :updater calls.
 //   android.service.euicc.*         — @SystemApi eSIM LPA classes; signatures mirror AOSP so
 //                                      EuiccManagerService overrides the abstract methods exactly.

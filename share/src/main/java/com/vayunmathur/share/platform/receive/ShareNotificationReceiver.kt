@@ -31,7 +31,7 @@ class ShareNotificationReceiver : BroadcastReceiver() {
             Log.status(TAG, "$action with no session handle")
             return
         }
-        if (ShareReceiveController.connectionFor(context, handle) == null) {
+        if (!ShareReceiveController.hasSession(context, handle)) {
             // The process died between posting the notification and this tap, so the socket
             // and the native session are both gone. Say so instead of silently doing nothing.
             Log.status(TAG, "no live session $handle for $action; clearing notification $notifId")

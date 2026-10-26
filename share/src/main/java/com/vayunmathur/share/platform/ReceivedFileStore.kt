@@ -64,6 +64,16 @@ class ReceivedFileStore(private val context: Context) {
     }
 
     /**
+     * A fresh, uniquely named file in the staging directory for a whole-file writer such as
+     * the AirDrop archive extractor. [name] is reduced to its last path component.
+     */
+    fun newFile(name: String): File {
+        dir.mkdirs()
+        val safeName = name.substringAfterLast('/').substringAfterLast('\\').ifBlank { "received_file" }
+        return synchronized(lock) { uniqueFile(dir, safeName).also { it.createNewFile() } }
+    }
+
+    /**
      * Abandon any streams still open for [sessionKey], e.g. on disconnect.
      *
      * A partly written file is deleted: nothing publishes it, resuming is not

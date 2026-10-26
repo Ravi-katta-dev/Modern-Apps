@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="ProtectedPermissions">
 
     <!--
       Every permission the discovery and transfer paths actually exercise. These were missing
@@ -39,6 +40,21 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- AirDrop: link selection reads the active Wi-Fi network and its channel. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+
+    <!--
+      AirDrop over Google's Mosey (AWDL) HAL, mirroring privapp-permissions-com.google.android.mosey.xml:
+      publishing `mosey0` as a local network needs NETWORK_FACTORY, and binding sockets/mDNS to that
+      restricted network needs CONNECTIVITY_USE_RESTRICTED_NETWORKS. Granted only when MAOS installs
+      :share as a whitelisted priv-app; elsewhere they are inert and AirDrop falls back to Wi-Fi.
+    -->
+    <uses-permission android:name="android.permission.NETWORK_FACTORY" />
+    <uses-permission android:name="android.permission.CREATE_APP_SPECIFIC_NETWORK" />
+    <uses-permission android:name="android.permission.CONNECTIVITY_USE_RESTRICTED_NETWORKS" />
+    <uses-permission android:name="android.permission.MANAGE_WIFI_INTERFACES" />
+
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.wifi" android:required="false" />
@@ -51,6 +67,11 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.General">
+        <!-- Mosey's client library, present on Pixels that ship AirDrop interop. -->
+        <uses-library
+            android:name="com.google.android.moseylib"
+            android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:configChanges="mcc|mnc|colorMode|density|fontScale|fontWeightAdjustment|keyboard|keyboardHidden|layoutDirection|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"

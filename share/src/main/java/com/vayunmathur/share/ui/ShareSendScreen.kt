@@ -232,6 +232,7 @@ fun DeviceRow(device: NearbyDevice, onTap: () -> Unit) {
             DiscoverySource.Nsd -> R.string.share_source_wifi
             DiscoverySource.Ble -> R.string.share_source_bluetooth
             DiscoverySource.Both -> R.string.share_source_both
+            DiscoverySource.AirDrop -> R.string.share_source_airdrop
         }
     )
     Card(

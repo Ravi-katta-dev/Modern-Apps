@@ -13,6 +13,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.vayunmathur.library.util.AppMessages
 import com.vayunmathur.share.R
+import com.vayunmathur.share.platform.airdrop.AirDropSender
 import com.vayunmathur.share.platform.discovery.DiscoverySource
 import com.vayunmathur.share.platform.discovery.NearbyDevice
 import com.vayunmathur.share.platform.receive.ShareReceiveController
@@ -54,6 +55,7 @@ class ShareViewModel(
     private val nsd get() = ShareReceiveController.nsd(appContext)
     private val ble get() = ShareReceiveController.ble(appContext)
     private val transport get() = ShareReceiveController.transport(appContext)
+    private val airDrop get() = ShareReceiveController.airDrop(appContext)
 
     val localName: String get() = ShareReceiveController.localName
 
@@ -95,6 +97,7 @@ class ShareViewModel(
 
     private var scanNsdJob: Job? = null
     private var scanBleJob: Job? = null
+    private var scanAirDropJob: Job? = null
 
     // Broad catches are deliberate: discovery flows and the transport throw
     // undocumented RuntimeExceptions (not just IOException), which read as
@@ -123,6 +126,16 @@ class ShareViewModel(
                 }
             } catch (e: Exception) {
                 Log.status(TAG, "BLE scan error", e)
+            }
+        }
+        scanAirDropJob = viewModelScope.launch {
+            try {
+                // _airdrop._tcp over Mosey's AWDL link when the HAL exists, else over Wi-Fi.
+                airDrop.browse().collect { dev ->
+                    _discoveredDevices.value = mergeDevice(_discoveredDevices.value, dev)
+                }
+            } catch (e: Exception) {
+                Log.status(TAG, "AirDrop browse error", e)
             }
         }
     }
@@ -156,8 +169,10 @@ class ShareViewModel(
     override fun stopScan() {
         scanNsdJob?.cancel()
         scanBleJob?.cancel()
+        scanAirDropJob?.cancel()
         scanNsdJob = null
         scanBleJob = null
+        scanAirDropJob = null
         nsd.stopDiscovery()
         ble.stopScan()
         _isScanning.value = false
@@ -165,6 +180,10 @@ class ShareViewModel(
 
     @Suppress("TooGenericExceptionCaught")
     override fun connectToDevice(device: NearbyDevice) {
+        if (device.source == DiscoverySource.AirDrop) {
+            sendViaAirDrop(device)
+            return
+        }
         val host = device.host
         val port = device.port
         if (host == null || port == null) {
@@ -244,6 +263,39 @@ class ShareViewModel(
                 withContext(Dispatchers.Main) { setOutgoingUris(listOf(uri)) }
             } catch (e: Exception) {
                 Log.status(TAG, "stageTextAsFile failed", e)
+            }
+        }
+    }
+
+    /**
+     * AirDrop has no long-lived session to show, so the outcome is reported as a message: Ask,
+     * then a single Upload, then done.
+     */
+    private fun sendViaAirDrop(device: NearbyDevice) {
+        val uris = _outgoingUris.value
+        if (uris.isEmpty()) {
+            AppMessages.show(appContext.getString(R.string.share_nothing_selected))
+            return
+        }
+        if (!connecting.compareAndSet(false, true)) return
+        stopScan()
+        viewModelScope.launch {
+            val files = withContext(Dispatchers.IO) { uris.mapNotNull { uriToTempFile(appContext, it) } }
+            try {
+                if (files.isEmpty()) return@launch
+                ShareTransferService.startSendMode(appContext)
+                AppMessages.show(appContext.getString(R.string.share_airdrop_waiting, device.endpointName))
+                val result = airDrop.send(device, files) { _, _ -> }
+                val message = when (result) {
+                    AirDropSender.Result.Sent -> appContext.getString(R.string.share_airdrop_sent, device.endpointName)
+                    AirDropSender.Result.Declined -> appContext.getString(R.string.share_airdrop_declined, device.endpointName)
+                    is AirDropSender.Result.Failed -> appContext.getString(R.string.share_airdrop_failed, result.reason)
+                }
+                AppMessages.show(message)
+            } finally {
+                files.forEach { it.delete() }
+                ShareTransferService.stop(appContext)
+                connecting.set(false)
             }
         }
     }

@@ -30,4 +30,4 @@ data class NearbyDevice(
     val extra: String? = null,
 )
 
-enum class DiscoverySource { Nsd, Ble, Both }
+enum class DiscoverySource { Nsd, Ble, Both, AirDrop }

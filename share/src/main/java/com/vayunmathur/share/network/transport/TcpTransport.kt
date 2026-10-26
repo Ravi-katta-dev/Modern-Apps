@@ -4,6 +4,7 @@ import com.vayunmathur.library.log.Log
 import com.vayunmathur.share.domain.protocol.PendingFile
 import com.vayunmathur.share.domain.protocol.ShareSession
 import com.vayunmathur.share.domain.protocol.ShareState
+import com.vayunmathur.share.platform.IncomingTransfer
 import com.vayunmathur.share.platform.ReceivedFile
 import com.vayunmathur.share.platform.ReceivedFileStore
 import java.io.File
@@ -600,8 +601,8 @@ class Connection(
     val session: ShareSession,
     val incoming: Boolean,
     val remoteEndpoint: String,
-) {
-    val sessionHandle: Long get() = session.handle
+) : IncomingTransfer {
+    override val sessionHandle: Long get() = session.handle
 
     /** Serialises every write to [socket]; see `TcpTransport.drainAll`. */
     internal val writeLock = Any()
@@ -610,8 +611,8 @@ class Connection(
     internal val introductionSent = java.util.concurrent.atomic.AtomicBoolean(false)
 
     var pumpJob: Job? = null
-    val state: MutableStateFlow<ShareState> = MutableStateFlow(ShareState.Handshaking)
-    val pendingFiles: MutableStateFlow<List<PendingFile>> = MutableStateFlow(emptyList())
+    override val state: MutableStateFlow<ShareState> = MutableStateFlow(ShareState.Handshaking)
+    override val pendingFiles: MutableStateFlow<List<PendingFile>> = MutableStateFlow(emptyList())
 
     /** The peer's advertised device name, once its `CONNECTION_REQUEST` has been read. */
     val peerName: MutableStateFlow<String?> = MutableStateFlow(null)
@@ -622,18 +623,18 @@ class Connection(
      * Announced by the peer's `INTRODUCTION` when receiving and by our own when sending, so
      * a percentage is computable without the caller summing file sizes itself.
      */
-    val expectedTotalBytes: MutableStateFlow<Long> = MutableStateFlow(0L)
+    override val expectedTotalBytes: MutableStateFlow<Long> = MutableStateFlow(0L)
 
     /** Files that finished arriving, each staged in app-private storage. */
-    val receivedFiles: MutableStateFlow<List<ReceivedFile>> = MutableStateFlow(emptyList())
+    override val receivedFiles: MutableStateFlow<List<ReceivedFile>> = MutableStateFlow(emptyList())
     val bytesSent: MutableStateFlow<Long> = MutableStateFlow(0L)
 
     /** Decrypted payload bytes received, comparable to [expectedTotalBytes]. */
-    val bytesReceived: MutableStateFlow<Long> = MutableStateFlow(0L)
-    val error: MutableStateFlow<String?> = MutableStateFlow(null)
+    override val bytesReceived: MutableStateFlow<Long> = MutableStateFlow(0L)
+    override val error: MutableStateFlow<String?> = MutableStateFlow(null)
 
     /** A name to show a human: the peer's own, falling back to its address. */
-    val displayName: String get() = peerName.value ?: remoteEndpoint
+    override val displayName: String get() = peerName.value ?: remoteEndpoint
 }
 
 /** No further frames will flow: the pump can stop and a terminal notification is due. */

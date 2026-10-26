@@ -12,6 +12,7 @@ import com.vayunmathur.share.network.transport.Connection
 import com.vayunmathur.share.network.transport.TcpTransport
 import com.vayunmathur.share.network.transport.isTerminal
 import com.vayunmathur.share.platform.ReceivedFileStore
+import com.vayunmathur.share.platform.airdrop.AirDropController
 import com.vayunmathur.share.platform.discovery.BleDiscoveryManager
 import com.vayunmathur.share.platform.discovery.NsdDiscoveryManager
 import com.vayunmathur.share.platform.transfer.ShareTransferService
@@ -20,6 +21,8 @@ import com.vayunmathur.share.protocol.ShareNativeDiscovery
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TAG = "ShareReceive"
@@ -64,6 +67,7 @@ object ShareReceiveController {
         val ble: BleDiscoveryManager,
         val store: ReceivedFileStore,
         val transport: TcpTransport,
+        val airDrop: AirDropController,
         val notifier: ShareReceiveNotifier,
         val endpointId: String,
     )
@@ -103,13 +107,19 @@ object ShareReceiveController {
                 localEndpointInfo = endpointInfo() ?: ByteArray(0),
                 localEndpointId = endpointId,
             )
-            val notifier = ShareReceiveNotifier(app, transport)
+            val airDrop = AirDropController(app, store) { localName }
+            val notifier = ShareReceiveNotifier(
+                app,
+                incoming = combine(transport.incomingConnections, airDrop.receiver.incoming) { qs, ad -> qs + ad },
+                retire = { handle -> retire(handle) },
+            )
             notifier.start(scope)
             Parts(
                 nsd = NsdDiscoveryManager(app),
                 ble = BleDiscoveryManager(app),
                 store = store,
                 transport = transport,
+                airDrop = airDrop,
                 notifier = notifier,
                 endpointId = endpointId,
             ).also { parts = it }
@@ -128,12 +138,23 @@ object ShareReceiveController {
 
     fun ble(context: Context): BleDiscoveryManager = ensure(context).ble
 
+    fun airDrop(context: Context): AirDropController = ensure(context).airDrop
+
     fun connectionFor(context: Context, handle: Long): Connection? =
         ensure(context).transport.connectionFor(handle)
 
+    /** Whether a notification action for [handle] still has a live session to act on. */
+    fun hasSession(context: Context, handle: Long): Boolean {
+        val p = ensure(context)
+        return if (isAirDropHandle(handle)) p.airDrop.receiver.sessionFor(handle) != null
+        else p.transport.connectionFor(handle) != null
+    }
+
     /** True while any session is still moving bytes; the service must not die under one. */
-    fun hasActiveTransfers(context: Context): Boolean =
-        ensure(context).transport.connections.value.any { !it.state.value.isTerminal }
+    fun hasActiveTransfers(context: Context): Boolean {
+        val p = ensure(context)
+        return p.transport.connections.value.any { !it.state.value.isTerminal } || p.airDrop.receiver.hasActiveTransfers
+    }
 
     /**
      * The endpoint-info blob for the current device name, or null if it cannot be built.
@@ -256,6 +277,7 @@ object ShareReceiveController {
             p.ble.startAdvertising(p.endpointId, endpointInfo)
             Log.status(TAG, "receiving as \"$localName\" on port $port")
         }
+        scope.launch { p.airDrop.startReceiving() }
     }
 
     /**
@@ -273,6 +295,7 @@ object ShareReceiveController {
             p.ble.stopAdvertising()
             p.transport.stopListening()
         }
+        scope.launch { p.airDrop.stopReceiving() }
         Log.status(TAG, "stopped receiving")
     }
 
@@ -293,11 +316,24 @@ object ShareReceiveController {
         endpointInfo()?.let { p.transport.setLocalIdentity(localName, it, p.endpointId) }
     }
 
-    /** Answer a peer's `INTRODUCTION` from a notification action. */
-    fun acceptIncoming(context: Context, handle: Long, accept: Boolean): Int =
-        ensure(context).transport.acceptIncoming(handle, accept)
+    /** Answer a peer's `INTRODUCTION` (or AirDrop `Ask`) from a notification action. */
+    fun acceptIncoming(context: Context, handle: Long, accept: Boolean): Int {
+        val p = ensure(context)
+        return if (isAirDropHandle(handle)) p.airDrop.accept(handle, accept)
+        else p.transport.acceptIncoming(handle, accept)
+    }
 
     suspend fun cancel(context: Context, handle: Long) {
-        ensure(context).transport.cancel(handle)
+        val p = ensure(context)
+        if (isAirDropHandle(handle)) p.airDrop.cancel(handle) else p.transport.cancel(handle)
     }
+
+    /** Drop a finished session once its outcome has been shown. */
+    private fun retire(handle: Long) {
+        val p = parts ?: return
+        if (isAirDropHandle(handle)) p.airDrop.retire(handle) else p.transport.retire(handle)
+    }
+
+    /** AirDrop sessions use negative handles; Quick Share's are native pointers. */
+    private fun isAirDropHandle(handle: Long): Boolean = handle < 0
 }

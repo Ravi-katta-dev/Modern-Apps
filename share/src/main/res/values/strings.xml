@@ -61,4 +61,11 @@
     <string name="share_popup_title">Send to a nearby device</string>
     <string name="share_popup_no_devices">No devices found yet. Keep the other device visible.</string>
     <string name="share_popup_permission_needed">Nearby Share needs Bluetooth and Wi-Fi permissions to find nearby devices.</string>
+
+    <!-- AirDrop -->
+    <string name="share_source_airdrop">AirDrop</string>
+    <string name="share_airdrop_waiting">Waiting for %1$s to accept…</string>
+    <string name="share_airdrop_sent">Sent to %1$s</string>
+    <string name="share_airdrop_declined">%1$s declined</string>
+    <string name="share_airdrop_failed">AirDrop failed: %1$s</string>
 </resources>
