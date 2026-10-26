@@ -68,3 +68,13 @@ impl Builder<'_> {
         out
     }
 }
+
+/// Where a prefill layer's queries find their keys.
+#[derive(Clone, Copy)]
+enum Attend {
+    /// The KV cache: every position before the chunk plus the chunk itself. Correct anywhere.
+    Cache,
+    /// The chunk's own K and V (a shared layer's carried in from its owner), masked causally.
+    /// Only for a chunk starting at position 0, where the two are the same keys.
+    Chunk(Option<(Id, Id)>),
+}

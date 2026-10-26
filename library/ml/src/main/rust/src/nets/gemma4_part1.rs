@@ -343,16 +343,6 @@ fn name_layer(b: &mut Builder, index: usize) {
 /// being written the same way: every projection, norm, activation and residual here is an
 /// elementwise or per-position op that already took a `[C, 1, T]` shape.
 ///
-/// Where a prefill layer's queries find their keys.
-#[derive(Clone, Copy)]
-enum Attend {
-    /// The KV cache: every position before the chunk plus the chunk itself. Correct anywhere.
-    Cache,
-    /// The chunk's own K and V (a shared layer's carried in from its owner), masked causally.
-    /// Only for a chunk starting at position 0, where the two are the same keys.
-    Chunk(Option<(Id, Id)>),
-}
-
 /// Returns the layer's output and, for a layer that owns a cache, its `(K, V)` so the shared
 /// layers after it can attend over them in [`Attend::Chunk`].
 #[allow(clippy::too_many_arguments)]

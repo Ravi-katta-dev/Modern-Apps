@@ -233,10 +233,8 @@ mod tests {
 
     #[test]
     fn a_batched_prefill_widens_every_stage_and_attends_the_cache() {
-        // The whole chunk in one submit, so the projections become GEMMs. Every layer's
-        // attention reads the KV cache with one row per query (`attn_cached_multi`): queries
-        // after position 0 must see what earlier submits wrote, and a plan that attended only its
-        // own chunk produced fluent, wrong text with no shape error.
+        // Projections become GEMMs; attention reads the KV cache, one row per query, so queries
+        // after position 0 see earlier submits (attending only the chunk was fluent and wrong).
         for tokens in [2u32, 8, 64] {
             let plan = build(&Shapes::new(TENSORS), Mode::Prefill { tokens }.at(TEST_CONTEXT))
                 .unwrap_or_else(|e| panic!("{tokens} positions: {e}"));
@@ -276,22 +274,12 @@ mod tests {
             // At position 0 the chunk is all there is, so it attends itself with the T x T kernels.
             let fresh = build(&Shapes::new(TENSORS), Mode::PrefillFresh { tokens }.at(TEST_CONTEXT))
                 .unwrap_or_else(|e| panic!("fresh {tokens} positions: {e}"));
-            let (mut causal, mut windowed) = (0, 0);
-            for op in &fresh.ops {
-                let Op::Dispatch { kind, push, .. } = op else { continue };
-                match kind {
-                    Kind::SoftmaxCausal => {
-                        causal += 1;
-                        windowed += usize::from(push.kh == WINDOW);
-                        assert_eq!((push.out_h, push.out_w), (tokens, tokens), "T x T scores");
-                    }
-                    Kind::AttnScoresCached | Kind::AttnApplyCached => {
-                        panic!("a fresh prefill must not read the cache")
-                    }
-                    _ => {}
-                }
-            }
-            assert_eq!((causal, windowed), (LAYERS, 28));
+            let kinds = || fresh.ops.iter().filter_map(|op| match op {
+                Op::Dispatch { kind, push, .. } => Some((*kind, push)), _ => None });
+            assert!(kinds().all(|(k, _)| !matches!(k, Kind::AttnScoresCached | Kind::AttnApplyCached)));
+            let causal: Vec<_> = kinds().filter(|(k, _)| *k == Kind::SoftmaxCausal).collect();
+            assert!(causal.iter().all(|(_, p)| (p.out_h, p.out_w) == (tokens, tokens)), "T x T scores");
+            assert_eq!((causal.len(), causal.iter().filter(|(_, p)| p.kh == WINDOW).count()), (LAYERS, 28));
         }
         assert!(build(&Shapes::new(TENSORS), Mode::Prefill { tokens: 0 }.at(TEST_CONTEXT)).is_err());
         let past = MAX_CONTEXT + 1;
