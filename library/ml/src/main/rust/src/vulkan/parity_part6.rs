@@ -430,3 +430,20 @@ fn a_wide_pointwise_conv_agrees_with_the_reference() {
     )));
     compare("a wide pointwise conv", plan, source.into_data(), &[&input]);
 }
+
+/// The stride-2 3x3 window path (`strided_rows`): quad-aligned 44-column rows, left pads 0-3
+/// for every window alignment, and ragged output rows (22 or fewer columns) at the right edge.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn strided_window_convs_agree_with_the_reference() {
+    let input = spread(8 * 20 * 44, 0.3);
+    for left in 0u32..4 {
+        blocked_conv_agrees(
+            &format!("a stride-2 3x3 window, left pad {left}"),
+            2,
+            &[Shape::new(8, 20, 44)],
+            &[&input],
+            |b, ids| b.conv(ids[0], 0, 12, (3, 3), (2, 2), (1, 1), (1, left, 1, 1), 1, Act::Relu),
+        );
+    }
+}

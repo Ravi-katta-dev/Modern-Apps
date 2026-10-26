@@ -130,6 +130,53 @@ void dense_rows(
     else if (rem == 2) dense_rows(2, KW, DIL, oy, ix0, wrow, lo, hi); \
     else dense_rows(3, KW, DIL, oy, ix0, wrow, lo, hi);
 
+/// Quads in the window `strided_rows` loads: 15 + 3 columns + offset 3.
+#define STRIDED_QUADS 6
+
+// `dense_rows` for a stride-2 3x3: the block's 17-column input span per (channel, kernel row)
+// is read once as quads and the even elements feed every tap.
+void strided_rows(
+    const int rem, uint oy, int ix0, uint wrow[BLOCK_OC], inout vec4 lo[BLOCK_OC],
+    inout vec4 hi[BLOCK_OC]
+) {
+    int quads = (rem + 2 * int(BLOCK_X) + 1 + 3) >> 2;
+    uint plane = p.in_h * p.in_w;
+    uint taps = p.kh * 3u;
+    int c0 = ix0 - rem;
+    bvec4 keep[STRIDED_QUADS];
+    [[unroll]] for (int q = 0; q < quads; q++) {
+        ivec4 c = ivec4(c0 + 4 * q) + ivec4(0, 1, 2, 3);
+        keep[q] = equal(clamp(c, ivec4(0), ivec4(int(p.in_w) - 1)), c);
+    }
+    int last = int((p.in0 + p.in_c * plane - 1u) >> 2u);
+    for (uint ic = 0u; ic < p.in_c; ic++) {
+        uint channel = p.in0 + ic * plane;
+        for (uint ky = 0u; ky < p.kh; ky++) {
+            int iy = int(oy * p.stride_h + ky * p.dil_h) - int(p.pad_t);
+            if (iy < 0 || iy >= int(p.in_h)) {
+                continue;
+            }
+            int first = (int(channel + uint(iy) * p.in_w) + c0) >> 2;
+            vec4 win[STRIDED_QUADS];
+            [[unroll]] for (int q = 0; q < quads; q++) {
+                vec4 v = vec4(arena_quad[clamp(first + q, 0, last)]);
+                win[q] = mix(vec4(0.0), v, keep[q]);
+            }
+            uint tap0 = ic * taps + ky * 3u;
+            [[unroll]] for (int kx = 0; kx < 3; kx++) {
+                int e = rem + kx;
+                vec4 xl = vec4(WIN(e), WIN(e + 2), WIN(e + 4), WIN(e + 6));
+                vec4 xh = vec4(WIN(e + 8), WIN(e + 10), WIN(e + 12), WIN(e + 14));
+                [[unroll]] for (uint i = 0u; i < BLOCK_OC; i++) {
+                    float w = float(weights[wrow[i] + tap0 + uint(kx)]);
+                    lo[i] += w * xl;
+                    hi[i] += w * xh;
+                }
+            }
+        }
+    }
+}
+
 void tiled_spatial() {
     uint x_blocks = (p.out_w + BLOCK_X - 1u) / BLOCK_X;
     uint oc_blocks = (p.out_c + BLOCK_OC - 1u) / BLOCK_OC;
@@ -201,6 +248,12 @@ void tiled_spatial() {
         DENSE_ROWS_ANY(3, 2)
     } else if (aligned_rows && p.kw == 5u && p.dil_w == 1u) {
         DENSE_ROWS_ANY(5, 1)
+    } else if (p.stride_w == 2u && p.kw == 3u && p.dil_w == 1u && (p.in_w & 3u) == 0u
+        && (p.in0 & 3u) == 0u) {
+        if (rem == 0) strided_rows(0, oy, ix0, wrow, lo, hi);
+        else if (rem == 1) strided_rows(1, oy, ix0, wrow, lo, hi);
+        else if (rem == 2) strided_rows(2, oy, ix0, wrow, lo, hi);
+        else strided_rows(3, oy, ix0, wrow, lo, hi);
     } else {
         for (uint ic = 0u; ic < p.in_c; ic++) {
             uint channel = p.in0 + ic * plane;
