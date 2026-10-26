@@ -188,6 +188,8 @@ fn sequence(b: &mut Builder, l: &mut Layers, frames: u32) -> Result<Id, String> 
 
     // Every convolution in this network replicates its border. See the module docs.
     b.edge_padding();
+    // The head's dense 512 -> 2048 (1, 3) conv was 81 of the vocoder's 175 ms GPU untiled.
+    b.spatial_tiling();
 
     let input = b.input(Shape::new(LATENT, 1, positions));
     // `embed` also carries the input's per-channel affine, folded in by the converter.
