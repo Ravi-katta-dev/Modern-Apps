@@ -52,22 +52,9 @@ fn gemma4_head_file_plan(head: &Streamed) -> Option<Reshaped<bool>> {
     )
     .ok()
 }
-/// Positions one prefill submit covers. Large enough that a prompt is **one** submit.
-///
-/// # Splitting a prefill is wrong, not merely slower
-///
-/// `prefill_layer` attends T queries against the chunk's own T keys. Positions in a second chunk
-/// therefore never see the first chunk's keys at all, and the answer depends on where the split
-/// fell - the same 31-token prompt gives "Paris", "Berlin" or "Rome" at chunk 8, 16 and 64.
-/// Only the last is right, and it is right because it is a single chunk.
-///
-/// Verified against the sequential path, which is the decode path and unambiguously correct: a
-/// single chunk agrees with it exactly at 100, 400, 900 and 1,907 positions.
-///
-/// The real repair is to attend over the cache rather than the chunk, as decode does, which
-/// makes any chunking correct. Until then only the first chunk at position 0 is batched and
-/// everything after it (later turns included) runs one position at a time.
-const CHUNK: u32 = 4096;
+/// Positions one prefill submit covers. Every chunk attends the whole cache, so the split only
+/// trades GEMM width against the `8 x CHUNK x context` score maps (4 MB each at 256 x 1024).
+const CHUNK: u32 = 256;
 
 /// Write one position's `values` into column `column` of a `[C, 1, width]` block.
 ///

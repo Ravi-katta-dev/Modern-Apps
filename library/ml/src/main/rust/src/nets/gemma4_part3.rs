@@ -232,14 +232,11 @@ mod tests {
     }
 
     #[test]
-    fn a_batched_prefill_widens_every_stage_and_masks_causally() {
-        // The whole prompt in one submit. What makes it worth having is that the projections
-        // become GEMMs: at one position the model is bandwidth-bound reading 1.3 GB of weights
-        // per token, and at T it reads the same weights once for all of them.
-        //
-        // What makes it dangerous is that a plan recorded for T positions which attends as
-        // though it were one produces fluent, wrong text and no shape error. So this checks the
-        // masking, not merely that it builds.
+    fn a_batched_prefill_widens_every_stage_and_attends_the_cache() {
+        // The whole chunk in one submit, so the projections become GEMMs. Every layer's
+        // attention reads the KV cache with one row per query (`attn_cached_multi`): queries
+        // after position 0 must see what earlier submits wrote, and a plan that attended only its
+        // own chunk produced fluent, wrong text with no shape error.
         for tokens in [2u32, 8, 64] {
             let plan = build(&Shapes::new(TENSORS), Mode::Prefill { tokens }.at(TEST_CONTEXT))
                 .unwrap_or_else(|e| panic!("{tokens} positions: {e}"));
@@ -247,30 +244,33 @@ mod tests {
             for input in &plan.inputs {
                 assert_eq!(input.shape.w, tokens, "every input is widened");
             }
-            let mut causal = 0;
-            let mut windowed = 0;
+            let (mut scores, mut softmaxes, mut windowed) = (0, 0, 0);
             for op in &plan.ops {
                 let Op::Dispatch { kind, push, .. } = op else { continue };
                 match kind {
-                    Kind::SoftmaxCausal => {
-                        causal += 1;
-                        if push.kh != 0 {
+                    Kind::AttnScoresCached => {
+                        scores += 1;
+                        assert_eq!((push.group, push.kv_heads), (HEADS, KV_HEADS));
+                        assert_eq!((push.dil_h, push.out_h, push.out_w), (tokens, tokens, TEST_CONTEXT));
+                        if push.sliding != 0 {
                             windowed += 1;
-                            assert_eq!(push.kh, WINDOW);
+                            assert_eq!(push.dil_w, WINDOW);
                         }
-                        assert_eq!((push.out_h, push.out_w), (tokens, tokens), "T x T scores");
                     }
-                    // Every score map is multi-query, as the decode path's is.
-                    Kind::AttnScores | Kind::AttnApply => {
-                        assert_eq!(push.group, HEADS);
-                        assert_eq!(push.kv_heads, KV_HEADS);
+                    Kind::SoftmaxPrefix => {
+                        softmaxes += 1;
+                        assert_eq!(push.dil_h, tokens, "one row per query");
+                    }
+                    Kind::AttnApplyCached => assert_eq!(push.dil_h, tokens),
+                    Kind::SoftmaxCausal | Kind::AttnScores | Kind::AttnApply => {
+                        panic!("{kind:?}: a prefill must attend the cache, not its own chunk")
                     }
                     // Fifteen owning layers write a key and a value, transposing as they go.
                     Kind::CacheWrite => assert_eq!(push.group, tokens, "one write per position"),
                     _ => {}
                 }
             }
-            assert_eq!(causal, LAYERS, "one causal softmax per layer");
+            assert_eq!((scores, softmaxes), (LAYERS, LAYERS), "one cached attention per layer");
             assert_eq!(windowed, 28, "and the sliding ones carry a window");
         }
         assert!(build(&Shapes::new(TENSORS), Mode::Prefill { tokens: 0 }.at(TEST_CONTEXT)).is_err());

@@ -177,6 +177,24 @@ uint attn_last(uint stride) {
     return p.dyn_keys != 0u ? min(step_params.prefix, stride - 1u) : stride - 1u;
 }
 
+// The same range for query `q` of a multi-query op (`p.dil_h` queries at positions `prefix + q`,
+// `p.dil_w` the sliding window or 0). Single-query ops (`p.dil_h == 0`) take exactly the
+// decode path above.
+uint attn_first_q(uint q) {
+    if (p.dil_h == 0u) {
+        return attn_first();
+    }
+    uint pos = step_params.prefix + q;
+    return (p.sliding != 0u && p.dil_w != 0u && pos + 1u > p.dil_w) ? pos + 1u - p.dil_w : 0u;
+}
+
+uint attn_last_q(uint stride, uint q) {
+    if (p.dil_h == 0u) {
+        return attn_last(stride);
+    }
+    return min(step_params.prefix + q, stride - 1u);
+}
+
 // The KV head a query head reads from.
 //
 // `p.group` query heads share `p.kv_heads` key/value heads, so head `h` reads KV head

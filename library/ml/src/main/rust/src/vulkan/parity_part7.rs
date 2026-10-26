@@ -316,3 +316,82 @@ fn a_ragged_wide_int4_gemv_agrees_with_the_reference() {
     );
     compare("a ragged wide int4 gemv", plan, weights.data().to_vec(), &[&input]);
 }
+/// T queries at prefix `prefix` through `attn_cached_multi` against T single decode steps at
+/// `prefix + t`, over caches holding junk past the last position (so an over-read shows).
+fn multi_query_fixture(queries: u32, prefix: u32, head_dim: u32, window: u32) {
+    use crate::nets::reference::run_multi_at;
+    const HEADS: u32 = 8;
+    const KV_HEADS: u32 = 1;
+    let what = format!("multi-query attention T={queries} prefix={prefix} dim={head_dim} window={window}");
+    let width = HEADS * head_dim;
+    let kv = KV_HEADS * head_dim;
+    let filled = prefix + queries;
+    let context = filled + 3;
+    let cache = |seed: f32| -> Vec<f32> {
+        let mut values = spread((context * kv) as usize, seed);
+        for v in values.iter_mut().skip((filled * kv) as usize) {
+            *v = 50.0;
+        }
+        values
+    };
+    let (keys, values) = (cache(1.3), cache(2.9));
+    let q: Vec<f32> = spread((width * queries) as usize, 0.4).iter().map(|v| v * 0.08).collect();
+    let sliding = window != 0;
+
+    let source = Invented::new(0);
+    let mut builder = Builder::new(&source);
+    let q1 = builder.input(Shape::new(width, 1, 1));
+    let k1 = builder.input(Shape::new(context, 1, kv));
+    let v1 = builder.input(Shape::new(context, 1, kv));
+    let scores = builder.attn_scores_cached_prescaled(q1, k1, HEADS, KV_HEADS, sliding);
+    let probs = builder.softmax_prefix(scores, sliding);
+    let out = builder.attn_apply_cached_grouped(probs, v1, HEADS, KV_HEADS, sliding);
+    let plan = builder.finish(&[out]).expect("the single-query plan builds");
+    let weights = Weights::from_data(source.into_data());
+    let mut net = Net::new(device(), plan, &weights, RESCALE_ONLY).expect("the single-query plan records");
+    let mut stepped = vec![0f32; (width * queries) as usize];
+    for t in 0..queries {
+        let position = prefix + t;
+        let window_start = if sliding { (position + 1).saturating_sub(window) } else { 0 };
+        net.set_params(StepParams { prefix: position, window_start }).expect("step params");
+        let column: Vec<f32> =
+            (0..width).map(|c| q[(c * queries + t) as usize]).collect();
+        let got = net.infer_raw_many(&[&column, &keys, &values]).expect("a single step submits");
+        for c in 0..width {
+            stepped[(c * queries + t) as usize] = got[0][c as usize];
+        }
+    }
+
+    let source = Invented::new(0);
+    let mut builder = Builder::new(&source);
+    let qm = builder.input(Shape::new(width, 1, queries));
+    let km = builder.input(Shape::new(context, 1, kv));
+    let vm = builder.input(Shape::new(context, 1, kv));
+    let out = builder.attn_cached_multi(qm, km, vm, HEADS, KV_HEADS, window);
+    let plan = builder.finish(&[out]).expect("the multi-query plan builds");
+    crate::nets::tests::assert_no_aliasing(&plan);
+    let data = source.into_data();
+    let oracle = run_multi_at(&plan, &data, &[&q, &keys, &values], prefix, 0).expect("the oracle runs");
+    let weights = Weights::from_data(data);
+    let mut net = Net::new(device(), plan, &weights, RESCALE_ONLY).expect("the multi-query plan records");
+    net.set_params(StepParams { prefix, window_start: 0 }).expect("step params");
+    let multi = net.infer_raw_many(&[&q, &keys, &values]).expect("the multi-query plan submits");
+
+    matches(&format!("{what} vs the oracle"), &oracle, &multi);
+    matches(&format!("{what} vs single steps"), &[stepped], &multi);
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn multi_query_cached_attention_equals_single_steps() {
+    // Gemma 4: sliding layers are head_dim 256 over a 512-key window, full layers 512 over
+    // everything. Prefix 600 puts the window's start inside the cache.
+    for queries in [1, 7, 64] {
+        for prefix in [0, 5, 600] {
+            multi_query_fixture(queries, prefix, 256, 512);
+            multi_query_fixture(queries, prefix, 512, 0);
+        }
+    }
+    // A short window, so every query's lower bound differs and most of them clip.
+    multi_query_fixture(7, 5, 256, 4);
+}

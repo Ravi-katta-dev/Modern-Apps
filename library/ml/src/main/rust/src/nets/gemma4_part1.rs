@@ -180,14 +180,7 @@ pub fn build(weights: &dyn WeightSource, pass: Pass) -> Result<Plan, String> {
     b.host_tensor(ONE_SLIDING, &[HEAD_DIM]);
     b.host_tensor(ONE_FULL, &[GLOBAL_HEAD_DIM]);
 
-    // A batched prefill cannot read its own keys out of the cache: the cache is position-major
-    // and the pass needs them `[width, 1, T]`, and the twenty shared layers would be reading
-    // rows their owning layer wrote earlier in the same submit with no barrier between. So the
-    // owning layers' K and V are carried forward as tensors instead, which is also how the
-    // decode path's `cache_source` mapping is honoured without a second transpose.
-    let mut sliding_kv: Option<(Id, Id)> = None;
-    let mut full_kv: Option<(Id, Id)> = None;
-    // TraceTail runs layer 0 through `layer_tail`, which returns the four branch
+    // TraceTail runs layer 0 through `layer_tail`
     // intermediates alongside the output. Every other mode runs `layer`.
     let mut tail: Option<[Id; 4]> = None;
     for index in 0..stop_after {
@@ -204,17 +197,7 @@ pub fn build(weights: &dyn WeightSource, pass: Pass) -> Result<Plan, String> {
             x = layer(b, index, x, per_layer_inputs, angles, cache_k, cache_v)?;
             continue;
         }
-        let shared = if is_full_attention(index) { full_kv } else { sliding_kv };
-        let (next, kv) =
-            prefill_layer(b, index, x, per_layer_inputs, angles, cache_k, cache_v, shared, width)?;
-        x = next;
-        if let Some(kv) = kv {
-            if is_full_attention(index) {
-                full_kv = Some(kv);
-            } else {
-                sliding_kv = Some(kv);
-            }
-        }
+        x = prefill_layer(b, index, x, per_layer_inputs, angles, cache_k, cache_v, width)?;
     }
 
     if let Mode::TraceTail = mode {
@@ -350,9 +333,8 @@ fn prefill_layer(
     angles: Id,
     cache_k: Id,
     cache_v: Id,
-    shared: Option<(Id, Id)>,
     width: u32,
-) -> Result<(Id, Option<(Id, Id)>), String> {
+) -> Result<Id, String> {
     let dim = head_dim(index);
     let inner = ffn(index);
     let at = layer_at(index);
@@ -400,38 +382,28 @@ fn prefill_layer(
     let q = b.rms_norm_grouped(q, q_norm_at, EPSILON, HEADS);
     let q = b.rotary(q, angles, HEADS);
 
-    let mine = match (k_norm_at, k_proj, v_proj) {
-        (Some(k_norm_at), Some(k_proj), Some(v_proj)) => {
-            let k = point(b, k_proj, normed_q, KV_HEADS * dim);
-            let k = b.quantize(k, KO_SCALE[index]);
-            let k = b.rms_norm_grouped(k, k_norm_at, EPSILON, KV_HEADS);
-            let k = b.rotary(k, angles, KV_HEADS);
-            let v = point(b, v_proj, normed_q, KV_HEADS * dim);
-            let v = b.quantize(v, VO_SCALE[index]);
-            // S10's `value_norm`, as in [`super::layer`]: a parameter-free
-            // RMS norm (all-ones gamma, [`ONE_SLIDING`]/[`ONE_FULL`]) before
-            // the cache write. The decode path must read what this wrote.
-            let ones = if is_full_attention(index) { ONE_FULL } else { ONE_SLIDING };
-            let v = b.rms_norm(v, ones, EPSILON);
-            // Written for the decode steps that follow this prompt. `cache_write` transposes
-            // channel-major into the cache's position-major layout.
-            b.cache_write(k, cache_k);
-            b.cache_write(v, cache_v);
-            Some((k, v))
-        }
-        _ => None,
-    };
-    // A shared layer has no K or V of its own and reads the last owning layer's of the same
-    // attention type - the same mapping `cache_source` states, resolved to tensors here.
-    let (k, v) = mine
-        .or(shared)
-        .ok_or_else(|| format!("layer {index} has no keys and none were carried forward"))?;
+    if let (Some(k_norm_at), Some(k_proj), Some(v_proj)) = (k_norm_at, k_proj, v_proj) {
+        let k = point(b, k_proj, normed_q, KV_HEADS * dim);
+        let k = b.quantize(k, KO_SCALE[index]);
+        let k = b.rms_norm_grouped(k, k_norm_at, EPSILON, KV_HEADS);
+        let k = b.rotary(k, angles, KV_HEADS);
+        let v = point(b, v_proj, normed_q, KV_HEADS * dim);
+        let v = b.quantize(v, VO_SCALE[index]);
+        // S10's `value_norm`, as in [`super::layer`]: a parameter-free
+        // RMS norm (all-ones gamma, [`ONE_SLIDING`]/[`ONE_FULL`]) before
+        // the cache write. The decode path must read what this wrote.
+        let ones = if is_full_attention(index) { ONE_FULL } else { ONE_SLIDING };
+        let v = b.rms_norm(v, ones, EPSILON);
+        // Positions `prefix .. prefix + T`, transposed into the position-major cache.
+        b.cache_write(k, cache_k);
+        b.cache_write(v, cache_v);
+    }
 
-    // The scale is already inside `q_norm`'s gamma, so this must not derive it again.
-    let scores = b.attn_scores_grouped_prescaled(q, k, HEADS, KV_HEADS);
+    // Every query attends the cache - the positions before this chunk and the chunk itself,
+    // which the owning layer just wrote - so a prefill is correct at any position. The scale is
+    // already inside `q_norm`'s gamma.
     let slides = !is_full_attention(index);
-    let probs = b.softmax_causal_windowed(scores, if slides { WINDOW } else { 0 });
-    let mixed = b.attn_apply_grouped(probs, v, HEADS, KV_HEADS);
+    let mixed = b.attn_cached_multi(q, cache_k, cache_v, HEADS, KV_HEADS, if slides { WINDOW } else { 0 });
     // The live int8 round-trip, as in [`super::layer`]: prefill fills the same
     // caches a decode reads, so its mixtures quantize identically.
     let mixed = b.quantize(mixed, MM_SCALE[index]);
@@ -460,7 +432,7 @@ fn prefill_layer(
     let x = b.mul_scalar(x, skip_at);
     let _ = width;
     // The whole residual is scaled by `skip` after add2, as in [`super::layer`].
-    Ok((x, mine))
+    Ok(x)
 }
 
 /// A `1 x 1` int4 convolution, which every large projection in this net is.

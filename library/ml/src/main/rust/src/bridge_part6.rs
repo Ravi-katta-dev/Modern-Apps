@@ -339,9 +339,7 @@ impl Gemma4Handle {
     /// same 1.30 GB once and every projection becomes a GEMM over T columns, so the weights are
     /// amortised T ways.
     ///
-    /// Chunked rather than one submit for the whole prompt, because attention is quadratic in T
-    /// and the score maps are a real allocation - eight heads of T x T at [`CHUNK`] is 16 MB,
-    /// and the arena has to hold it alongside everything else.
+    /// Chunked because each chunk's score maps are eight heads of `T x context`.
     fn prefill(&mut self, tokens: &[u32]) -> Result<(), String> {
         if tokens.is_empty() {
             return Ok(());
@@ -353,16 +351,9 @@ impl Gemma4Handle {
                 self.context
             ));
         }
-        // `prefill_layer` attends only within its own chunk, so a batch is correct only when
-        // nothing precedes it. Past position 0 (later turns, text after an image, a second
-        // chunk) each token goes through the single-position pass, which attends the cache.
-        let (batched, sequential) = if self.position == 0 {
-            tokens.split_at(tokens.len().min(CHUNK as usize))
-        } else {
-            (&[][..], tokens)
-        };
-        if !batched.is_empty() {
-            let chunk = batched;
+        // Every chunk attends the whole cache (`attn_cached_multi`), so any split and any
+        // starting position is correct.
+        for chunk in tokens.chunks(CHUNK as usize) {
             let width = chunk.len() as u32;
             let gathering = std::time::Instant::now();
             // Gathered per position and laid out `[C, 1, T]` - channel-major, which is what
@@ -407,19 +398,6 @@ impl Gemma4Handle {
                 ran.elapsed().as_secs_f64() * 1000.0,
             ));
             self.position += width;
-        }
-        if !sequential.is_empty() {
-            let started = std::time::Instant::now();
-            for &token in sequential {
-                let (hidden, per_layer) = self.gather(token)?;
-                self.step_hidden(&hidden, &per_layer, false)?;
-            }
-            log(&format!(
-                "gemma4 prefill {} positions sequentially, ending at {}: {:.0} ms",
-                sequential.len(),
-                self.position,
-                started.elapsed().as_secs_f64() * 1000.0,
-            ));
         }
         Ok(())
     }

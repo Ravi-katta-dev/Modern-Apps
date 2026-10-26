@@ -46,22 +46,24 @@ void main() {
     if (index >= p.count) {
         return;
     }
-    // The output is `[d_model, 1, 1]`, so the index *is* the channel.
-    uint channel = index;
+    // The output is `[d_model, 1, queries]`: channel-major, query innermost.
+    uint queries = max(p.dil_h, 1u);
+    uint channel = index / queries;
+    uint q = index % queries;
     uint stride = p.in_w;
     uint head_dim = p.out_c / p.group;
     uint head = channel / head_dim;
-    // `S[head][*]`, contiguous in the key index because there is one query.
-    uint row = p.in0 + head * stride;
+    // `S[head][q][*]`, contiguous in the key index.
+    uint row = p.in0 + (head * queries + q) * stride;
     // V's channel for this query head, which under multi-query attention is shared.
     uint value = p.in1 + kv_head_of(head) * head_dim + (channel % head_dim);
     uint vstride = kv_stride(head_dim);
 
     float total = 0.0;
-    for (uint j = attn_first(); j <= attn_last(stride); j++) {
+    for (uint j = attn_first_q(q); j <= attn_last_q(stride, q); j++) {
         total += float(arena[row + j]) * float(arena[value + j * vstride]);
     }
     // A folded int8 round-trip: the attention mixture's `Quantize` (live's
     // `Mm` round-trip at `MM_SCALE`) stores here instead of its own dispatch.
-    arena[p.out_at + channel] = float16_t(quant_store(total));
+    arena[p.out_at + index] = float16_t(quant_store(total));
 }

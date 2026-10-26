@@ -39,8 +39,10 @@ void row_mode() {
     uint lane = gl_LocalInvocationID.x;
     uint lanes = gl_WorkGroupSize.x;
     uint stride = p.out_w;
-    uint first = attn_first();
-    uint last = attn_last(stride);
+    // Rows are `[heads, queries]`, so a row's query is its index modulo the query count.
+    uint q = row % max(p.dil_h, 1u);
+    uint first = attn_first_q(q);
+    uint last = attn_last_q(stride, q);
     uint at = p.in0 + row * stride;
     float peak = -65504.0;
     for (uint i = first + lane; i <= last; i += lanes) {
@@ -68,9 +70,11 @@ void main() {
         return;
     }
     uint stride = p.out_w;
-    uint first = attn_first();
-    uint last = attn_last(stride);
+    uint q = row % max(p.dil_h, 1u);
+    uint first = attn_first_q(q);
+    uint last = attn_last_q(stride, q);
     uint at = p.in0 + row * stride;
+    // The most negative
 
     // The most negative fp16 rather than -inf, matching `softmax.comp`: a decode step always
     // attends over at least its own position, so the range is never empty and the seed is never

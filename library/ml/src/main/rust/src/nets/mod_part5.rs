@@ -436,7 +436,7 @@ impl<'a> Builder<'a> {
         }
         let scale = if derive_scale { 1.0 / (head_dim.max(1) as f32).sqrt() } else { 1.0 };
         let out = self.tensor(Shape::new(heads, 1, sc.c));
-        self.nodes.push(Node::AttnScoresCached { q, cache, out, heads, kv_heads, scale, dynamic, sliding });
+        self.nodes.push(Node::AttnScoresCached { q, cache, out, heads, kv_heads, scale, dynamic, sliding, window: 0 });
         out
     }
 

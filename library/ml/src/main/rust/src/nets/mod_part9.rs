@@ -552,7 +552,7 @@ impl<'a> Builder<'a> {
                     invocations,
                 });
             }
-            Node::AttnScoresCached { q, cache, out, heads, kv_heads, scale, dynamic, sliding } => {
+            Node::AttnScoresCached { q, cache, out, heads, kv_heads, scale, dynamic, sliding, window } => {
                 let (sq, so) = (shape(*q), shape(*out));
                 ops.push(Op::Dispatch {
                     kind: Kind::AttnScoresCached,
@@ -574,6 +574,10 @@ impl<'a> Builder<'a> {
                         dyn_keys: u32::from(*dynamic),
                         kv_heads: *kv_heads,
                         sliding: u32::from(*sliding),
+                        // Several queries (`so.h`): the per-query range path. Zero otherwise,
+                        // so a decode step's push is unchanged.
+                        dil_h: if so.h > 1 || *window != 0 { so.h } else { 0 },
+                        dil_w: *window,
                         ..Push::default()
                     },
                     invocations: so.len(),

@@ -16,6 +16,17 @@ impl Reference {
         }
     }
 
+    /// [`Self::attended`] for query `q` of a multi-query op. Mirrors `attn_first_q` /
+    /// `attn_last_q`: query `q` sits at `prefix + q` and slides over `p.dil_w` keys.
+    fn attended_q(&self, p: &Push, stride: u32, q: u32) -> (u32, u32) {
+        if p.dil_h == 0 {
+            return self.attended(p, stride);
+        }
+        let pos = self.prefix + q;
+        let first = if p.sliding != 0 && p.dil_w != 0 { (pos + 1).saturating_sub(p.dil_w) } else { 0 };
+        (first, pos.min(stride.saturating_sub(1)))
+    }
+
     /// The KV head a query head reads from. Mirrors `kv_head_of` in `shaders/common.glsl`.
     fn kv_head_of(p: &Push, head: u32) -> u32 {
         let kv = if p.kv_heads == 0 { p.group } else { p.kv_heads };
@@ -168,20 +179,23 @@ impl Reference {
     fn attn_scores_cached(&mut self, p: &Push) -> Result<(), String> {
         let head_dim = heads(p, p.in_c)?;
         let scale = f32::from_bits(p.param0_bits);
-        let (first, last) = self.attended(p, p.out_w);
         let stride = Self::kv_stride(p, head_dim);
+        let queries = p.dil_h.max(1);
         for head in 0..p.group {
-            // Q is one position, so its channels are consecutive.
-            let query_base = head * head_dim;
+            // Q is `[d_model, 1, queries]`: channel `c` of query `q` at `c * queries + q`.
             let kv_base = Self::kv_head_of(p, head) * head_dim;
-            for key in first..=last {
-                let key_base = key * stride + kv_base;
-                let mut total = 0.0;
-                for d in 0..head_dim {
-                    total +=
-                        self.load(p.in0, query_base + d)? * self.load(p.in1, key_base + d)?;
+            for q in 0..queries {
+                let query_base = head * head_dim * queries + q;
+                let (first, last) = self.attended_q(p, p.out_w, q);
+                for key in first..=last {
+                    let key_base = key * stride + kv_base;
+                    let mut total = 0.0;
+                    for d in 0..head_dim {
+                        total += self.load(p.in0, query_base + d * queries)?
+                            * self.load(p.in1, key_base + d)?;
+                    }
+                    self.store(p.out, nchw(p, head, q, key), total * scale)?;
                 }
-                self.store(p.out, nchw(p, head, 0, key), total * scale)?;
             }
         }
         Ok(())
@@ -195,20 +209,23 @@ impl Reference {
     fn attn_apply_cached(&mut self, p: &Push) -> Result<(), String> {
         let head_dim = heads(p, p.out_c)?;
         let stride = p.in_w;
-        let (first, last) = self.attended(p, stride);
         let vstride = Self::kv_stride(p, head_dim);
+        let queries = p.dil_h.max(1);
         for channel in 0..p.out_c {
             let head = channel / head_dim;
-            // One query, so a head's row of probabilities starts a full stride apart even when
-            // this step attends over fewer keys than the row can hold.
-            let row = head * stride;
             let value = Self::kv_head_of(p, head) * head_dim + (channel % head_dim);
-            let mut total = 0.0;
-            for key in first..=last {
-                total += self.load(p.in0, row + key)?
-                    * self.load(p.in1, value + key * vstride)?;
+            for q in 0..queries {
+                // A row of probabilities starts a full stride apart even when this step attends
+                // over fewer keys than the row can hold.
+                let row = (head * queries + q) * stride;
+                let (first, last) = self.attended_q(p, stride, q);
+                let mut total = 0.0;
+                for key in first..=last {
+                    total += self.load(p.in0, row + key)?
+                        * self.load(p.in1, value + key * vstride)?;
+                }
+                self.store(p.out, channel * queries + q, self.fused_quant(p, total)?)?;
             }
-            self.store(p.out, nchw(p, channel, 0, 0), self.fused_quant(p, total)?)?;
         }
         Ok(())
     }

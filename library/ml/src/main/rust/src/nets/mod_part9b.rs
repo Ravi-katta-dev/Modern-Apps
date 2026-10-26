@@ -35,7 +35,7 @@ impl<'a> Builder<'a> {
                         // in the shader reads it.
                         param0_bits: quant_scale.map_or(0, f32::to_bits),
                         // `[d_model, 1, queries]`: several queries take the per-query path.
-                        dil_h: if so.w > 1 { so.w } else { 0 },
+                        dil_h: if so.w > 1 || *window != 0 { so.w } else { 0 },
                         dil_w: *window,
                         ..Push::default()
                     },
@@ -400,7 +400,7 @@ impl<'a> Builder<'a> {
                         kh: *window,
                         kw,
                         // A prefix softmax over several queries' rows (`[heads, queries, keys]`).
-                        dil_h: if *mode == SoftmaxMode::Prefix && so.h > 1 { so.h } else { 0 },
+                        dil_h: if *mode == SoftmaxMode::Prefix && (so.h > 1 || *window != 0) { so.h } else { 0 },
                         dil_w: if *mode == SoftmaxMode::Prefix { *window } else { 0 },
                         ..Push::default()
                     },
