@@ -233,3 +233,24 @@ fn row_int8_gemms_agree_with_the_reference() {
         compare(&format!("a row int8 gemm, {what}"), plan, source.data().to_vec(), &[&input]);
     }
 }
+
+
+/// `conv_point.comp`'s split path (`in1` = 1, two channels per lane) for GEMMs with few tiles:
+/// the Supertonic text encoder's 56 positions, 40 output channels leaving the last 16-channel
+/// tile part empty, and a fused residual.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_split_pointwise_conv_agrees_with_the_reference() {
+    let input = spread(64 * 56, 1.1);
+    let source = Invented::new(4);
+    let plan = build(&source, &[Shape::new(64, 1, 56)], |b, ids| {
+        let x = b.conv(ids[0], 0, 40, (1, 1), (1, 1), (1, 1), (0, 0, 0, 0), 1, Act::Relu);
+        let y = b.conv(x, 2, 40, (1, 1), (1, 1), (1, 1), (0, 0, 0, 0), 1, Act::None);
+        b.add(x, y)
+    });
+    assert!(plan.ops.iter().any(|op| matches!(
+        op,
+        crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvPoint, push, .. } if push.in1 == 1
+    )));
+    compare("a split pointwise conv", plan, source.into_data(), &[&input]);
+}

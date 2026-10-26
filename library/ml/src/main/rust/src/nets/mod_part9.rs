@@ -210,10 +210,24 @@ impl<'a> Builder<'a> {
                     let positions = so.h * so.w;
                     let tiles =
                         so.c.div_ceil(CONV_POINT_TILE) * positions.div_ceil(CONV_POINT_TILE);
+                    let in0 = at(*input)?;
+                    // Too few tiles to fill the GPU: two channels per lane (`split_rows` in
+                    // conv_point.comp), same sums in the same order. Wide alignment only.
+                    let split = tiles < CONV_POINT_INT8_SPLIT_BELOW
+                        && in_c % 8 == 0
+                        && *weight % 8 == 0
+                        && positions % 4 == 0
+                        && in0 % 4 == 0;
+                    let tiles = if split {
+                        so.c.div_ceil(CONV_POINT_TILE / 2) * positions.div_ceil(CONV_POINT_TILE)
+                    } else {
+                        tiles
+                    };
                     ops.push(Op::Dispatch {
                         kind: Kind::ConvPoint,
                         push: Push {
-                            in0: at(*input)?,
+                            in0,
+                            in1: u32::from(split),
                             out: at(*out)?,
                             weight: *weight,
                             bias: *bias,

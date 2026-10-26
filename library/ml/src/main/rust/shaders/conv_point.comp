@@ -45,7 +45,70 @@ layout(std430, binding = 0) readonly buffer ArenaQuad {
 /// Channels and positions per invocation.
 #define BLOCK 4u
 
+/// Channels per invocation on the split path (`p.in1 == 1`).
+#define SPLIT 2u
+
+// The wide path with two channels per invocation, for GEMMs with too few 32 x 32 tiles to fill
+// the GPU (Supertonic's text encoder: 56 positions). Twice the workgroups, each 16 channels x 32
+// positions; every output sums the same terms in the same order, so the result is identical.
+// Selected only when the wide path's alignment holds (see `nets`).
+void split_rows() {
+    uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    if (tile >= p.count) {
+        return;
+    }
+    uint positions = p.out_h * p.out_w;
+    uint tiles_across = (positions + TILE - 1u) / TILE;
+    uint lid = gl_LocalInvocationID.x;
+    uint channel_base = (tile / tiles_across) * (TILE / BLOCK * SPLIT) + (lid >> 3u) * SPLIT;
+    uint position_base = (tile % tiles_across) * TILE + (lid & 7u) * BLOCK;
+    if (position_base >= positions) {
+        return;
+    }
+    uint rows[SPLIT];
+    vec4 sum[SPLIT];
+    for (uint i = 0u; i < SPLIT; i++) {
+        rows[i] = p.weight + min(channel_base + i, p.out_c - 1u) * p.in_c;
+        sum[i] = vec4(0.0);
+    }
+    uint quads = positions >> 2u;
+    uint quad = (p.in0 + position_base) >> 2u;
+    for (uint k = 0u; k < p.in_c; k += 8u) {
+        uvec4 w[SPLIT];
+        for (uint i = 0u; i < SPLIT; i++) {
+            w[i] = weights128[(rows[i] + k) >> 3u];
+        }
+        for (uint t = 0u; t < 8u; t++) {
+            vec4 x = vec4(arena_quad[quad + (k + t) * quads]);
+            for (uint i = 0u; i < SPLIT; i++) {
+                float tap = unpackHalf2x16(w[i][t >> 1u])[t & 1u];
+                sum[i] += tap * x;
+            }
+        }
+    }
+    for (uint i = 0u; i < SPLIT; i++) {
+        uint channel = channel_base + i;
+        if (channel >= p.out_c) {
+            continue;
+        }
+        float offset = float(weights[p.bias + channel]);
+        for (uint j = 0u; j < BLOCK; j++) {
+            uint position = position_base + j;
+            if (position >= positions) {
+                continue;
+            }
+            uint index = channel * positions + position;
+            float value = fused_store(sum[i][j] + offset, p.act, channel, index);
+            arena[p.out_at + index] = float16_t(value);
+        }
+    }
+}
+
 void main() {
+    if (p.in1 == 1u) {
+        split_rows();
+        return;
+    }
     uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
     if (tile >= p.count) {
         return;
