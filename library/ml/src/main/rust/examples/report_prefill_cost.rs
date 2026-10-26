@@ -98,7 +98,7 @@ fn main() {
     // Constructed at `DecodeStep`, exactly as `bridge.rs:2605` does, so the arena is sized for the
     // larger of the two and the switch to prefill cannot grow it. Growing is what would drop the
     // KV caches, and doing it in the same order as the shipping code is the point.
-    let mut net = match Net::new(context, decode, &weights, RESCALE_ONLY) {
+    let mut net = match Net::whole(context, decode, &weights, RESCALE_ONLY) {
         Ok(net) => net,
         Err(why) => {
             println!("the decode plan does not record: {why}");
