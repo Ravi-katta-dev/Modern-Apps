@@ -64,6 +64,8 @@ fn nllb_profile(path: Option<&str>) -> Result<(), String> {
     )?;
     println!("load      {:>8.1} ms (upload + first record)", ms(started));
 
+    // A plausible source
+
     // A plausible source: the source-language token, then ordinary pieces, then `</s>`.
     let mut source: Vec<u32> = vec![256_047];
     source.extend((0..SRC_LEN - 2).map(|i| 1_000 + i * 37));
@@ -125,9 +127,12 @@ fn whisper_profile(path: Option<&str>) -> Result<(), String> {
     let context = context::shared()?;
 
     let started = Instant::now();
-    let mut net = Reshaped::new(context, &weights, whisper::Mode::Encode, |offsets, mode| {
-        whisper::build(offsets, mode)
-    })?;
+    // MODELRUNNER_DECODE_FIRST=1 mirrors the app's create: decode step recorded, then the encoder.
+    let decode_first = std::env::var("MODELRUNNER_DECODE_FIRST").is_ok();
+    let first = if decode_first { whisper::Mode::DecodeStep } else { whisper::Mode::Encode };
+    let mut net =
+        Reshaped::new(context, &weights, first, |offsets, mode| whisper::build(offsets, mode))?;
+    net.at(whisper::Mode::Encode)?;
     println!("load      {:>8.1} ms (upload + first record)", ms(started));
 
     // A deterministic log-mel-like window: smooth in time, varied across bins.
@@ -140,6 +145,7 @@ fn whisper_profile(path: Option<&str>) -> Result<(), String> {
 
     let mut encode_ms = Vec::new();
     let mut step_ms = Vec::new();
+    let mut switch_ms = Vec::new();
     let mut ids = Vec::new();
     let mut checksum = 0.0f64;
     for round in 0..2 {
@@ -153,7 +159,11 @@ fn whisper_profile(path: Option<&str>) -> Result<(), String> {
         let mut token = PROMPT[0];
         for step in 0..PROMPT.len() as u32 + STEPS {
             let row = whisper::embed_positions(weights.reader(), &[token], step)?;
+            let t = Instant::now();
             let at = net.at(whisper::Mode::DecodeStep)?;
+            if step == 0 {
+                switch_ms.push(ms(t));
+            }
             at.set_params(StepParams { prefix: step, window_start: 0 })?;
             let mut inputs: Vec<&[f32]> = vec![&row];
             inputs.extend(cross.iter().map(Vec::as_slice));
@@ -174,6 +184,7 @@ fn whisper_profile(path: Option<&str>) -> Result<(), String> {
         }
     }
     println!("encode    {}", stats(&encode_ms));
+    println!("switch    {} (into DecodeStep)", stats(&switch_ms));
     println!("step      {}", stats(&step_ms));
     println!("ids       {ids:?}");
     println!("checksum  {checksum:.3}");
