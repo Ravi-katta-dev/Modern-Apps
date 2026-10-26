@@ -156,9 +156,84 @@ void split_rows() {
     }
 }
 
+/// A one-row `1 x kw` convolution as this GEMM (`p.in1 == 2`): K walks (input channel, tap),
+/// which is the weights' `[oc][ic][kx]` order, and the activation for position `x` and tap
+/// `kx` is `in[ic][x * stride + kx * dil - pad_l]`, zero outside the row. Same summation order
+/// as `conv_int8.comp`. Selected only when `in_c * kw % 16 == 0` and the weights are 16-byte
+/// aligned (see `nets`).
+void row_taps() {
+    uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    if (tile >= p.count) {
+        return;
+    }
+    uint positions = p.out_w;
+    uint tiles_across = (positions + TILE - 1u) / TILE;
+    uint lid = gl_LocalInvocationID.x;
+    uint channel_base = (tile / tiles_across) * TILE + (lid >> 3u) * BLOCK;
+    uint position_base = (tile % tiles_across) * TILE + (lid & 7u) * BLOCK;
+    if (position_base >= positions) {
+        return;
+    }
+    uint taps = p.in_c * p.kw;
+    uint rows16[BLOCK];
+    vec4 sum[BLOCK];
+    for (uint i = 0u; i < BLOCK; i++) {
+        uint row = min(channel_base + i, p.out_c - 1u);
+        rows16[i] = (p.weight + ((row * taps) >> 2u)) >> 2u;
+        sum[i] = vec4(0.0);
+    }
+    ivec4 cols = (ivec4(position_base) + ivec4(0, 1, 2, 3)) * int(p.stride_w) - int(p.pad_l);
+    int width = int(p.in_w);
+    uint ic = 0u;
+    uint kx = 0u;
+    for (uint k = 0u; k < taps; k += 16u) {
+        uvec4 w[BLOCK];
+        for (uint i = 0u; i < BLOCK; i++) {
+            w[i] = weights128[rows16[i] + (k >> 4u)];
+        }
+        for (uint t = 0u; t < 16u; t++) {
+            ivec4 c = cols + int(kx * p.dil_w);
+            uint row = p.in0 + ic * p.in_w;
+            vec4 x;
+            for (uint j = 0u; j < BLOCK; j++) {
+                x[j] = (c[j] >= 0 && c[j] < width) ? float(arena[row + uint(c[j])]) : 0.0;
+            }
+            for (uint i = 0u; i < BLOCK; i++) {
+                float tap = float(bitfieldExtract(int(w[i][t >> 2u]), int((t & 3u) << 3u), 8));
+                sum[i] += tap * x;
+            }
+            kx++;
+            if (kx == p.kw) {
+                kx = 0u;
+                ic++;
+            }
+        }
+    }
+    for (uint i = 0u; i < BLOCK; i++) {
+        uint channel = channel_base + i;
+        if (channel >= p.out_c) {
+            continue;
+        }
+        float scale = float(weights[p.act_weight + channel]);
+        float offset = float(weights[p.bias + channel]);
+        for (uint j = 0u; j < BLOCK; j++) {
+            if (position_base + j >= positions) {
+                continue;
+            }
+            uint index = channel * positions + position_base + j;
+            float value = quant_store(fused_store(sum[i][j] * scale + offset, p.act, channel, index));
+            arena[p.out_at + index] = float16_t(value);
+        }
+    }
+}
+
 void main() {
     if (p.in1 == 1u) {
         split_rows();
+        return;
+    }
+    if (p.in1 == 2u) {
+        row_taps();
         return;
     }
     uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;

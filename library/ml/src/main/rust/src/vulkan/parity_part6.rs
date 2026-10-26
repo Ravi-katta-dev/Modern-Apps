@@ -604,3 +604,42 @@ fn a_blocked_edge_padded_1x3_agrees_with_the_reference() {
     assert_eq!(conv_selectors(&plan), [0, 1, 0], "the edge-padded 1x3 missed the blocked path");
     compare("a blocked edge-padded 1x3", plan, source.into_data(), &[&input]);
 }
+
+/// Whisper's stem shape on `conv_point_int8.comp`'s row path (`in1` = 2): one-row 1x3 int8
+/// convolutions padded by one, at stride 1 and 2, over ragged widths and channel counts.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn row_int8_gemms_agree_with_the_reference() {
+    for (what, out_channels, in_channels, width, stride, act) in [
+        ("stride 1", 20u32, 16u32, 37u32, 1u32, Act::Gelu),
+        ("stride 2", 36, 32, 45, 2, Act::None),
+    ] {
+        let weights: Vec<i8> = (0..(out_channels * in_channels * 3) as i32)
+            .map(|i| ((i * 37) % 251 - 125) as i8)
+            .collect();
+        let scales: Vec<f32> =
+            (0..out_channels).map(|c| 0.003_906_25 * (1.0 + (c % 5) as f32)).collect();
+        let blob = write_mixed(
+            graph::SUPERTONIC_VE,
+            &[
+                Fixture::I8(vec![out_channels, in_channels, 1, 3], weights),
+                Fixture::F16(vec![out_channels], scales),
+                Fixture::F16(vec![out_channels], spread(out_channels as usize, 0.5)),
+            ],
+        );
+        let source = Weights::parse(&blob, graph::SUPERTONIC_VE).expect("the fixture blob parses");
+        let input = spread((in_channels * width) as usize, 0.9);
+        let mut builder = Builder::new(&source);
+        let first = builder.input(Shape::new(in_channels, 1, width));
+        let last = builder.conv_int8(
+            first, 0, out_channels, (1, 3), (1, stride), (1, 1), (0, 1, 0, 1), 1, act,
+        );
+        let plan = builder.finish(&[last]).expect("the row gemm plan builds");
+        assert!(plan.ops.iter().any(|op| matches!(
+            op,
+            crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvPointInt8, push, .. }
+                if push.in1 == 2
+        )), "{what} missed the row path");
+        compare(&format!("a row int8 gemm, {what}"), plan, source.data().to_vec(), &[&input]);
+    }
+}

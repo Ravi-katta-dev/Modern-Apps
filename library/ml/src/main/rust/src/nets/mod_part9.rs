@@ -70,10 +70,21 @@ impl<'a> Builder<'a> {
                     (Quant::Q2K, true, false) => Kind::ConvPointQ2K,
                     (Quant::Q2K, false, false) => Kind::ConvQ2K,
                 };
+                // A one-row 1 x kw int8 convolution (whisper's stem) as the register-blocked
+                // GEMM with K = (ic, kx): `row_taps` in conv_point_int8.comp, `in1` = 2.
+                let row_gemm = kind == Kind::ConvInt8
+                    && *group == 1
+                    && kernel.0 == 1
+                    && si.h == 1
+                    && so.h == 1
+                    && (si.c * kernel.1) % 16 == 0
+                    && *weight % 4 == 0;
+                let kind = if row_gemm { Kind::ConvPointInt8 } else { kind };
                 // Too few 32 x 32 tiles to fill the GPU: two channels per invocation instead of
                 // four, bit-identical. See `split_rows` in conv_point_int8.comp. On a Pixel 8,
                 // splitting everything under 256 tiles took Supertonic's sampler 2199 -> 1521 ms.
                 let split = kind == Kind::ConvPointInt8
+                    && !row_gemm
                     && si.c % 16 == 0
                     && *weight % 4 == 0
                     && int8_tiles < CONV_POINT_INT8_SPLIT_BELOW;
@@ -93,7 +104,7 @@ impl<'a> Builder<'a> {
                     kind,
                     push: Push {
                         in0: at(*input)?,
-                        in1: u32::from(split || int8_blocked),
+                        in1: if row_gemm { 2 } else { u32::from(split || int8_blocked) },
                         out: at(*out)?,
                         // A word offset, not an fp16 one: int8 is unpacked through the
                         // 32-bit view of the weights buffer.
