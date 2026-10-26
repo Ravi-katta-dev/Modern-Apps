@@ -73,12 +73,13 @@ fun TvManageInterestsPage(
     }
 
     TvInitialFocus(firstFocus)
-    LazyColumn(
-        state = rememberLazyListState(),
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = tvContentPadding(top = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
+    TvSettingsBody {
+        LazyColumn(
+            state = rememberLazyListState(),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = tvContentPadding(top = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
         item(key = "interests-title") {
             Text(
                 text = stringResource(R.string.title_manage_interests),
@@ -155,6 +156,7 @@ fun TvManageInterestsPage(
                 primaryAction = stringResource(R.string.action_unmute),
                 onPrimary = { ypvm.unmuteKeyword(keyword) },
             )
+        }
         }
     }
 }

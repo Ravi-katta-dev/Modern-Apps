@@ -73,12 +73,13 @@ fun TvRecommendationsSettingsPage(
     val firstFocus = remember { FocusRequester() }
 
     TvInitialFocus(firstFocus)
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        TvScreenHeader(title = stringResource(R.string.label_recommendations))
-        Column(
-            Modifier.padding(start = 48.dp, end = 48.dp, bottom = 44.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+    TvSettingsBody {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            TvScreenHeader(title = stringResource(R.string.label_recommendations))
+            Column(
+                Modifier.padding(start = 48.dp, end = 48.dp, bottom = 44.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
             RecommendationPreset.entries.forEachIndexed { index, preset ->
                 TvListRow(
                     headline = presetLabel(preset),
@@ -165,6 +166,7 @@ fun TvRecommendationsSettingsPage(
                 text = stringResource(R.string.action_reset_algorithm),
                 onClick = { ypvm.resetAlgorithm() },
             )
+            }
         }
     }
 }

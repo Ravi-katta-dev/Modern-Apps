@@ -1,34 +1,42 @@
 package com.vayunmathur.youpipe.tv
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.LazyGridScope
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.image.ImageRequest
 import com.vayunmathur.library.image.compose.AsyncImage
-import com.vayunmathur.library.tv.TvIcon
+import com.vayunmathur.library.tv.TvButton
+import com.vayunmathur.library.tv.TvDialog
+import com.vayunmathur.library.tv.TvGrid
 import com.vayunmathur.library.tv.TvInitialFocus
+import com.vayunmathur.library.tv.TvListRow
 import com.vayunmathur.library.tv.TvMediaCard
-import com.vayunmathur.library.tv.tvContentPadding
-import com.vayunmathur.library.ui.IconClock
 import com.vayunmathur.library.util.NavBackStack
+import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.ui.VideoInfo
 import com.vayunmathur.youpipe.ui.videoRowState
 import com.vayunmathur.youpipe.util.VideoRowState
 import com.vayunmathur.youpipe.util.YouPipeViewModel
+import com.vayunmathur.youpipe.util.blockChannel
+import com.vayunmathur.youpipe.util.boostChannel
+import com.vayunmathur.youpipe.util.pinChannel
+import com.vayunmathur.youpipe.util.removeInterest
 
 /**
  * Shared TV presentation helpers for YouPipe: the one video-card mapping and the 4-column
@@ -81,16 +89,29 @@ internal fun rememberTvVideoRows(
 internal fun tvDurationBadge(durationSec: Long): String? =
     if (durationSec > 0) DateUtils.formatElapsedTime(durationSec) else null
 
+/** One-line subtitle under a video card: "channel · views · age" plus the Why reason. */
+internal fun tvVideoSubtitle(item: TvVideoRow): String? {
+    val base = listOfNotNull(item.row.author, item.row.stats.takeIf { it.isNotBlank() })
+        .joinToString("  ·  ").takeIf { it.isNotBlank() }
+    val reason = item.row.reason?.takeIf { it.isNotBlank() }
+    return when {
+        base != null && reason != null -> "$base  ·  Why: $reason"
+        base != null -> base
+        reason != null -> "Why: $reason"
+        else -> null
+    }
+}
+
 /**
  * The one TV video card: 16:9 artwork with duration badge + resume strip, title/subtitle
- * below the art. Training actions never live here — they belong to the hero or a dialog.
+ * below the art. Fills its grid cell. Training actions never live here — they belong to
+ * the options dialog.
  */
 @Composable
 internal fun TvVideoCard(
     item: TvVideoRow,
     onOpen: () -> Unit,
     modifier: Modifier = Modifier,
-    width: Dp = 280.dp,
     onFocus: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -100,10 +121,8 @@ internal fun TvVideoCard(
         onLongClick = onLongClick,
         onFocus = onFocus,
         modifier = modifier,
-        width = width,
         title = item.row.title,
-        subtitle = listOfNotNull(item.row.author, item.row.stats.takeIf { it.isNotBlank() })
-            .joinToString("  •  ").takeIf { it.isNotBlank() },
+        subtitle = tvVideoSubtitle(item),
         progress = item.row.percentWatched.takeIf { it > 0f },
         badge = tvDurationBadge(item.info.duration),
         image = {
@@ -127,7 +146,7 @@ internal fun TvVideoCard(
 
 /**
  * A 4-column grid of [TvVideoCard]s with initial focus on the first card. Grids are only
- * for browse/library pages; home screens use shelves.
+ * for browse/library pages; home builds its own [TvGrid] with section headers.
  */
 @Composable
 internal fun TvVideoGrid(
@@ -138,14 +157,7 @@ internal fun TvVideoGrid(
 ) {
     val firstFocus = remember { FocusRequester() }
     TvInitialFocus(firstFocus)
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columns),
-        state = rememberLazyGridState(),
-        modifier = modifier,
-        contentPadding = tvContentPadding(top = 14.dp),
-        verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(28.dp),
-        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(20.dp),
-    ) {
+    TvGrid(columns = columns, modifier = modifier) {
         tvVideoItems(backStack, rows, firstFocus)
     }
 }
@@ -159,16 +171,10 @@ internal fun LazyGridScope.tvVideoItems(
     items(rows.size, key = { rows[it].row.videoID }) { index ->
         TvVideoCard(
             item = rows[index],
-            onOpen = { backStack.add(TvRoute.Video(rows[index].row.videoID)) },
+            onOpen = { backStack.playVideo(rows[index].row.videoID) },
             modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
         )
     }
-}
-
-/** Watched-clock glyph for "resume" affordances. */
-@Composable
-internal fun TvResumeIcon() {
-    TvIcon { IconClock() }
 }
 
 /**
@@ -190,8 +196,7 @@ internal fun TvSelectableCard(
         onLongClick = onToggleSelect,
         modifier = modifier,
         title = item.row.title,
-        subtitle = listOfNotNull(item.row.author, item.row.stats.takeIf { it.isNotBlank() })
-            .joinToString("  •  ").takeIf { it.isNotBlank() },
+        subtitle = tvVideoSubtitle(item),
         progress = item.row.percentWatched.takeIf { it > 0f },
         badge = if (selected) {
             "✓"
@@ -215,6 +220,87 @@ internal fun TvSelectableCard(
             }
         },
     )
+}
+
+/**
+ * The recommendation-training dialog: not-interested / more-like / pin / block for one
+ * video's channel. Opened via long-press AND a visible "More" button on the video page —
+ * never buttons stacked inside cards.
+ */
+@Composable
+internal fun TvVideoOptionsDialog(
+    item: TvVideoRow,
+    onDismiss: () -> Unit,
+    onOpen: () -> Unit,
+    ypvm: YouPipeViewModel,
+) {
+    TvDialog(
+        title = item.row.title,
+        onDismissRequest = onDismiss,
+        body = tvVideoSubtitle(item),
+        buttons = {
+            TvButton(
+                text = stringResource(com.vayunmathur.library.ui.R.string.play),
+                onClick = {
+                    onDismiss()
+                    onOpen()
+                },
+                primary = true,
+            )
+            TvButton(
+                text = stringResource(com.vayunmathur.library.ui.R.string.close),
+                onClick = onDismiss,
+            )
+        },
+        content = {
+            Column {
+                TvListRow(
+                    headline = stringResource(R.string.action_not_interested),
+                    supporting = item.row.reason?.let {
+                        LocalContext.current.getString(R.string.recommendation_reason, it)
+                    },
+                    onClick = {
+                        ypvm.removeInterest(channelKey = item.row.channelKey)
+                        onDismiss()
+                    },
+                )
+                TvListRow(
+                    headline = stringResource(R.string.action_more_like_this),
+                    onClick = {
+                        ypvm.boostChannel(item.row.channelKey)
+                        onDismiss()
+                    },
+                )
+                TvListRow(
+                    headline = stringResource(R.string.action_pin_channel),
+                    onClick = {
+                        ypvm.pinChannel(item.row.channelKey)
+                        onDismiss()
+                    },
+                )
+                TvListRow(
+                    headline = stringResource(R.string.action_block_channel),
+                    onClick = {
+                        ypvm.blockChannel(item.row.channelKey)
+                        onDismiss()
+                    },
+                )
+            }
+        },
+    )
+}
+
+/**
+ * Constrain settings content to a readable max width instead of stretching across the TV.
+ * Screens put their header + rows inside [content].
+ */
+@Composable
+internal fun TvSettingsBody(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 900.dp).fillMaxWidth()) {
+            content()
+        }
+    }
 }
 
 internal const val TV_GRID_COLUMNS = 4

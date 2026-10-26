@@ -1,6 +1,9 @@
 package com.vayunmathur.youpipe.tv
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,10 +37,16 @@ fun TvSubscriptionFeedPage(
     val historyById = remember(history) { history.associate { it.id to it.progress } }
     val rows = rememberTvVideoRows(videos, ypvm, historyById)
 
-    TvScreenHeader(title = category ?: stringResource(R.string.label_all_subscriptions))
-    when {
-        !hasLoaded && rows.isEmpty() -> TvLoading()
-        rows.isEmpty() -> TvEmptyState(title = stringResource(R.string.empty_recommendations))
-        else -> TvVideoGrid(backStack = backStack, rows = rows, modifier = Modifier.fillMaxSize())
+    Column(Modifier.fillMaxSize()) {
+        TvScreenHeader(title = category ?: stringResource(R.string.label_all_subscriptions))
+        when {
+            !hasLoaded && rows.isEmpty() -> TvLoading()
+            rows.isEmpty() -> TvEmptyState(title = stringResource(R.string.empty_recommendations))
+            else -> TvVideoGrid(
+                backStack = backStack,
+                rows = rows,
+                modifier = Modifier.fillMaxSize().weight(1f),
+            )
+        }
     }
 }

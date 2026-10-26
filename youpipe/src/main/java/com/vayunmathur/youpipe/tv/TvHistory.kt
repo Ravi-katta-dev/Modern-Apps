@@ -3,10 +3,6 @@ package com.vayunmathur.youpipe.tv
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -17,13 +13,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.vayunmathur.library.tv.TvButton
 import com.vayunmathur.library.tv.TvDialog
 import com.vayunmathur.library.tv.TvEmptyState
+import com.vayunmathur.library.tv.TvGrid
 import com.vayunmathur.library.tv.TvInitialFocus
 import com.vayunmathur.library.tv.TvScreenHeader
-import com.vayunmathur.library.tv.tvContentPadding
 import com.vayunmathur.library.ui.IconDelete
 import com.vayunmathur.library.ui.R as UiR
 import com.vayunmathur.library.util.NavBackStack
@@ -31,13 +26,13 @@ import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.util.YouPipeViewModel
 
 /**
- * TV history: a 4-column grid of [TvVideoCard]s with D-pad multiselect and a clear-all
+ * TV history: a 4-column grid of video cards with D-pad multiselect and a clear-all
  * action in the header.
  *
  * The phone uses long-press to enter selection and a FAB to delete. A TV has no long-press
  * convention and no FAB within reach — CENTER on a card opens it, long-press (where the
- * remote has it) OR the header "Select" toggle enters selection, and delete/clear are
- * focused buttons in the header. BACK clears the selection first.
+ * remote has it) toggles selection, and delete/clear are focused buttons in the header.
+ * BACK clears the selection first.
  */
 @Composable
 fun TvHistoryPage(
@@ -90,14 +85,7 @@ fun TvHistoryPage(
             TvEmptyState(title = stringResource(R.string.empty_recommendations))
             return@Column
         }
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(TV_GRID_COLUMNS),
-            state = rememberLazyGridState(),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = tvContentPadding(top = 14.dp),
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(28.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(20.dp),
-        ) {
+        TvGrid(columns = TV_GRID_COLUMNS, modifier = Modifier.fillMaxSize().weight(1f)) {
             items(rows.size, key = { rows[it].row.videoID }) { index ->
                 val item = rows[index]
                 val isSelected = item.row.videoID in selectedIds
@@ -105,7 +93,7 @@ fun TvHistoryPage(
                     item = item,
                     selected = isSelected,
                     inSelectionMode = inSelectionMode,
-                    onOpen = { backStack.add(TvRoute.Video(item.row.videoID)) },
+                    onOpen = { backStack.playVideo(item.row.videoID) },
                     onToggleSelect = {
                         selectedIds = if (isSelected) {
                             selectedIds - item.row.videoID

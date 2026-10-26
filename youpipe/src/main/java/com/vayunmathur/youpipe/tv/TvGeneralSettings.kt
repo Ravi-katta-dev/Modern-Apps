@@ -3,7 +3,6 @@ package com.vayunmathur.youpipe.tv
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -12,7 +11,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -34,6 +32,7 @@ import com.vayunmathur.youpipe.util.YouPipeViewModel
  *
  * Same DataStore bindings as the phone `GeneralSettingsPage`; dropdowns become D-pad
  * option rows (one focusable row per choice) because a TV has no dropdown convention.
+ * The list is constrained to a readable max width.
  */
 @Composable
 fun TvGeneralSettingsPage(
@@ -55,75 +54,71 @@ fun TvGeneralSettingsPage(
     }
 
     TvInitialFocus(firstFocus)
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-    ) {
-        TvScreenHeader(title = stringResource(R.string.settings_general_content))
-        Column(
-            Modifier.padding(
-                start = 48.dp,
-                end = 48.dp,
-                bottom = 44.dp,
-            ),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.label_default_page),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            com.vayunmathur.youpipe.DEFAULT_PAGE_OPTIONS.forEachIndexed { index, (key, labelRes) ->
+    TvSettingsBody {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            TvScreenHeader(title = stringResource(R.string.settings_general_content))
+            Column(
+                Modifier.padding(start = 48.dp, end = 48.dp, bottom = 44.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.label_default_page),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                com.vayunmathur.youpipe.DEFAULT_PAGE_OPTIONS.forEachIndexed { index, (key, labelRes) ->
+                    TvListRow(
+                        headline = stringResource(labelRes),
+                        trailing = if (defaultPage == key) {
+                            { IconCheck() }
+                        } else {
+                            null
+                        },
+                        onClick = { ypvm.setDefaultPage(key) },
+                        modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
+                    )
+                }
+                TvSwitchRow(
+                    headline = stringResource(R.string.label_dearrow),
+                    supporting = stringResource(R.string.label_dearrow_description),
+                    checked = deArrowEnabled,
+                    onCheckedChange = { ypvm.setDeArrowEnabled(it) },
+                )
+                TvSwitchRow(
+                    headline = stringResource(R.string.label_keep_controls_visible),
+                    supporting = stringResource(R.string.label_keep_controls_visible_description),
+                    checked = keepControlsVisible,
+                    onCheckedChange = { ypvm.setKeepPlayerControlsVisible(it) },
+                )
+                TvSwitchRow(
+                    headline = stringResource(R.string.label_notification_style_progress),
+                    supporting = stringResource(R.string.label_notification_style_progress_description),
+                    checked = notificationStyleProgress,
+                    onCheckedChange = { ypvm.setNotificationStyleProgressBar(it) },
+                )
+                Text(
+                    text = stringResource(R.string.label_youtube_language),
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 TvListRow(
-                    headline = stringResource(labelRes),
-                    trailing = if (defaultPage == key) {
+                    headline = stringResource(R.string.label_system_default),
+                    trailing = if (youtubeLanguage.isBlank()) {
                         { IconCheck() }
                     } else {
                         null
                     },
-                    onClick = { ypvm.setDefaultPage(key) },
-                    modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
+                    onClick = { ypvm.setYouTubeLanguage("") },
                 )
-            }
-            TvSwitchRow(
-                headline = stringResource(R.string.label_dearrow),
-                supporting = stringResource(R.string.label_dearrow_description),
-                checked = deArrowEnabled,
-                onCheckedChange = { ypvm.setDeArrowEnabled(it) },
-            )
-            TvSwitchRow(
-                headline = stringResource(R.string.label_keep_controls_visible),
-                supporting = stringResource(R.string.label_keep_controls_visible_description),
-                checked = keepControlsVisible,
-                onCheckedChange = { ypvm.setKeepPlayerControlsVisible(it) },
-            )
-            TvSwitchRow(
-                headline = stringResource(R.string.label_notification_style_progress),
-                supporting = stringResource(R.string.label_notification_style_progress_description),
-                checked = notificationStyleProgress,
-                onCheckedChange = { ypvm.setNotificationStyleProgressBar(it) },
-            )
-            Text(
-                text = stringResource(R.string.label_youtube_language),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            TvListRow(
-                headline = stringResource(R.string.label_system_default),
-                trailing = if (youtubeLanguage.isBlank()) {
-                    { IconCheck() }
-                } else {
-                    null
-                },
-                onClick = { ypvm.setYouTubeLanguage("") },
-            )
-            YouPipeViewModel.Companion.YOUTUBE_LANGUAGES.forEach { (code, name) ->
-                TvListRow(
-                    headline = name,
-                    trailing = if (youtubeLanguage == code) {
-                        { IconCheck() }
-                    } else {
-                        null
-                    },
-                    onClick = { ypvm.setYouTubeLanguage(code) },
-                )
+                YouPipeViewModel.Companion.YOUTUBE_LANGUAGES.forEach { (code, name) ->
+                    TvListRow(
+                        headline = name,
+                        trailing = if (youtubeLanguage == code) {
+                            { IconCheck() }
+                        } else {
+                            null
+                        },
+                        onClick = { ypvm.setYouTubeLanguage(code) },
+                    )
+                }
             }
         }
     }

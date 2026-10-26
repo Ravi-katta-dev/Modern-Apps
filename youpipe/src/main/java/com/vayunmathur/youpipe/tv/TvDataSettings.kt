@@ -65,10 +65,11 @@ fun TvDataSettingsPage(
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         TvScreenHeader(title = stringResource(R.string.settings_data))
-        Column(
-            Modifier.padding(start = 48.dp, end = 48.dp, bottom = 44.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+        TvSettingsBody {
+            Column(
+                Modifier.padding(start = 48.dp, end = 48.dp, bottom = 44.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
             if (isLoading) {
                 CircularProgressIndicator(progress = { progress })
             }
@@ -101,6 +102,7 @@ fun TvDataSettingsPage(
                 headline = stringResource(R.string.label_import_youtube),
                 onClick = { youtubeLauncher.launch("application/zip") },
             )
+            }
         }
     }
     if (confirmClear) {

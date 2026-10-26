@@ -98,27 +98,28 @@ fun TvAddToPlaylistPage(
     }
 
     TvInitialFocus(closeFocus)
-    Column(Modifier.fillMaxSize()) {
-        TvScreenHeader(
-            title = stringResource(R.string.add_to_playlist),
-            actions = {
-                TvButton(
-                    text = stringResource(UiR.string.ok),
-                    onClick = ::confirm,
-                    primary = true,
-                )
-                TvButton(
-                    text = stringResource(UiR.string.cancel),
-                    onClick = { backStack.pop() },
-                )
-            },
-        )
-        LazyColumn(
-            state = rememberLazyListState(),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = tvContentPadding(top = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
+    TvSettingsBody {
+        Column(Modifier.fillMaxSize()) {
+            TvScreenHeader(
+                title = stringResource(R.string.add_to_playlist),
+                actions = {
+                    TvButton(
+                        text = stringResource(UiR.string.ok),
+                        onClick = ::confirm,
+                        primary = true,
+                    )
+                    TvButton(
+                        text = stringResource(UiR.string.cancel),
+                        onClick = { backStack.pop() },
+                    )
+                },
+            )
+            LazyColumn(
+                state = rememberLazyListState(),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = tvContentPadding(top = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
             items(playlists, key = { it.id }) { playlist ->
                 val checked = playlist.id in staged
                 TvListRow(
@@ -166,6 +167,7 @@ fun TvAddToPlaylistPage(
                         modifier = Modifier.padding(top = 8.dp),
                     )
                 }
+            }
             }
         }
     }

@@ -30,7 +30,7 @@ import com.vayunmathur.youpipe.util.YouPipeViewModel.Companion.ALL_SPONSOR_CATEG
  * TV settings hub: the four sections as [TvListRow]s with summaries.
  *
  * Mirrors the phone `SettingsPage` (sponsor summary + recommendation preset summary) with
- * no app bars — the rail is the chrome.
+ * no app bars — the rail is the chrome. The list is constrained to a readable max width.
  */
 @Composable
 fun TvSettingsPage(
@@ -45,54 +45,56 @@ fun TvSettingsPage(
     val firstFocus = remember { FocusRequester() }
 
     TvInitialFocus(firstFocus)
-    LazyColumn(
-        state = rememberLazyListState(),
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = tvContentPadding(top = 0.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item(key = "header") {
-            androidx.tv.material3.Text(
-                text = stringResource(UiR.string.settings),
-                style = androidx.tv.material3.MaterialTheme.typography.headlineLarge,
-                color = androidx.tv.material3.MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 28.dp, bottom = 16.dp),
-            )
-        }
-        item(key = "general") {
-            TvListRow(
-                headline = stringResource(R.string.settings_general_content),
-                trailing = { IconChevronRight() },
-                onClick = { backStack.add(TvRoute.SettingsGeneral) },
-                modifier = Modifier.focusRequester(firstFocus),
-            )
-        }
-        item(key = "sponsorblock") {
-            TvListRow(
-                headline = stringResource(R.string.settings_sponsorblock),
-                supporting = stringResource(
-                    R.string.settings_sponsorblock_summary,
-                    blockedCount,
-                    ALL_SPONSOR_CATEGORIES.size,
-                ),
-                trailing = { IconChevronRight() },
-                onClick = { backStack.add(TvRoute.SettingsSponsorBlock) },
-            )
-        }
-        item(key = "recommendations") {
-            TvListRow(
-                headline = stringResource(R.string.label_recommendations),
-                supporting = presetSummary,
-                trailing = { IconChevronRight() },
-                onClick = { backStack.add(TvRoute.SettingsRecommendations) },
-            )
-        }
-        item(key = "data") {
-            TvListRow(
-                headline = stringResource(R.string.settings_data),
-                trailing = { IconChevronRight() },
-                onClick = { backStack.add(TvRoute.SettingsData) },
-            )
+    TvSettingsBody {
+        LazyColumn(
+            state = rememberLazyListState(),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = tvContentPadding(top = 0.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            item(key = "header") {
+                androidx.tv.material3.Text(
+                    text = stringResource(UiR.string.settings),
+                    style = androidx.tv.material3.MaterialTheme.typography.headlineLarge,
+                    color = androidx.tv.material3.MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(top = 28.dp, bottom = 16.dp),
+                )
+            }
+            item(key = "general") {
+                TvListRow(
+                    headline = stringResource(R.string.settings_general_content),
+                    trailing = { IconChevronRight() },
+                    onClick = { backStack.add(TvRoute.SettingsGeneral) },
+                    modifier = Modifier.focusRequester(firstFocus),
+                )
+            }
+            item(key = "sponsorblock") {
+                TvListRow(
+                    headline = stringResource(R.string.settings_sponsorblock),
+                    supporting = stringResource(
+                        R.string.settings_sponsorblock_summary,
+                        blockedCount,
+                        ALL_SPONSOR_CATEGORIES.size,
+                    ),
+                    trailing = { IconChevronRight() },
+                    onClick = { backStack.add(TvRoute.SettingsSponsorBlock) },
+                )
+            }
+            item(key = "recommendations") {
+                TvListRow(
+                    headline = stringResource(R.string.label_recommendations),
+                    supporting = presetSummary,
+                    trailing = { IconChevronRight() },
+                    onClick = { backStack.add(TvRoute.SettingsRecommendations) },
+                )
+            }
+            item(key = "data") {
+                TvListRow(
+                    headline = stringResource(R.string.settings_data),
+                    trailing = { IconChevronRight() },
+                    onClick = { backStack.add(TvRoute.SettingsData) },
+                )
+            }
         }
     }
 }

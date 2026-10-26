@@ -2,23 +2,12 @@ package com.vayunmathur.youpipe.tv
 
 import android.view.KeyEvent
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
 import com.vayunmathur.library.tv.MaTvTheme
 import com.vayunmathur.library.tv.TvAccent
-import com.vayunmathur.library.tv.TvIcon
-import com.vayunmathur.library.ui.IconPlay
 import com.vayunmathur.library.ui.MaActivity
 import com.vayunmathur.library.util.DataStoreUtils
 import com.vayunmathur.youpipe.DEFAULT_PAGE_KEY
-import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.data.SubscriptionRepository
 import com.vayunmathur.youpipe.util.YouPipeViewModel
 import com.vayunmathur.youpipe.util.YouPipeViewModelFactory
@@ -49,12 +38,6 @@ class TvMainActivity : MaActivity() {
         // Honor the "Open to" default page (same DataStore key + mapping the phone uses),
         // read synchronously here because this runs in onCreate before setContent.
         initialBackStack = tvDefaultBackStack(DataStoreUtils.getInstance(this).getString(DEFAULT_PAGE_KEY))
-        TvDpadInput.attach(this)
-    }
-
-    override fun onDestroy() {
-        TvDpadInput.detach(this)
-        super.onDestroy()
     }
 
     /**
@@ -78,20 +61,5 @@ class TvMainActivity : MaActivity() {
     @Composable
     override fun Content() {
         TvNavigation(youPipeViewModel, initialBackStack)
-    }
-}
-
-/** The rail brand: play glyph + "YouPipe", shown at the top of the expanded rail. */
-@Composable
-internal fun TvBrand(modifier: Modifier = Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        TvIcon { IconPlay() }
-        Text(
-            text = stringResource(R.string.app_name),
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            modifier = Modifier.padding(start = 12.dp),
-        )
     }
 }

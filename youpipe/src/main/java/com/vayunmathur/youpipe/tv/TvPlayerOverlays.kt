@@ -36,41 +36,9 @@ import com.vayunmathur.youpipe.ui.VideoInfo
 import com.vayunmathur.youpipe.ui.VideoStream
 import com.vayunmathur.youpipe.util.YouPipeViewModel
 
-/** The focusable option row: chapters / quality / language / captions / speed. */
-@Composable
-internal fun TvPlayerOptionsRow(
-    onChapters: () -> Unit,
-    onQuality: () -> Unit,
-    onLanguage: () -> Unit,
-    onCaptions: () -> Unit,
-    onSpeed: () -> Unit,
-    hasChapters: Boolean,
-    hasLanguage: Boolean,
-    hasCaptions: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        if (hasChapters) {
-            TvButton(text = stringResource(R.string.chapter), onClick = onChapters)
-        }
-        TvButton(text = stringResource(R.string.label_quality), onClick = onQuality)
-        if (hasLanguage) {
-            TvButton(text = stringResource(R.string.language), onClick = onLanguage)
-        }
-        if (hasCaptions) {
-            TvButton(text = stringResource(R.string.label_captions), onClick = onCaptions)
-        }
-        TvButton(text = stringResource(R.string.label_speed), onClick = onSpeed)
-    }
-}
-
 /**
- * Subtitle cues, buffering spinner, transport overlay, option sheets and volume flash —
- * everything drawn over the player surface. Split from [TvPlayer] (FileLength): no
- * playback logic moves, only presentation.
+ * Subtitle cues, buffering spinner, the YouTube-style control overlay, option sheets - everything
+ * drawn over the player surface. Split from [TvPlayer] (FileLength): presentation only.
  */
 @Composable
 internal fun BoxScope.TvPlayerOverlays(
@@ -101,6 +69,7 @@ internal fun BoxScope.TvPlayerOverlays(
     onShowCaptions: (Boolean) -> Unit,
     showSpeed: Boolean,
     onShowSpeed: (Boolean) -> Unit,
+    chrome: TvPlayerChrome,
 ) {
     if (cues.isNotEmpty()) {
         Column(
@@ -132,29 +101,27 @@ internal fun BoxScope.TvPlayerOverlays(
     }
 
     FadeVisibility(visible = overlayVisible) {
-        Box(Modifier.fillMaxSize()) {
-            TvTransportOverlay(
-                title = videoInfo.name,
-                author = videoInfo.author,
-                hasNext = transport.hasNext,
-                hasPrevious = transport.hasPrevious,
+        TvTransportOverlay(
+            title = videoInfo.name,
+            chrome = chrome,
+            hasNext = transport.hasNext,
+            hasPrevious = transport.hasPrevious,
+            hasCaptions = subtitles.isNotEmpty(),
+            captionsOn = selectedSubtitle != null,
+            onCaptions = { onShowCaptions(true) },
+            settings = TvPlayerSettings(
+                qualityLabel = currentVideoStream.quality,
                 speed = transport.speed,
-                ypvm = ypvm,
-                modifier = Modifier.align(Alignment.BottomCenter),
-            )
-            // Focusable option rows above the transport: chapters, quality, language, captions, speed.
-            TvPlayerOptionsRow(
-                onChapters = { onShowChapters(true) },
-                onQuality = { onShowQuality(true) },
-                onLanguage = { onShowLanguage(true) },
-                onCaptions = { onShowCaptions(true) },
-                onSpeed = { onShowSpeed(true) },
                 hasChapters = segments.isNotEmpty(),
                 hasLanguage = languageEntries.size > 1,
-                hasCaptions = subtitles.isNotEmpty(),
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 32.dp),
-            )
-        }
+                onQuality = { onShowQuality(true) },
+                onSpeed = { onShowSpeed(true) },
+                onLanguage = { onShowLanguage(true) },
+                onChapters = { onShowChapters(true) },
+            ),
+            ypvm = ypvm,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 
     if (showChapters) {
@@ -197,23 +164,6 @@ internal fun BoxScope.TvPlayerOverlays(
             },
             onDismiss = { onShowSpeed(false) },
         )
-    }
-
-    val volumeFlash by TvTransportState.volumeFlash.collectAsState()
-    volumeFlash?.let { level ->
-        Box(
-            Modifier
-                .align(Alignment.TopEnd)
-                .padding(32.dp)
-                .background(Color.Black.copy(alpha = 0.7f))
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        ) {
-            Text(
-                text = "${(level * 100).toInt()}%",
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-            )
-        }
     }
 }
 /**

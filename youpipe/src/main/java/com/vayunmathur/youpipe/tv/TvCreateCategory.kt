@@ -67,68 +67,70 @@ fun TvCreateCategoryPage(
         (id != null || categoryName !in categoryNames)
 
     TvInitialFocus(nameFocus)
-    Column(Modifier.fillMaxSize()) {
-        TvScreenHeader(
-            title = if (id == null) {
-                stringResource(R.string.title_create_subscription_category)
-            } else {
-                stringResource(R.string.title_update_subscription_category)
-            },
-            actions = {
-                TvButton(
-                    text = if (id == null) {
-                        stringResource(UiR.string.create)
-                    } else {
-                        stringResource(R.string.action_update)
-                    },
-                    onClick = {
-                        scope.launch {
-                            ypvm.replaceCategory(id, categoryName, selectedSubscriptions.map { it.id })
-                            backStack.pop()
-                        }
-                    },
-                    enabled = canConfirm,
-                    primary = true,
-                )
-            },
-        )
-        TvTextField(
-            value = categoryName,
-            onValueChange = { categoryName = it },
-            placeholder = stringResource(R.string.label_category_name),
-            focusRequester = nameFocus,
-            modifier = Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 8.dp),
-        )
-        LazyColumn(
-            state = rememberLazyListState(),
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = tvContentPadding(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            item(key = "select-label") {
-                androidx.tv.material3.Text(
-                    text = stringResource(R.string.label_select_subscriptions),
-                    style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
-                )
-            }
-            items(subscriptions, key = { it.id }) { subscription ->
-                val checked = subscription in selectedSubscriptions
-                TvListRow(
-                    headline = subscription.name.decodeHtml(),
-                    trailing = if (checked) {
-                        { IconCheck() }
-                    } else {
-                        null
-                    },
-                    selected = checked,
-                    onClick = {
-                        selectedSubscriptions = if (checked) {
-                            selectedSubscriptions - subscription
+    TvSettingsBody {
+        Column(Modifier.fillMaxSize()) {
+            TvScreenHeader(
+                title = if (id == null) {
+                    stringResource(R.string.title_create_subscription_category)
+                } else {
+                    stringResource(R.string.title_update_subscription_category)
+                },
+                actions = {
+                    TvButton(
+                        text = if (id == null) {
+                            stringResource(UiR.string.create)
                         } else {
-                            selectedSubscriptions + subscription
-                        }
-                    },
-                )
+                            stringResource(R.string.action_update)
+                        },
+                        onClick = {
+                            scope.launch {
+                                ypvm.replaceCategory(id, categoryName, selectedSubscriptions.map { it.id })
+                                backStack.pop()
+                            }
+                        },
+                        enabled = canConfirm,
+                        primary = true,
+                    )
+                },
+            )
+            TvTextField(
+                value = categoryName,
+                onValueChange = { categoryName = it },
+                placeholder = stringResource(R.string.label_category_name),
+                focusRequester = nameFocus,
+                modifier = Modifier.fillMaxWidth().padding(start = 48.dp, end = 48.dp, bottom = 8.dp),
+            )
+            LazyColumn(
+                state = rememberLazyListState(),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = tvContentPadding(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item(key = "select-label") {
+                    androidx.tv.material3.Text(
+                        text = stringResource(R.string.label_select_subscriptions),
+                        style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                    )
+                }
+                items(subscriptions, key = { it.id }) { subscription ->
+                    val checked = subscription in selectedSubscriptions
+                    TvListRow(
+                        headline = subscription.name.decodeHtml(),
+                        trailing = if (checked) {
+                            { IconCheck() }
+                        } else {
+                            null
+                        },
+                        selected = checked,
+                        onClick = {
+                            selectedSubscriptions = if (checked) {
+                                selectedSubscriptions - subscription
+                            } else {
+                                selectedSubscriptions + subscription
+                            }
+                        },
+                    )
+                }
             }
         }
     }

@@ -5,6 +5,7 @@ import android.text.format.DateUtils
 import android.view.WindowManager
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -88,13 +89,15 @@ import kotlin.math.min
  */
 @OptIn(UnstableApi::class)
 @Composable
-fun TvPlayer(
+internal fun TvPlayer(
     ypvm: YouPipeViewModel,
     videoInfo: VideoInfo,
     videoStreams: List<VideoStream>,
     audioStreams: List<AudioStream>,
     subtitles: List<SubtitleTrack>,
     segments: List<VideoChapter>,
+    startPositionMs: Long,
+    chrome: TvPlayerChrome,
 ) {
     if (videoStreams.isEmpty()) return
     val context = LocalContext.current
@@ -181,6 +184,9 @@ fun TvPlayer(
     }
 
     // Media item: same extras contract (audio URI + itag) the SABR source resolves in-process.
+    // The first load starts at the resume point; a later reload (quality, language, captions)
+    // keeps the current position instead of restarting the video.
+    var started by remember(videoInfo.videoID) { mutableStateOf(false) }
     LaunchedEffect(controller, currentVideoStream, currentAudioStream, videoInfo.name, subtitles) {
         val player = controller ?: return@LaunchedEffect
         val metadata = MediaMetadata.Builder()
@@ -199,7 +205,9 @@ fun TvPlayer(
                 },
             )
             .build()
-        player.setMediaItem(item)
+        val startAt = if (started) player.currentPosition.coerceAtLeast(0L) else startPositionMs
+        started = true
+        player.setMediaItem(item, startAt)
         player.prepare()
         player.play()
     }
@@ -257,7 +265,12 @@ fun TvPlayer(
         controller?.playbackParameters = PlaybackParameters(transport.speed, pitch)
     }
 
-    // BACK dismisses the topmost overlay first: chapter sheet, then menus, then transport.
+    // BACK dismisses the topmost overlay first: option sheets, then the controls.
+    val anySheet = showChapters || showQuality || showLanguage || showCaptions || showSpeed
+    DisposableEffect(anySheet) {
+        TvDpadInput.sheetOpen = anySheet
+        onDispose { TvDpadInput.sheetOpen = false }
+    }
     DisposableEffect(showChapters, showQuality, showLanguage, showCaptions, showSpeed, overlayVisible) {
         TvDpadInput.overlayDismiss = {
             when {
@@ -293,7 +306,7 @@ fun TvPlayer(
                 modifier = Modifier
                     .fillMaxSize()
                     .focusRequester(focusRequester)
-                    .onFocusChanged { TvDpadInput.playerFocused = it.isFocused },
+                    .focusable(),
                 surfaceType = SURFACE_TYPE_SURFACE_VIEW,
             )
         } ?: Box(Modifier.fillMaxSize().background(Color.Black))
@@ -326,6 +339,7 @@ fun TvPlayer(
             onShowCaptions = { showCaptions = it },
             showSpeed = showSpeed,
             onShowSpeed = { showSpeed = it },
+            chrome = chrome,
         )
     }
 }

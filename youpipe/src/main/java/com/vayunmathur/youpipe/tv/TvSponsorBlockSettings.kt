@@ -37,20 +37,22 @@ fun TvSponsorBlockSettingsPage(
     val firstFocus = remember { FocusRequester() }
 
     TvInitialFocus(firstFocus)
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        TvScreenHeader(title = stringResource(R.string.settings_sponsorblock))
-        Column(
-            Modifier.padding(start = 48.dp, end = 48.dp, bottom = 44.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ALL_SPONSOR_CATEGORIES.forEachIndexed { index, category ->
-                TvSwitchRow(
-                    headline = YouPipeViewModel.Companion.SPONSOR_CATEGORY_LABELS[category]
-                        ?: category,
-                    checked = category in sponsorBlockCategories,
-                    onCheckedChange = { ypvm.toggleSponsorBlockCategory(category) },
-                    modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
-                )
+    TvSettingsBody {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            TvScreenHeader(title = stringResource(R.string.settings_sponsorblock))
+            Column(
+                Modifier.padding(start = 48.dp, end = 48.dp, bottom = 44.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ALL_SPONSOR_CATEGORIES.forEachIndexed { index, category ->
+                    TvSwitchRow(
+                        headline = YouPipeViewModel.Companion.SPONSOR_CATEGORY_LABELS[category]
+                            ?: category,
+                        checked = category in sponsorBlockCategories,
+                        onCheckedChange = { ypvm.toggleSponsorBlockCategory(category) },
+                        modifier = if (index == 0) Modifier.focusRequester(firstFocus) else Modifier,
+                    )
+                }
             }
         }
     }

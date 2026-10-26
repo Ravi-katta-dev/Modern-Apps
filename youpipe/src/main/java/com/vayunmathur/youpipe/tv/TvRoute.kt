@@ -22,12 +22,13 @@ sealed interface TvRoute : NavKey {
     @Serializable
     data object Search : TvRoute
 
+    /** Details for one video: description, chapters, related, comments. Opened from the player. */
     @Serializable
     data class Video(val videoID: Long) : TvRoute
 
-    /** Fullscreen playback for one video. Pushed from detail/hero Play; BACK returns. */
+    /** Fullscreen playback for one video - what selecting any video opens. BACK returns. */
     @Serializable
-    data class VideoPlayerRoute(val videoID: Long, val resume: Boolean = false) : TvRoute
+    data class VideoPlayerRoute(val videoID: Long) : TvRoute
 
     @Serializable
     data class Channel(val channelID: String) : TvRoute

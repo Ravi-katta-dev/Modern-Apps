@@ -4,9 +4,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -24,10 +21,10 @@ import com.vayunmathur.library.image.ImageRequest
 import com.vayunmathur.library.image.compose.AsyncImage
 import com.vayunmathur.library.tv.TvButton
 import com.vayunmathur.library.tv.TvEmptyState
+import com.vayunmathur.library.tv.TvGrid
 import com.vayunmathur.library.tv.TvInitialFocus
 import com.vayunmathur.library.tv.TvLoading
 import com.vayunmathur.library.tv.TvScreenHeader
-import com.vayunmathur.library.tv.tvContentPadding
 import com.vayunmathur.library.util.NavBackStack
 import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.data.Subscription
@@ -36,7 +33,7 @@ import com.vayunmathur.youpipe.util.YouPipeViewModel
 import com.vayunmathur.youpipe.util.decodeHtml
 
 /**
- * TV channel page: avatar header + subscribe button + video grid.
+ * TV channel page: avatar header + subscribe button + 4-column video grid.
  *
  * Mirrors the phone `ChannelPage` binding (`loadChannel`, subscriptions for membership).
  * The header and subscribe button are stacked focus targets — not a scrolling collapse —
@@ -117,19 +114,12 @@ fun TvChannelPage(
         when {
             channelInfo == null -> TvLoading()
             rows.isEmpty() -> TvEmptyState(title = stringResource(R.string.empty_recommendations))
-            else -> LazyVerticalGrid(
-                columns = GridCells.Fixed(TV_GRID_COLUMNS),
-                state = rememberLazyGridState(),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = tvContentPadding(top = 14.dp),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(28.dp),
-                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(20.dp),
-            ) {
+            else -> TvGrid(columns = TV_GRID_COLUMNS, modifier = Modifier.fillMaxSize()) {
                 items(rows.size, key = { rows[it].row.videoID }) { index ->
                     val item = rows[index]
                     TvVideoCard(
                         item = item,
-                        onOpen = { backStack.add(TvRoute.Video(item.row.videoID)) },
+                        onOpen = { backStack.playVideo(item.row.videoID) },
                     )
                 }
             }

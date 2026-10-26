@@ -42,12 +42,13 @@ fun TvCreatePlaylistPage(
     val canCreate = name.isNotBlank() && allPlaylists.none { it.name == name.trim() }
 
     TvInitialFocus(createFocus)
-    Column(Modifier.fillMaxSize()) {
-        TvScreenHeader(title = stringResource(R.string.title_create_playlist))
-        Column(
-            Modifier.padding(start = 48.dp, end = 48.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
+    TvSettingsBody {
+        Column(Modifier.fillMaxSize()) {
+            TvScreenHeader(title = stringResource(R.string.title_create_playlist))
+            Column(
+                Modifier.padding(start = 48.dp, end = 48.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
             TvTextField(
                 value = name,
                 onValueChange = { name = it },
@@ -77,6 +78,7 @@ fun TvCreatePlaylistPage(
                     text = stringResource(UiR.string.cancel),
                     onClick = { backStack.pop() },
                 )
+            }
             }
         }
     }

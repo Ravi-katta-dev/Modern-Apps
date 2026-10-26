@@ -4,6 +4,7 @@ import android.webkit.WebView
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -17,16 +18,13 @@ import com.vayunmathur.library.image.ImageRequest
 import com.vayunmathur.library.image.compose.AsyncImage
 import com.vayunmathur.library.tv.TvButton
 import com.vayunmathur.library.tv.TvDialog
-import com.vayunmathur.library.tv.TvDimens
 import com.vayunmathur.library.tv.TvMediaCard
-import com.vayunmathur.library.tv.TvSectionTitle
-import com.vayunmathur.library.tv.tvContentStart
 import com.vayunmathur.youpipe.R
 import com.vayunmathur.youpipe.ui.Comment
 import com.vayunmathur.youpipe.ui.LinkifiedText
 import com.vayunmathur.youpipe.ui.VideoChapter
 
-/** One chapter: preview art + title + timestamp, seeking on press. */
+/** One chapter: preview art + title + timestamp, seeking on press. Fills its grid cell. */
 @Composable
 internal fun TvChapterCard(
     chapter: VideoChapter,
@@ -37,7 +35,6 @@ internal fun TvChapterCard(
     TvMediaCard(
         onClick = onClick,
         modifier = modifier,
-        width = 280.dp,
         title = chapter.title,
         subtitle = android.text.format.DateUtils.formatElapsedTime(chapter.time.toLong() / 1000),
         image = {
@@ -92,9 +89,13 @@ internal const val TV_VIDEO_COMMENTS_COUNT = 20
 @Composable
 internal fun TvVideoComments(comments: List<Comment>, modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
-    Column(modifier) {
-        TvSectionTitle(text = stringResource(R.string.label_comments), modifier = Modifier.padding(top = 8.dp))
-        Column(Modifier.padding(start = tvContentStart(), end = TvDimens.SafeHorizontal, top = 8.dp)) {
+    Column(modifier.widthIn(max = 900.dp)) {
+        Text(
+            text = stringResource(R.string.label_comments),
+            style = MaterialTheme.typography.titleLarge,
+            color = scheme.onSurface,
+        )
+        Column(Modifier.padding(top = 8.dp)) {
             comments.take(TV_VIDEO_COMMENTS_COUNT).forEach { comment ->
                 Column(Modifier.padding(vertical = 8.dp)) {
                     Text(
@@ -102,7 +103,11 @@ internal fun TvVideoComments(comments: List<Comment>, modifier: Modifier = Modif
                         style = MaterialTheme.typography.titleSmall,
                         color = scheme.onSurface,
                     )
-                    val likes = pluralStringResource(R.plurals.tv_comment_likes, comment.likes, comment.likes.toString())
+                    val likes = pluralStringResource(
+                        R.plurals.tv_comment_likes,
+                        comment.likes,
+                        comment.likes.toString(),
+                    )
                     LinkifiedText(
                         text = "$likes  •  ${comment.text}",
                         style = MaterialTheme.typography.bodyMedium.copy(color = scheme.onSurfaceVariant),

@@ -3,10 +3,6 @@ package com.vayunmathur.youpipe.tv
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -17,16 +13,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.vayunmathur.library.tv.TvButton
 import com.vayunmathur.library.tv.TvDialog
 import com.vayunmathur.library.tv.TvEmptyState
+import com.vayunmathur.library.tv.TvGrid
 import com.vayunmathur.library.tv.TvInitialFocus
 import com.vayunmathur.library.tv.TvScreenHeader
-import com.vayunmathur.library.tv.tvContentPadding
 import com.vayunmathur.library.ui.IconDelete
 import com.vayunmathur.library.ui.IconPlay
 import com.vayunmathur.library.ui.R as UiR
@@ -36,7 +30,7 @@ import com.vayunmathur.youpipe.util.YouPipeViewModel
 
 /**
  * TV playlist detail: header (title, count, play-all, delete) + a 4-column grid of
- * [TvSelectableCard]s with D-pad multiselect for removal.
+ * thumbnails with D-pad multiselect for removal.
  *
  * The phone combines long-press selection with drag-handle reorder. Neither exists on a
  * TV: CENTER opens, long-press toggles selection as a fallback, and removal is a header
@@ -104,11 +98,10 @@ fun TvPlaylistDetailPage(
                         TvButton(
                             text = stringResource(UiR.string.play),
                             onClick = {
-                                backStack.add(TvRoute.Video(playlistItems.first().videoItem.videoID))
+                                backStack.playVideo(playlistItems.first().videoItem.videoID)
                             },
                             icon = { IconPlay() },
                             primary = true,
-                            modifier = Modifier.focusRequester(firstFocus),
                         )
                     }
                     if (!mandatory && playlist != null) {
@@ -125,14 +118,7 @@ fun TvPlaylistDetailPage(
             TvEmptyState(title = stringResource(R.string.playlist_empty))
             return@Column
         }
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(TV_GRID_COLUMNS),
-            state = rememberLazyGridState(),
-            modifier = Modifier.fillMaxSize().padding(top = 8.dp),
-            contentPadding = tvContentPadding(),
-            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(28.dp),
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(20.dp),
-        ) {
+        TvGrid(columns = TV_GRID_COLUMNS, modifier = Modifier.fillMaxSize().weight(1f)) {
             items(playlistItems.size, key = { playlistItems[it].id }) { index ->
                 val item = playlistItems[index]
                 val row = rowByVideoId[item.videoItem.videoID]
@@ -142,7 +128,7 @@ fun TvPlaylistDetailPage(
                         item = row,
                         selected = isSelected,
                         inSelectionMode = isSelectionMode,
-                        onOpen = { backStack.add(TvRoute.Video(item.videoItem.videoID)) },
+                        onOpen = { backStack.playVideo(item.videoItem.videoID) },
                         onToggleSelect = {
                             if (isSelected) selectedIds.remove(item.id)
                             else selectedIds.add(item.id)
@@ -172,7 +158,6 @@ fun TvPlaylistDetailPage(
                     onClick = { confirmDelete = false },
                 )
             },
-            content = {},
         )
     }
 }

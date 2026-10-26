@@ -109,7 +109,6 @@ private fun TvRailHost(
         destinations = destinations,
         selected = rail,
         onSelect = { rail = it },
-        brand = { TvBrand() },
         // This frame is always the bottom of the TV stack: BACK from content returns to
         // the rail, and BACK from the rail exits (the activity finishes).
         backReturnsToRail = backStack.backStack.size <= 1,
