@@ -1,62 +1,59 @@
 package com.vayunmathur.uniflix.ui.tv
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.vayunmathur.library.image.compose.AsyncImage
-import com.vayunmathur.library.tv.TvBackdrop
-import com.vayunmathur.library.tv.TvDimens
+import com.vayunmathur.library.tv.TvButton
 import com.vayunmathur.library.tv.TvEmptyState
-import com.vayunmathur.library.tv.TvHeroText
+import com.vayunmathur.library.tv.TvGrid
 import com.vayunmathur.library.tv.TvInitialFocus
 import com.vayunmathur.library.tv.TvLoading
-import com.vayunmathur.library.tv.TvShelf
-import com.vayunmathur.library.tv.tvContentStart
+import com.vayunmathur.library.tv.tvFullWidth
+import com.vayunmathur.library.tv.tvGridHeader
 import com.vayunmathur.uniflix.R
 import com.vayunmathur.uniflix.data.ContinueWatchingEntry
 import com.vayunmathur.uniflix.domain.MediaItem
 import com.vayunmathur.uniflix.platform.HomeViewModel
 
+private const val HOME_COLUMNS = 6
+
+/** Home sections at most this many items each (i.e. two poster rows). */
+private const val HOME_SECTION_MAX = HOME_COLUMNS * 2
+
+/** Continue-watching cards at most this many (one landscape row). */
+private const val HOME_CONTINUE_MAX = 3
+
 /**
- * TV home: an immersive hero following the focused title, with content shelves below.
- *
- * The backdrop crossfades to whatever holds focus; the hero names it (eyebrow, title,
- * year • rating • type, overview) and the shelves open detail on CENTER. Same rows as
- * the phone home, plus the resume rail on top.
+ * TV home: one scrolling grid mirroring the phone sections — Continue watching
+ * first (landscape cards spanning 2 cells each), then two rows of posters per
+ * catalog section with a "See all" action that opens the tab or a grid page.
  */
 @Composable
 fun TvHomeTab(
     onOpenDetail: (MediaItem) -> Unit,
     onResume: (ContinueWatchingEntry) -> Unit,
+    onOpenGrid: (kind: String) -> Unit,
+    onOpenTab: (tab: Int) -> Unit,
 ) {
     val vm: HomeViewModel = viewModel()
     val state = vm.state
     val entries by vm.continueWatching.collectAsState(initial = emptyList())
 
-    var focusedItem by remember { mutableStateOf<MediaItem?>(null) }
-    var focusedEyebrow by remember { mutableStateOf<String?>(null) }
+    val seeAll = stringResource(R.string.see_all)
+    val continueTitle = stringResource(R.string.continue_watching)
+    val trendingMoviesTitle = stringResource(R.string.trending_movies)
+    val trendingSeriesTitle = stringResource(R.string.trending_series)
+    val topMoviesTitle = stringResource(R.string.top_rated_movies)
+    val topSeriesTitle = stringResource(R.string.top_rated_series)
     val firstFocus = remember { FocusRequester() }
-    val resumeLabel = stringResource(R.string.continue_watching)
-    val trendingLabel = stringResource(R.string.trending)
-    val topRatedLabel = stringResource(R.string.top_rated)
-
     val firstKey = when {
         entries.isNotEmpty() -> "cw:${entries.first().key}"
         state.trendingMovies.isNotEmpty() -> mediaKey(state.trendingMovies.first())
@@ -69,127 +66,112 @@ fun TvHomeTab(
 
     val empty = entries.isEmpty() && state.trendingMovies.isEmpty() && state.trendingTv.isEmpty() &&
         state.topMovies.isEmpty() && state.topTv.isEmpty()
-    val heroItem = focusedItem
-        ?: entries.firstOrNull()?.toMediaItem()
-        ?: state.trendingMovies.firstOrNull()
-        ?: state.trendingTv.firstOrNull()
-    val heroEyebrow = focusedEyebrow ?: if (entries.isNotEmpty()) resumeLabel else trendingLabel
-
-    val trendingMoviesTitle = stringResource(R.string.trending_movies)
-    val trendingSeriesTitle = stringResource(R.string.trending_series)
-    val topMoviesTitle = stringResource(R.string.top_rated_movies)
-    val topSeriesTitle = stringResource(R.string.top_rated_series)
-
-    Box(Modifier.fillMaxSize()) {
-        TvBackdrop(key = heroItem) { item ->
-            val url = item?.let(::heroArtwork)
-            if (url != null) {
-                AsyncImage(
-                    model = url,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
+    if (state.loading && empty) {
+        TvLoading()
+        return
+    }
+    if (empty) {
+        TvEmptyState(title = stringResource(R.string.no_results))
+        return
+    }
+    TvGrid(columns = HOME_COLUMNS) {
+        if (entries.isNotEmpty()) {
+            tvGridHeader(
+                key = "hdr-continue",
+                title = continueTitle,
+                first = true,
+                action = {
+                    TvButton(text = seeAll, onClick = { onOpenGrid(TV_GRID_CONTINUE) })
+                },
+            )
+            items(
+                entries.take(HOME_CONTINUE_MAX),
+                key = { "cw:${it.key}" },
+                span = { GridItemSpan(2) },
+            ) { entry ->
+                ContinueEntryCard(
+                    entry = entry,
+                    onResume = { onResume(entry) },
+                    modifier = Modifier.focusIf("cw:${entry.key}", firstKey, firstFocus),
                 )
             }
         }
-        if (state.loading && empty) {
-            TvLoading()
-            return@Box
-        }
-        if (empty) {
-            TvEmptyState(title = stringResource(R.string.no_results))
-            return@Box
-        }
-        Column(Modifier.fillMaxSize()) {
-            Column(
-                Modifier.fillMaxWidth().weight(0.52f)
-                    .padding(
-                        start = tvContentStart(),
-                        end = TvDimens.SafeHorizontal,
-                        top = TvDimens.SafeVertical,
-                        bottom = 8.dp,
-                    ),
-                verticalArrangement = Arrangement.Bottom,
-            ) {
-                if (heroItem != null) {
-                    TvHeroText(
-                        title = heroItem.title,
-                        eyebrow = heroEyebrow,
-                        meta = heroMeta(heroItem),
-                        description = heroItem.overview.ifBlank { null },
-                        descriptionLines = 3,
-                    )
-                }
-            }
-            LazyColumn(Modifier.fillMaxWidth().weight(0.48f)) {
-                if (entries.isNotEmpty()) {
-                    item(key = "shelf-continue") {
-                        TvShelf(title = resumeLabel) {
-                            items(entries, key = { "cw:${it.key}" }) { entry ->
-                                ContinueEntryCard(
-                                    entry = entry,
-                                    onResume = { onResume(entry) },
-                                    modifier = focusIf("cw:${entry.key}", firstKey, firstFocus),
-                                    onFocus = {
-                                        focusedItem = entry.toMediaItem()
-                                        focusedEyebrow = resumeLabel
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
-                catalogShelf(
-                    key = "shelf-trending-movies",
-                    title = trendingMoviesTitle,
-                    eyebrow = trendingLabel,
-                    items = state.trendingMovies,
-                    firstKey = firstKey,
-                    firstFocus = firstFocus,
-                    onFocus = { focusedItem = it; focusedEyebrow = trendingLabel },
-                    onOpenDetail = onOpenDetail,
-                )
-                catalogShelf(
-                    key = "shelf-trending-tv",
-                    title = trendingSeriesTitle,
-                    eyebrow = trendingLabel,
-                    items = state.trendingTv,
-                    firstKey = firstKey,
-                    firstFocus = firstFocus,
-                    onFocus = { focusedItem = it; focusedEyebrow = trendingLabel },
-                    onOpenDetail = onOpenDetail,
-                )
-                catalogShelf(
-                    key = "shelf-top-movies",
-                    title = topMoviesTitle,
-                    eyebrow = topRatedLabel,
-                    items = state.topMovies,
-                    firstKey = firstKey,
-                    firstFocus = firstFocus,
-                    onFocus = { focusedItem = it; focusedEyebrow = topRatedLabel },
-                    onOpenDetail = onOpenDetail,
-                )
-                catalogShelf(
-                    key = "shelf-top-tv",
-                    title = topSeriesTitle,
-                    eyebrow = topRatedLabel,
-                    items = state.topTv,
-                    firstKey = firstKey,
-                    firstFocus = firstFocus,
-                    onFocus = { focusedItem = it; focusedEyebrow = topRatedLabel },
-                    onOpenDetail = onOpenDetail,
-                )
-            }
-        }
+        posterSection(
+            key = "trending-movies",
+            items = state.trendingMovies,
+            title = trendingMoviesTitle,
+            first = entries.isEmpty(),
+            firstKey = firstKey,
+            firstFocus = firstFocus,
+            seeAll = seeAll,
+            onSeeAll = { onOpenTab(TV_TAB_MOVIES) },
+            onOpenDetail = onOpenDetail,
+        )
+        posterSection(
+            key = "trending-tv",
+            items = state.trendingTv,
+            title = trendingSeriesTitle,
+            first = false,
+            firstKey = firstKey,
+            firstFocus = firstFocus,
+            seeAll = seeAll,
+            onSeeAll = { onOpenTab(TV_TAB_SHOWS) },
+            onOpenDetail = onOpenDetail,
+        )
+        posterSection(
+            key = "top-movies",
+            items = state.topMovies,
+            title = topMoviesTitle,
+            first = false,
+            firstKey = firstKey,
+            firstFocus = firstFocus,
+            seeAll = seeAll,
+            onSeeAll = { onOpenGrid(TV_GRID_TOP_MOVIES) },
+            onOpenDetail = onOpenDetail,
+        )
+        posterSection(
+            key = "top-tv",
+            items = state.topTv,
+            title = topSeriesTitle,
+            first = false,
+            firstKey = firstKey,
+            firstFocus = firstFocus,
+            seeAll = seeAll,
+            onSeeAll = { onOpenGrid(TV_GRID_TOP_TV) },
+            onOpenDetail = onOpenDetail,
+        )
+        // Phantom anchor: a second-frame double-layout pass can replay remembered
+        // offsets below the last item and strand focus there; a trailing span
+        // keeps the grid's line count honest.
+        tvFullWidth(key = "end-anchor") {}
     }
 }
 
-/** Year • rating • type line for a hero. Rating hides when TMDB has none. */
-@Composable
-internal fun heroMeta(item: MediaItem): List<String> {
-    val meta = mutableListOf<String>()
-    item.year?.let { meta += it.toString() }
-    if (item.voteAverage > 0) meta += stringResource(R.string.rating_value, item.voteAverage)
-    meta += typeName(item.mediaType)
-    return meta
+private fun LazyGridScope.posterSection(
+    key: String,
+    items: List<MediaItem>,
+    title: String,
+    first: Boolean,
+    firstKey: String?,
+    firstFocus: FocusRequester,
+    seeAll: String,
+    onSeeAll: () -> Unit,
+    onOpenDetail: (MediaItem) -> Unit,
+) {
+    if (items.isEmpty()) return
+    tvGridHeader(
+        key = "hdr-$key",
+        title = title,
+        first = first,
+        action = { TvButton(text = seeAll, onClick = onSeeAll) },
+    )
+    items(items.take(HOME_SECTION_MAX), key = { "$key:${mediaKey(it)}" }) { item ->
+        val itemKey = mediaKey(item)
+        MediaPosterCard(
+            item = item,
+            onOpen = { onOpenDetail(item) },
+            modifier = Modifier.focusIf(itemKey, firstKey, firstFocus),
+        )
+    }
 }
+

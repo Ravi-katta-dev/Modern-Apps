@@ -23,7 +23,9 @@
     <string name="runtime_minutes">%1$d min</string>
     <string name="season_name">Season %1$d</string>
     <string name="episode_badge">E%1$d</string>
+    <string name="episode_title">E%1$d · %2$s</string>
     <string name="resume_badge">S%1$d E%2$d</string>
+    <string name="see_all">See all</string>
     <string name="add_to_my_list">Add to My List</string>
     <string name="in_my_list">In My List</string>
     <string name="add_to_list">Add to list</string>
@@ -37,9 +39,10 @@
     <string name="no_addons_title">No stream addons installed</string>
     <string name="no_addons_body">Add one to watch this title.</string>
     <string name="open_addon_manager">Open addon manager</string>
-    <string name="addons_explainer">Addons supply streams. Uniflix ships none — paste an addon URL to watch.</string>
+    <string name="addons_explainer">Addons supply streams. Uniflix ships none — paste an addon URL or import a .js plugin to watch.</string>
     <string name="no_addons_yet">No stream addons yet. Add one to enable playback.</string>
     <string name="add_addon">Add addon</string>
+    <string name="import_js">Import .js</string>
     <string name="addon_url_hint">Addon URL</string>
     <string name="addon_url_example">Paste the addon manifest URL, e.g. https://example.com/manifest.json</string>
     <string name="refresh_all">Refresh all</string>
@@ -47,7 +50,11 @@
     <string name="refresh">Refresh</string>
     <string name="remove_addon">Remove addon</string>
     <string name="enabled">Enabled</string>
+    <string name="disabled">Disabled</string>
+    <string name="error_badge">Error</string>
+    <string name="js_plugin">JS plugin</string>
     <string name="default_addon">Default addon</string>
+    <string name="default_addon_short">Default</string>
     <string name="version_label">Version</string>
     <string name="manifest_label">Manifest</string>
     <string name="last_error_label">Last error</string>

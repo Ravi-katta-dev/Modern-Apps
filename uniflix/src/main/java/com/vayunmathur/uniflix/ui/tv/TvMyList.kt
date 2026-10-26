@@ -1,38 +1,35 @@
 package com.vayunmathur.uniflix.ui.tv
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.vayunmathur.library.tv.TvEmptyState
+import com.vayunmathur.library.tv.TvGrid
 import com.vayunmathur.library.tv.TvInitialFocus
-import com.vayunmathur.library.tv.TvScreenHeader
-import com.vayunmathur.library.tv.TvSectionTitle
-import com.vayunmathur.library.tv.TvShelf
+import com.vayunmathur.library.tv.tvFullWidth
+import com.vayunmathur.library.tv.tvGridHeader
 import com.vayunmathur.uniflix.R
 import com.vayunmathur.uniflix.data.ContinueWatchingEntry
-import com.vayunmathur.uniflix.data.UserList
 import com.vayunmathur.uniflix.data.UserListItem
 import com.vayunmathur.uniflix.domain.MediaItem
 import com.vayunmathur.uniflix.domain.MediaType
 import com.vayunmathur.uniflix.platform.HomeViewModel
 import com.vayunmathur.uniflix.platform.ListsViewModel
+import kotlinx.coroutines.launch
 
 /**
- * TV My List: watchlist posters, the resume shelf, and user lists — shelves for
- * short collections, drunk on the same ViewModels the phone screens use.
+ * TV My List: one scrolling grid mirroring the phone list sections —
+ * continue watching, watchlist, then each user list with its titles.
+ * List creation stays on the phone; here lists are browse-and-open.
  */
 @Composable
 fun TvMyListTab(
@@ -45,6 +42,15 @@ fun TvMyListTab(
     val entries by homeVm.continueWatching.collectAsState(initial = emptyList())
     val lists by listsVm.lists.collectAsState(initial = emptyList())
 
+    // Per-list items: one collector per list, restarted whenever the list set changes.
+    val itemsByList = remember { mutableStateMapOf<Long, List<UserListItem>>() }
+    LaunchedEffect(lists.map { it.id }) {
+        itemsByList.keys.retainAll(lists.map { it.id }.toSet())
+        lists.forEach { list ->
+            launch { listsVm.items(list.id).collect { itemsByList[list.id] = it } }
+        }
+    }
+
     val firstFocus = remember { FocusRequester() }
     val firstKey = when {
         entries.isNotEmpty() -> "cw:${entries.first().key}"
@@ -54,84 +60,74 @@ fun TvMyListTab(
     }
     TvInitialFocus(firstFocus, key = firstKey)
 
-    Column(Modifier.fillMaxSize()) {
-        TvScreenHeader(title = stringResource(R.string.my_list))
-        if (entries.isEmpty() && watchlist.isEmpty() && lists.isEmpty()) {
-            TvEmptyState(title = stringResource(R.string.no_results))
-            return@Column
-        }
-        LazyColumn(Modifier.fillMaxSize()) {
-            if (entries.isNotEmpty()) {
-                item(key = "shelf-continue") {
-                    TvShelf(title = stringResource(R.string.continue_watching)) {
-                        items(entries, key = { "cw:${it.key}" }) { entry ->
-                            ContinueEntryCard(
-                                entry = entry,
-                                onResume = { onResume(entry) },
-                                modifier = focusIf("cw:${entry.key}", firstKey, firstFocus),
-                            )
-                        }
-                    }
-                }
-            }
-            if (watchlist.isNotEmpty()) {
-                item(key = "shelf-watchlist") {
-                    TvShelf(title = stringResource(R.string.watchlist)) {
-                        items(watchlist, key = { "wl:${it.key}" }) { row ->
-                            val item = row.toMediaItem()
-                            MediaPosterCard(
-                                item = item,
-                                onOpen = { onOpenDetail(item) },
-                                modifier = focusIf("wl:${row.key}", firstKey, firstFocus),
-                            )
-                        }
-                    }
-                }
-            }
-            items(lists, key = { "list:${it.id}" }) { list ->
-                TvUserListShelf(
-                    list = list,
-                    firstKey = firstKey,
-                    firstFocus = firstFocus,
-                    onOpenDetail = onOpenDetail,
+    if (entries.isEmpty() && watchlist.isEmpty() && lists.isEmpty()) {
+        TvEmptyState(
+            title = stringResource(R.string.lists_empty),
+            body = stringResource(R.string.empty_list_hint),
+        )
+        return
+    }
+    val continueTitle = stringResource(R.string.continue_watching)
+    val watchlistTitle = stringResource(R.string.watchlist)
+    TvGrid(columns = 6) {
+        var headerShown = false
+        if (entries.isNotEmpty()) {
+            tvGridHeader(
+                key = "hdr-continue",
+                title = continueTitle,
+                first = true,
+            )
+            headerShown = true
+            items(
+                entries.take(6),
+                key = { "cw:${it.key}" },
+                span = { GridItemSpan(2) },
+            ) { entry ->
+                ContinueEntryCard(
+                    entry = entry,
+                    onResume = { onResume(entry) },
+                    modifier = Modifier.focusIf("cw:${entry.key}", firstKey, firstFocus),
                 )
             }
         }
-    }
-}
-
-/** One user list as a shelf of posters. */
-@Composable
-internal fun TvUserListShelf(
-    list: UserList,
-    firstKey: String?,
-    firstFocus: FocusRequester,
-    onOpenDetail: (MediaItem) -> Unit,
-) {
-    val listsVm: ListsViewModel = viewModel()
-    val items by listsVm.items(list.id).collectAsState(initial = emptyList())
-    if (items.isEmpty()) return
-    Column(Modifier.fillMaxWidth()) {
-        TvSectionTitle(list.name)
-        TvShelf(title = null) {
-            items(items, key = { "li:${it.id}" }) { row ->
-                val item = row.toListItem()
+        if (watchlist.isNotEmpty()) {
+            tvGridHeader(
+                key = "hdr-watchlist",
+                title = watchlistTitle,
+                first = !headerShown,
+            )
+            headerShown = true
+            items(watchlist, key = { "wl:${it.key}" }) { row ->
+                val item = row.toMediaItem()
                 MediaPosterCard(
                     item = item,
                     onOpen = { onOpenDetail(item) },
-                    modifier = focusIf("li:${row.id}", firstKey, firstFocus),
+                    modifier = Modifier.focusIf("wl:${row.key}", firstKey, firstFocus),
                 )
             }
         }
+        lists.forEach { list ->
+            val listItems = itemsByList[list.id].orEmpty()
+            if (listItems.isEmpty()) return@forEach
+            tvGridHeader(key = "hdr-list-${list.id}", title = list.name, first = !headerShown)
+            headerShown = true
+            items(listItems, key = { "li:${it.id}" }) { row ->
+                val item = row.toMediaItem()
+                MediaPosterCard(
+                    item = item,
+                    onOpen = { onOpenDetail(item) },
+                    modifier = Modifier.focusIf("li:${row.id}", firstKey, firstFocus),
+                )
+            }
+        }
+        tvFullWidth(key = "end-anchor") {}
     }
 }
 
-internal fun focusIf(key: String, firstKey: String?, firstFocus: FocusRequester): Modifier =
-    if (key == firstKey) Modifier.focusRequester(firstFocus) else Modifier
-
-private fun UserListItem.toListItem(): MediaItem = MediaItem(
+private fun UserListItem.toMediaItem(): MediaItem = MediaItem(
     tmdbId = tmdbId,
     mediaType = if (mediaType == "tv") MediaType.TV else MediaType.MOVIE,
     title = title,
     posterPath = posterPath,
 )
+

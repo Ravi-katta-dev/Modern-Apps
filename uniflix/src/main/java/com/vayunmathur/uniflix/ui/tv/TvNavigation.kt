@@ -1,23 +1,14 @@
 package com.vayunmathur.uniflix.ui.tv
 
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
 import com.vayunmathur.library.tv.TvAppFrame
 import com.vayunmathur.library.tv.TvDestination
-import com.vayunmathur.library.tv.TvIcon
 import com.vayunmathur.library.ui.IconHome
 import com.vayunmathur.library.ui.IconList
 import com.vayunmathur.library.ui.IconMovie
@@ -47,6 +38,9 @@ fun TvNavigation() {
         entry<TvRoute.Detail> { route ->
             TvDetailPage(backStack, route.mediaType, route.tmdbId)
         }
+        entry<TvRoute.Grid> { route ->
+            TvGridPage(backStack, route.kind)
+        }
         entry<TvRoute.Watch>(metadata = FullscreenPage()) { route ->
             TvWatchPage(backStack, route.mediaType, route.tmdbId, route.season, route.episode)
         }
@@ -75,7 +69,6 @@ private fun TvMainTabs(backStack: NavBackStack<TvRoute>, initialTab: Int) {
         destinations = railDestinations(),
         selected = tab,
         onSelect = { tab = it },
-        brand = { TvBrand() },
         backReturnsToRail = backStack.backStack.size <= 1,
     ) {
         when (tab) {
@@ -87,6 +80,8 @@ private fun TvMainTabs(backStack: NavBackStack<TvRoute>, initialTab: Int) {
                 onResume = { entry ->
                     backStack.add(TvRoute.Watch(entry.mediaType, entry.tmdbId, entry.season, entry.episode))
                 },
+                onOpenGrid = { kind -> backStack.add(TvRoute.Grid(kind)) },
+                onOpenTab = { tab = it },
             )
             TV_TAB_MOVIES -> TvBrowseTab(
                 mediaType = MediaType.MOVIE,
@@ -125,23 +120,6 @@ private fun railDestinations(): List<TvDestination> {
             TvDestination(shows, { IconTv() }),
             TvDestination(myList, { IconList() }),
             TvDestination(addons, { IconWidgets() }),
-        )
-    }
-}
-
-/** The rail brand: movie glyph + Uniflix wordmark, revealed as the rail expands. */
-@Composable
-private fun TvBrand() {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        TvIcon { IconMovie() }
-        Text(
-            text = stringResource(R.string.app_name),
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Clip,
-            modifier = Modifier.padding(start = 16.dp),
         )
     }
 }

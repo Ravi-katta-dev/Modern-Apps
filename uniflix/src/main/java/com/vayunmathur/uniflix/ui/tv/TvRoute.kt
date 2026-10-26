@@ -31,8 +31,18 @@ sealed interface TvRoute : NavKey {
 
     @Serializable
     data class AddonDetail(val addonDbId: Long) : TvRoute
+
+    /** A full grid page reached from a home "See all" action. */
+    @Serializable
+    data class Grid(val kind: String) : TvRoute
 }
 
+/** Grid page kinds reachable from home "See all" actions. */
+const val TV_GRID_CONTINUE = "continue"
+const val TV_GRID_TRENDING_MOVIES = "trending-movies"
+const val TV_GRID_TRENDING_TV = "trending-tv"
+const val TV_GRID_TOP_MOVIES = "top-movies"
+const val TV_GRID_TOP_TV = "top-tv"
 /** Rail indices in [TvMainTabs], matching the rail order. */
 const val TV_TAB_SEARCH = 0
 const val TV_TAB_HOME = 1
