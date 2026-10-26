@@ -386,26 +386,30 @@ fn blocked_depthwise_convs_agree_with_the_reference() {
     compare("blocked depthwise convs over 45 columns", plan, source.into_data(), &[&ragged]);
 }
 
-/// Edge padding (`pad_edge` 2: clamp columns to `in_w - 2`) stays on the untiled path even
-/// with spatial tiling on, and still agrees with the reference.
+/// Edge padding (`pad_edge` 1 and 2: clamp columns to `in_w - pad_edge`, rows to the last
+/// row) under spatial tiling: the depthwise conv stays untiled, the dense 3x3 with PReLU takes
+/// the blocked path, and both agree with the reference. 30 columns leave a ragged x block.
 #[test]
 #[ignore = "needs a Vulkan device"]
-fn an_edge_padded_conv_stays_untiled_under_spatial_tiling() {
-    let input = spread(6 * 9 * 30, 0.2);
-    let source = Invented::new(4);
-    let mut plan = build(&source, &[Shape::new(6, 9, 30)], |b, ids| {
-        b.spatial_tiling();
-        b.edge_padding();
-        let x = b.conv(ids[0], 0, 6, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 6, Act::None);
-        b.conv(x, 2, 8, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 1, Act::Relu)
-    });
-    assert_eq!(conv_selectors(&plan), [2, 0, 0], "an edge-padded conv took a blocked path");
-    for op in &mut plan.ops {
-        if let crate::nets::Op::Dispatch { kind: crate::nets::Kind::Conv, push, .. } = op {
-            push.pad_edge = 2;
+fn edge_padded_convs_agree_under_spatial_tiling() {
+    for edge in [1u32, 2] {
+        let input = spread(6 * 9 * 30, 0.2);
+        let source = Invented::new(5);
+        let mut plan = build(&source, &[Shape::new(6, 9, 30)], |b, ids| {
+            b.spatial_tiling();
+            b.edge_padding();
+            let x = b.conv(ids[0], 0, 6, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 6, Act::None);
+            b.conv(x, 2, 8, (3, 3), (1, 1), (1, 1), (1, 1, 1, 1), 1, Act::PRelu(4))
+        });
+        assert_eq!(conv_selectors(&plan), [1, 1, 0], "edge padding took the wrong paths");
+        for op in &mut plan.ops {
+            if let crate::nets::Op::Dispatch { kind: crate::nets::Kind::Conv, push, .. } = op {
+                push.pad_edge = edge;
+            }
         }
+        let what = format!("edge-padded convs under spatial tiling, pad_edge {edge}");
+        compare(&what, plan, source.into_data(), &[&input]);
     }
-    compare("edge-padded convs under spatial tiling", plan, source.into_data(), &[&input]);
 }
 /// 2x2 stride-2 transposed convolutions on the blocked path (`in1` = 1): the ppocr_det head
 /// pair (24 -> 6 -> 1 channels, ragged channel blocks) over an odd 19x37 input, and a fused
@@ -583,4 +587,20 @@ fn a_full_window_conv_agrees_with_the_reference() {
             if push.in_c == 24 * 5 * 7
     )));
     compare("a full-window conv", plan, source.into_data(), &[&input]);
+}
+
+/// The Supertonic vocoder head's shape on the blocked path: one row, a 1x3 edge-padded on the
+/// left only (2, 0) with PReLU, over 37 columns and 10 ragged output channels.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_blocked_edge_padded_1x3_agrees_with_the_reference() {
+    let input = spread(8 * 37, 0.4);
+    let source = Invented::new(3);
+    let plan = build(&source, &[Shape::new(8, 1, 37)], |b, ids| {
+        b.spatial_tiling();
+        b.edge_padding();
+        b.conv(ids[0], 0, 10, (1, 3), (1, 1), (1, 1), (0, 2, 0, 0), 1, Act::PRelu(2))
+    });
+    assert_eq!(conv_selectors(&plan), [0, 1, 0], "the edge-padded 1x3 missed the blocked path");
+    compare("a blocked edge-padded 1x3", plan, source.into_data(), &[&input]);
 }

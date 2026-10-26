@@ -169,7 +169,33 @@ void tiled_spatial() {
     // `rem` is one value for the whole dispatch.
     bool aligned_rows = p.stride_w == 1u && (p.in_w & 3u) == 0u && (p.in0 & 3u) == 0u;
     int rem = (int(p.in0) + ix0) & 3;
-    if (aligned_rows && p.kw == 3u && p.dil_w == 1u) {
+    if (p.pad_edge != 0u) {
+        // Replicate the border like conv.comp: rows clamp to the last row, columns to
+        // `in_w - pad_edge`. Masked scalars only.
+        int last_x = int(p.in_w) - int(p.pad_edge);
+        for (uint ic = 0u; ic < p.in_c; ic++) {
+            uint channel = p.in0 + ic * plane;
+            for (uint ky = 0u; ky < p.kh; ky++) {
+                int iy = clamp(int(oy * p.stride_h + ky * p.dil_h) - int(p.pad_t), 0, int(p.in_h) - 1);
+                uint row = channel + uint(iy) * p.in_w;
+                uint tap0 = ic * taps + ky * p.kw;
+                for (uint kx = 0u; kx < p.kw; kx++) {
+                    int ix = ix0 + int(kx * p.dil_w);
+                    float x[BLOCK_X];
+                    for (uint j = 0u; j < BLOCK_X; j++) {
+                        x[j] = float(arena[row + uint(clamp(ix + int(j * p.stride_w), 0, last_x))]);
+                    }
+                    vec4 xl = vec4(x[0], x[1], x[2], x[3]);
+                    vec4 xh = vec4(x[4], x[5], x[6], x[7]);
+                    for (uint i = 0u; i < BLOCK_OC; i++) {
+                        float w = float(weights[wrow[i] + tap0 + kx]);
+                        lo[i] += w * xl;
+                        hi[i] += w * xh;
+                    }
+                }
+            }
+        }
+    } else if (aligned_rows && p.kw == 3u && p.dil_w == 1u) {
         DENSE_ROWS_ANY(3, 1)
     } else if (aligned_rows && p.kw == 3u && p.dil_w == 2u) {
         DENSE_ROWS_ANY(3, 2)
