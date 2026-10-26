@@ -23,7 +23,82 @@ layout(std430, binding = 0) readonly buffer ArenaQuad {
 #define TILE 32u
 #define BLOCK 4u
 
+/// `p.in1 == 1`: 4 channels x 8 positions per lane over a 32 x 64 tile, chosen by the emit only
+/// when `in_c % 32`, `p.weight % 4`, `positions % 4` and `p.in0 % 4` are all zero. Each nibble
+/// unpack feeds 8 FMAs instead of 4, and the block scale is folded into the tap so the lane keeps
+/// 32 accumulators and no per-block partials (scale per tap, not per block sum: rounding moves
+/// within the int4 fixtures' tolerance).
+void wide() {
+    uint positions = p.out_h * p.out_w;
+    uint tiles_across = (positions + 63u) / 64u;
+    uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    if (tile >= p.count) {
+        return;
+    }
+    uint lid = gl_LocalInvocationID.x;
+    uint channel_base = (tile / tiles_across) * TILE + (lid >> 3u) * BLOCK;
+    uint position_base = (tile % tiles_across) * 64u + (lid & 7u) * 8u;
+    if (position_base >= positions) {
+        return;
+    }
+    uint blocks = p.in_c >> 5u;
+    uint rows[BLOCK];
+    uint rows32[BLOCK];
+    for (uint i = 0u; i < BLOCK; i++) {
+        rows[i] = min(channel_base + i, p.out_c - 1u);
+        rows32[i] = (p.weight >> 2u) + rows[i] * blocks;
+    }
+    vec4 lo[BLOCK];
+    vec4 hi[BLOCK];
+    for (uint i = 0u; i < BLOCK; i++) {
+        lo[i] = vec4(0.0);
+        hi[i] = vec4(0.0);
+    }
+    uint quads = positions >> 2u;
+    uint quad = (p.in0 + position_base) >> 2u;
+    bool second = position_base + 4u < positions;
+    for (uint block = 0u; block < blocks; block++) {
+        uvec4 w[BLOCK];
+        float scale[BLOCK];
+        for (uint i = 0u; i < BLOCK; i++) {
+            w[i] = weights128[rows32[i] + block];
+            scale[i] = int4_scale(rows[i], block, blocks);
+        }
+        uint k = block * I4_BLOCK;
+        for (uint t = 0u; t < I4_BLOCK; t++) {
+            uint at = quad + (k + t) * quads;
+            vec4 x0 = vec4(arena_quad[at]);
+            vec4 x1 = second ? vec4(arena_quad[at + 1u]) : vec4(0.0);
+            for (uint i = 0u; i < BLOCK; i++) {
+                float tap = float(bitfieldExtract(int(w[i][t >> 3u]), int((t & 7u) << 2u), 4)) * scale[i];
+                lo[i] += tap * x0;
+                hi[i] += tap * x1;
+            }
+        }
+    }
+    for (uint i = 0u; i < BLOCK; i++) {
+        uint channel = channel_base + i;
+        if (channel >= p.out_c) {
+            continue;
+        }
+        float offset = float(weights[p.bias + channel]);
+        for (uint j = 0u; j < 8u; j++) {
+            uint position = position_base + j;
+            if (position >= positions) {
+                continue;
+            }
+            float acc = j < 4u ? lo[i][j] : hi[i][j - 4u];
+            uint index = channel * positions + position;
+            arena[p.out_at + index] = float16_t(quant_store(fused_store(acc + offset, p.act, channel, index)));
+        }
+    }
+}
+
 void main() {
+    if (p.in1 == 1u) {
+        wide();
+        return;
+    }
     uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
     if (tile >= p.count) {
         return;

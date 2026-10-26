@@ -439,3 +439,40 @@ fn device_top_k_equals_a_host_sort() {
     let short: Vec<f32> = (0..40).map(|i| ((i * 13) % 7) as f32 - 3.0).collect();
     top_k_fixture("a 40-entry row", &short);
 }
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn the_wide_int4_gemm_agrees_with_the_reference_at_gemma_prefill_shapes() {
+    // `in1` = 1 (4 x 8 per lane, 32 x 64 tiles) is chosen for whole blocks and quad-aligned
+    // columns. The 12288-wide MLP projection at 200 tokens; 36 positions leave a partial 64-tile
+    // and lanes whose second quad is past the end; 68 spill one quad into a second tile; 1000
+    // channels leave a partial row tile.
+    for (label, out, inp, positions, act) in [
+        ("a wide 1536 -> 12288 gemm at 200 positions", 12288, 1536, 200, Act::None),
+        ("a wide ragged gemm at 36 positions", 1000, 2048, 36, Act::Gelu),
+        ("a wide gemm at 68 positions", 96, 1536, 68, Act::None),
+    ] {
+        int4_gemm_fixture(label, out, inp, positions, act);
+    }
+    let blocks = 1536u32.div_ceil(32);
+    let blob = write_mixed(
+        graph::SUPERTONIC_VE,
+        &[
+            Fixture::I4(vec![64, 1536, 1, 1], vec![1; 64 * 1536]),
+            Fixture::F16(vec![64, blocks], vec![0.01; (64 * blocks) as usize]),
+            Fixture::F16(vec![64], vec![0.0; 64]),
+        ],
+    );
+    let weights = Weights::parse(&blob, graph::SUPERTONIC_VE).expect("the int4 fixture parses");
+    let mut builder = Builder::new(&weights);
+    let first = builder.input(Shape::new(1536, 1, 200));
+    let last = builder.conv_int4(first, 0, 64, Act::None);
+    let plan = builder.finish(&[last]).expect("the plan builds");
+    assert!(
+        plan.ops.iter().any(|op| matches!(
+            op,
+            crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvPointInt4, push, .. } if push.in1 == 1
+        )),
+        "an aligned int4 GEMM must take the wide path",
+    );
+}
