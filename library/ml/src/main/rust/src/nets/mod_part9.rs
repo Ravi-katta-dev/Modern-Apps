@@ -77,6 +77,9 @@ impl<'a> Builder<'a> {
                     && si.c % 16 == 0
                     && *weight % 4 == 0
                     && int8_tiles < CONV_POINT_INT8_SPLIT_BELOW;
+                // The untiled shader's register-blocked path (`in1` = 1): 4 channels x 8 columns
+                // of a row per invocation. Ungrouped only: maia's grouped 1x1 got slower.
+                let int8_blocked = kind == Kind::ConvInt8 && *group == 1;
                 // Workgroups for the staged kinds, output elements for the untiled one.
                 let count = match kind {
                     Kind::ConvVecInt8 | Kind::ConvVecInt4 | Kind::ConvVecQ2K => rows,
@@ -90,7 +93,7 @@ impl<'a> Builder<'a> {
                     kind,
                     push: Push {
                         in0: at(*input)?,
-                        in1: u32::from(split),
+                        in1: u32::from(split || int8_blocked),
                         out: at(*out)?,
                         // A word offset, not an fp16 one: int8 is unpacked through the
                         // 32-bit view of the weights buffer.
@@ -137,6 +140,9 @@ impl<'a> Builder<'a> {
                         | Kind::ConvPointInt4
                         | Kind::ConvVecQ2K
                         | Kind::ConvPointQ2K => count * 64,
+                        Kind::ConvInt8 if int8_blocked => {
+                            so.c.div_ceil(SPATIAL_BLOCK_OC) * so.h * so.w.div_ceil(SPATIAL_BLOCK_X)
+                        }
                         _ => count,
                     },
                 });

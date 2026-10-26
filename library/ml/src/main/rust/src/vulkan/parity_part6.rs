@@ -469,3 +469,45 @@ fn a_split_int8_gemm_agrees_with_the_reference() {
         compare(&what, plan, weights.data().to_vec(), &[&input]);
     }
 }
+
+/// `conv_int8.comp`'s blocked path (`in1` = 1): the whisper stem's stride-2 1x3 at a ragged
+/// width and channel count, a stride-1 1x3, and a 4x4 stride-4 patch embed (clip) over a
+/// ragged map.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn blocked_int8_convs_agree_with_the_reference() {
+    #[allow(clippy::type_complexity)]
+    let cases: [(&str, u32, u32, Shape, (u32, u32), (u32, u32), (u32, u32, u32, u32), u32, Act); 3] = [
+        ("stride-2 1x3", 10, 6, Shape::new(6, 1, 37), (1, 3), (1, 2), (0, 1, 0, 1), 1, Act::Gelu),
+        ("stride-1 1x3", 12, 5, Shape::new(5, 1, 29), (1, 3), (1, 1), (0, 1, 0, 1), 1, Act::None),
+        ("4x4 stride-4", 6, 3, Shape::new(3, 18, 22), (4, 4), (4, 4), (0, 0, 0, 0), 1, Act::None),
+    ];
+    for (what, out_channels, in_channels, shape, kernel, stride, pad, group, act) in cases {
+        let taps = (in_channels / group) * kernel.0 * kernel.1;
+        let weights: Vec<i8> =
+            (0..(out_channels * taps) as i32).map(|i| ((i * 37) % 251 - 125) as i8).collect();
+        let scales: Vec<f32> =
+            (0..out_channels).map(|c| 0.003_906_25 * (1.0 + (c % 5) as f32)).collect();
+        let blob = write_mixed(
+            graph::SUPERTONIC_VE,
+            &[
+                Fixture::I8(vec![out_channels, in_channels / group, kernel.0, kernel.1], weights),
+                Fixture::F16(vec![out_channels], scales),
+                Fixture::F16(vec![out_channels], spread(out_channels as usize, 0.5)),
+            ],
+        );
+        let source = Weights::parse(&blob, graph::SUPERTONIC_VE).expect("the fixture blob parses");
+        let input = spread(shape.len() as usize, 0.7);
+        let mut builder = Builder::new(&source);
+        let first = builder.input(shape);
+        let last =
+            builder.conv_int8(first, 0, out_channels, kernel, stride, (1, 1), pad, group, act);
+        let plan = builder.finish(&[last]).expect("the blocked int8 plan builds");
+        assert!(plan.ops.iter().any(|op| matches!(
+            op,
+            crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvInt8, push, .. }
+                if push.in1 == 1
+        )), "{what} missed the blocked path");
+        compare(&format!("a blocked int8 {what}"), plan, source.data().to_vec(), &[&input]);
+    }
+}
