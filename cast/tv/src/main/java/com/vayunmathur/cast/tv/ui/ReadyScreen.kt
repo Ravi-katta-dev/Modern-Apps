@@ -18,12 +18,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -35,8 +34,6 @@ import com.vayunmathur.library.tv.TvButton
 import com.vayunmathur.library.tv.TvDimens
 import com.vayunmathur.library.tv.TvIcon
 import com.vayunmathur.library.tv.TvInitialFocus
-import com.vayunmathur.library.ui.IconCast
-import com.vayunmathur.library.ui.IconDialpad
 import com.vayunmathur.library.ui.IconLock
 import com.vayunmathur.library.ui.IconTv
 import com.vayunmathur.library.ui.SpecialAccess
@@ -44,10 +41,11 @@ import com.vayunmathur.library.ui.SpecialAccess
 /**
  * The ambient idle screen: what the TV shows while it waits for a phone.
  *
- * Calm rather than empty. The device name is the headline (it is what the phone's device list
- * shows, so matching it is the whole task), a cast glyph with an accent glow anchors the middle,
- * and three step cards say how to cast. The footer states the privacy facts the product is built
- * on - offline, E2EE, no account - plus the network name/IP when the receiver could read it.
+ * Two columns that use the width, in the phone app's card language: on the left a card naming
+ * this TV (the name the phone's device list shows, so matching it is the whole task) with its
+ * ready status and network line, then the auto-open hint while it is still needed and the
+ * privacy facts as a plain line; on the right one card with the three steps. Vertically
+ * centred so the pair sits mid-screen. No glyph, no hero.
  *
  * Paints its own background: the theme deliberately paints nothing, because the same theme wraps
  * an overlay above a decoder surface that must stay transparent.
@@ -55,7 +53,7 @@ import com.vayunmathur.library.ui.SpecialAccess
 @Composable
 fun ReadyScreen(deviceName: String, networkLabel: String, modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
-    Column(
+    Row(
         modifier = modifier
             .fillMaxSize()
             .background(scheme.background)
@@ -65,151 +63,135 @@ fun ReadyScreen(deviceName: String, networkLabel: String, modifier: Modifier = M
                 top = TvDimens.SafeVertical,
                 bottom = TvDimens.SafeVertical,
             ),
-        verticalArrangement = Arrangement.SpaceBetween,
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalArrangement = Arrangement.spacedBy(24.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
-            modifier = Modifier.padding(top = 24.dp),
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            CastGlyph()
-            Text(
-                text = deviceName,
-                style = MaterialTheme.typography.displayMedium,
-                color = scheme.onSurface,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-            )
-            Text(
-                text = stringResource(R.string.tv_ready_title),
-                style = MaterialTheme.typography.titleLarge,
-                color = scheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-        }
-
-        HowToSteps(deviceName = deviceName)
-
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+            DeviceCard(deviceName = deviceName, networkLabel = networkLabel)
             AutoOpenHintCard()
             Text(
                 text = stringResource(R.string.tv_privacy_facts),
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
+            )
+        }
+        HowToCard(deviceName = deviceName, modifier = Modifier.weight(1f))
+    }
+}
+
+/** This TV: its name, its ready status, and the network line when the receiver could read it. */
+@Composable
+private fun DeviceCard(deviceName: String, networkLabel: String, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(scheme.surface, MaterialTheme.shapes.medium)
+            .padding(24.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .background(scheme.primaryContainer, CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                TvIcon { IconTv() }
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = deviceName,
+                style = MaterialTheme.typography.headlineSmall,
+                color = scheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = stringResource(R.string.tv_ready_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = scheme.primary,
             )
             if (networkLabel.isNotBlank()) {
                 Text(
                     text = stringResource(R.string.tv_network_line, networkLabel),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.75f),
-                    textAlign = TextAlign.Center,
+                    color = scheme.onSurfaceVariant,
                 )
             }
         }
     }
 }
 
-/**
- * The cast glyph with a soft accent glow: the visual anchor of the idle screen, echoing the
- * phone app's cast mark without any of its touch chrome.
- */
+/** The three "how to cast" steps, as compact numbered rows in one card. */
 @Composable
-private fun CastGlyph() {
-    val scheme = MaterialTheme.colorScheme
-    Box(
-        modifier = Modifier
-            .size(120.dp)
-            .shadow(32.dp, CircleShape, ambientColor = scheme.primary, spotColor = scheme.primary)
-            .background(scheme.primaryContainer, CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-            TvIcon { IconCast() }
-        }
-    }
-}
-
-/** The three "how to cast" steps, as a row of cards readable from across the room. */
-@Composable
-private fun HowToSteps(deviceName: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterHorizontally),
-    ) {
-        StepCard(
-            number = "1",
-            title = stringResource(R.string.tv_howto_step1_title),
-            body = stringResource(R.string.tv_howto_step1_body),
-            icon = { IconTv() },
-            modifier = Modifier.weight(1f),
-        )
-        StepCard(
-            number = "2",
-            title = stringResource(R.string.tv_howto_step2_title, deviceName),
-            body = stringResource(R.string.tv_howto_step2_body),
-            icon = { IconCast() },
-            modifier = Modifier.weight(1f),
-        )
-        StepCard(
-            number = "3",
-            title = stringResource(R.string.tv_howto_step3_title),
-            body = stringResource(R.string.tv_howto_step3_body),
-            icon = { IconDialpad() },
-            modifier = Modifier.weight(1f),
-        )
-    }
-}
-
-@Composable
-private fun StepCard(
-    number: String,
-    title: String,
-    body: String,
-    icon: @Composable () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun HowToCard(deviceName: String, modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
     Column(
         modifier = modifier
+            .fillMaxWidth()
             .background(scheme.surface, MaterialTheme.shapes.medium)
             .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        Step(
+            number = "1",
+            title = stringResource(R.string.tv_howto_step1_title),
+            body = stringResource(R.string.tv_howto_step1_body),
+        )
+        Step(
+            number = "2",
+            title = stringResource(R.string.tv_howto_step2_title, deviceName),
+            body = stringResource(R.string.tv_howto_step2_body),
+        )
+        Step(
+            number = "3",
+            title = stringResource(R.string.tv_howto_step3_title),
+            body = stringResource(R.string.tv_howto_step3_body),
+        )
+    }
+}
+
+@Composable
+private fun Step(number: String, title: String, body: String, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .background(scheme.primaryContainer, CircleShape),
+            contentAlignment = Alignment.Center,
         ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .background(scheme.primaryContainer, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                    TvIcon(icon)
-                }
-            }
             Text(
                 text = number,
-                style = MaterialTheme.typography.headlineSmall,
+                style = MaterialTheme.typography.titleMedium,
                 color = scheme.primary,
             )
         }
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = scheme.onSurface,
-        )
-        Text(
-            text = body,
-            style = MaterialTheme.typography.bodyMedium,
-            color = scheme.onSurfaceVariant,
-        )
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = scheme.onSurface,
+            )
+            Text(
+                text = body,
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

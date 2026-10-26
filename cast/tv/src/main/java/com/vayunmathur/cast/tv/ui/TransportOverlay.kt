@@ -23,6 +23,7 @@ import com.vayunmathur.cast.protocol.PlaybackCommand
 import com.vayunmathur.cast.tv.R
 import com.vayunmathur.cast.tv.platform.PlaybackSnapshot
 import com.vayunmathur.cast.tv.platform.ReceiverController
+import com.vayunmathur.library.tv.TvDimens
 import com.vayunmathur.library.tv.TvIconButton
 import com.vayunmathur.library.tv.TvSeekRow
 import com.vayunmathur.library.ui.IconPause
@@ -84,8 +85,8 @@ fun TransportOverlay(
                     Modifier
                 },
             )
-            .padding(horizontal = 48.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = TvDimens.SafeHorizontal, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         TitleBlock(
             nowPlaying = nowPlaying,

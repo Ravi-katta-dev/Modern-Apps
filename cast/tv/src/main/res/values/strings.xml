@@ -3,7 +3,6 @@
 
     <!-- Idle screen -->
     <string name="tv_ready_title">Ready to receive</string>
-    <string name="tv_ready_hint">Open Cast on your phone and pick %1$s.</string>
     <string name="tv_name_unknown">this TV</string>
     <string name="tv_starting">Starting.</string>
 

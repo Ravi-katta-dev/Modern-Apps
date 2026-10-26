@@ -3,7 +3,6 @@ package com.vayunmathur.cast.tv.ui
 import android.text.format.DateUtils
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,8 +20,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -50,10 +47,9 @@ import kotlinx.coroutines.withContext
  * `SurfaceView` at all and fills its window with this beside the transport overlay, so
  * `ReceiverContent`'s mirroring arm is on screen for a few milliseconds and then never again.
  *
- * Artwork-led: a big card on the left, title/artist/source on the right with the seek row and
- * the play state, lyrics below the title block when the phone sent any. The backdrop is the
- * cover itself dimmed under scrims (or an accent gradient with no cover) - local pixels only,
- * never anything fetched off the network beyond the phone's own proxy.
+ * Compact and flat: an artwork card on the left, metadata with the seek row under it, and the
+ * lyrics in a column beside them when the phone sent any. No backdrop - the window is already
+ * painted once behind both this and the transport bar, so the two stay one continuous surface.
  *
  * **Nothing on it is focusable.** There is no input model on this screen - the lyrics scroll
  * from the clock, so a scrollable focus target would be a thing the remote could move that
@@ -78,87 +74,43 @@ fun NowPlayingScreen(
     val cover = rememberArtwork(nowPlaying.artworkResourceId, artwork)
     val hasLyrics = nowPlaying.lyrics.isNotEmpty() || nowPlaying.plainLyrics.isNotEmpty()
 
-    Box(modifier = modifier.fillMaxSize()) {
-        NowPlayingBackdrop(cover)
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    start = TvDimens.SafeHorizontal,
-                    end = TvDimens.SafeHorizontal,
-                    top = TvDimens.SafeVertical,
-                    bottom = 16.dp,
-                ),
-            horizontalArrangement = Arrangement.spacedBy(48.dp),
-            verticalAlignment = Alignment.CenterVertically,
+    Row(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(
+                start = TvDimens.SafeHorizontal,
+                end = TvDimens.SafeHorizontal,
+                top = TvDimens.SafeVertical,
+                bottom = 16.dp,
+            ),
+        horizontalArrangement = Arrangement.spacedBy(48.dp),
+    ) {
+        Column(
+            modifier = Modifier.weight(NOW_PLAYING_WEIGHT),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // **Sized from the height it is given, never from a constant.** Squaring a filled
             // height cannot overflow whatever the window turns out to be.
-            ArtworkCard(cover, Modifier.fillMaxHeight())
-            Column(
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                // **The title replaces the app's name rather than sitting beside it.** A user
-                // looking at a track already knows which app they started; the source survives
-                // as the eyebrow above it.
-                TitleBlock(
-                    title = nowPlaying.title,
-                    author = nowPlaying.author,
-                    album = nowPlaying.album,
-                    sourceName = sourceName,
-                    snapshot = snapshot,
-                )
-                NowPlayingProgress(positionMs = positionMs, snapshot = snapshot)
-                if (hasLyrics) {
-                    Lyrics(
-                        nowPlaying = nowPlaying,
-                        positionMs = positionMs,
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * The cover dimmed under scrims, or an accent gradient with no cover.
- *
- * A mask-free scrim rather than a second background owner: `MirrorActivity` paints the window
- * once behind both this and the transport bar, so the two stay one continuous surface.
- */
-@Composable
-private fun NowPlayingBackdrop(cover: ImageBitmap?) {
-    val scheme = MaterialTheme.colorScheme
-    Box(Modifier.fillMaxSize()) {
-        if (cover != null) {
-            Image(
-                bitmap = cover,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                alpha = BACKDROP_ALPHA,
+            ArtworkCard(cover, Modifier.fillMaxWidth())
+            // **The title replaces the app's name rather than sitting beside it.** A user
+            // looking at a track already knows which app they started; the source survives
+            // as the eyebrow above it.
+            TitleBlock(
+                title = nowPlaying.title,
+                author = nowPlaying.author,
+                album = nowPlaying.album,
+                sourceName = sourceName,
+                snapshot = snapshot,
             )
-        } else {
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        0f to scheme.primaryContainer.copy(alpha = 0.35f),
-                        1f to Color.Transparent,
-                    ),
-                ),
+            NowPlayingProgress(positionMs = positionMs, snapshot = snapshot)
+        }
+        if (hasLyrics) {
+            Lyrics(
+                nowPlaying = nowPlaying,
+                positionMs = positionMs,
+                modifier = Modifier.weight(LYRICS_WEIGHT).fillMaxHeight(),
             )
         }
-        Box(
-            Modifier.fillMaxSize().background(
-                Brush.verticalGradient(
-                    0f to scheme.background.copy(alpha = 0.45f),
-                    0.5f to scheme.background.copy(alpha = 0.72f),
-                    1f to scheme.background,
-                ),
-            ),
-        )
     }
 }
 
@@ -172,13 +124,12 @@ private fun NowPlayingBackdrop(cover: ImageBitmap?) {
 @Composable
 private fun ArtworkCard(cover: ImageBitmap?, modifier: Modifier) {
     val scheme = MaterialTheme.colorScheme
-    val shape = MaterialTheme.shapes.large
+    val shape = MaterialTheme.shapes.medium
     Box(
         modifier = modifier
             .aspectRatio(1f)
             .clip(shape)
-            .background(scheme.surfaceVariant)
-            .border(2.dp, scheme.primary.copy(alpha = 0.5f), shape),
+            .background(scheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         if (cover != null) {
@@ -292,4 +243,8 @@ private fun rememberArtwork(resourceId: String, artwork: ArtworkFetcher?): Image
     return bitmap
 }
 
-private const val BACKDROP_ALPHA = 0.22f
+/** The metadata column's share of the row; the lyrics take the rest when present. */
+private const val NOW_PLAYING_WEIGHT = 1f
+
+/** Lyrics take more room than the cover column, so several lines stay on screen. */
+private const val LYRICS_WEIGHT = 1.2f
