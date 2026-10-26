@@ -231,8 +231,8 @@ object FDroidRepository {
                 targetSdk = targetSdk,
                 nativeCode = nativeCode,
                 whatsNew = whatsNew,
-                featuresPublished = featuresPublished,
                 requiredFeatures = requiredFeatures,
+                featuresPublished = featuresPublished,
                 requiredSplitTypes = requiredSplitTypes,
             )
         }
@@ -514,6 +514,8 @@ object FDroidRepository {
         val nativeCode: List<String> = emptyList(),
         val whatsNew: String? = null,
         val requiredFeatures: List<String> = emptyList(),
+        /** True when the index carried a `features` field at all, even an empty one. */
+        val featuresPublished: Boolean = false,
         val requiredSplitTypes: List<String> = emptyList(),
     )
 
@@ -531,16 +533,18 @@ object FDroidRepository {
         categories: List<String>,
         tvScreenshots: List<String>,
         requiredFeatures: List<String>,
+        authoritative: Boolean = false,
     ): Boolean? {
         val names = requiredFeatures.map { it.lowercase() }
         if (names.any { AppProvider.FEATURE_LEANBACK in it }) return true
-        /** True when the index carried a `features` field at all, even an empty one. */
-        val featuresPublished: Boolean = false,
         if (categories.any { it.equals(TV_CATEGORY, ignoreCase = true) }) return true
         if (tvScreenshots.isNotEmpty()) return true
         if (AppProvider.requiresPhoneHardware(requiredFeatures)) return false
         return if (authoritative) false else null
     }
+
+    /** Repos whose index is built from the APK manifest by this project's own server. */
+    private val AUTHORITATIVE_TV_SOURCES = setOf(AppSource.MODERN_APPS, AppSource.PROPRIETARY)
 
     private const val TV_CATEGORY = "TV"
 
@@ -548,7 +552,6 @@ object FDroidRepository {
 
     /**
      * Pick the one APK to advertise for a package, newest release first.
-        authoritative: Boolean = false,
      *
      * A release split per architecture used to resolve to whichever variant happened to be
      * enumerated last, so an arm64 phone could be handed the x86_64 build. Everything before
@@ -558,9 +561,6 @@ object FDroidRepository {
      *
      * Variants this device cannot run are dropped outright, so a package whose newest release
      * has no build for this architecture falls back to an older one that does rather than
-    /** Repos whose index is built from the APK manifest by this project's own server. */
-    private val AUTHORITATIVE_TV_SOURCES = setOf(AppSource.MODERN_APPS, AppSource.PROPRIETARY)
-
      * disappearing.
      */
     internal fun selectVersion(

@@ -3,7 +3,7 @@
 /// Both tiled shaders are dispatched one workgroup per tile, so [`Builder::emit`] has to know
 /// this to compute [`Push::count`]. Shared by the two so the fp16 and int8 lowerings cannot
 /// drift apart.
-const CONV_POINT_TILE: u32 = 16;
+const CONV_POINT_TILE: u32 = 32;
 
 /// `TILE` in `shaders/conv_point_int8.comp`: output channels and positions per workgroup.
 ///

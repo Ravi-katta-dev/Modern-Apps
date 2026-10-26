@@ -643,3 +643,23 @@ fn row_int8_gemms_agree_with_the_reference() {
         compare(&format!("a row int8 gemm, {what}"), plan, source.data().to_vec(), &[&input]);
     }
 }
+
+/// `conv_point.comp`'s wide path (8 weights per `uvec4`, 4 positions per quad): 64 input
+/// channels over 12x12 positions into 40 ragged output channels, with a fused residual.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_wide_pointwise_conv_agrees_with_the_reference() {
+    let input = spread(64 * 12 * 12, 1.5);
+    let source = Invented::new(4);
+    let plan = build(&source, &[Shape::new(64, 12, 12)], |b, ids| {
+        let x = b.conv(ids[0], 0, 40, (1, 1), (1, 1), (1, 1), (0, 0, 0, 0), 1, Act::Relu);
+        let y = b.conv(x, 2, 40, (1, 1), (1, 1), (1, 1), (0, 0, 0, 0), 1, Act::None);
+        b.add(x, y)
+    });
+    assert!(plan.ops.iter().any(|op| matches!(
+        op,
+        crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvPoint, push, .. }
+            if push.weight % 8 == 0 && push.in_c % 8 == 0
+    )));
+    compare("a wide pointwise conv", plan, source.into_data(), &[&input]);
+}
