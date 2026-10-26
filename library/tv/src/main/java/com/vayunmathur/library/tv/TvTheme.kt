@@ -14,6 +14,8 @@ import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
 import androidx.compose.material3.LocalContentColor as M3LocalContentColor
+import androidx.compose.material3.MaterialTheme as M3MaterialTheme
+import androidx.compose.material3.darkColorScheme as m3DarkColorScheme
 
 /** One accent per app, so each TV app is recognisable at a glance from across the room. */
 object TvAccent {
@@ -27,11 +29,10 @@ object TvAccent {
 object TvDimens {
     val SafeHorizontal: Dp = 48.dp
     val SafeVertical: Dp = 28.dp
-    val RailCollapsed: Dp = 88.dp
-    val RailExpanded: Dp = 264.dp
-    val ItemGap: Dp = 20.dp
-    val ShelfGap: Dp = 32.dp
-    val InsideFrameStart: Dp = 24.dp
+    val Rail: Dp = 120.dp
+    val ItemGap: Dp = 16.dp
+    val ShelfGap: Dp = 24.dp
+    val InsideFrameStart: Dp = 16.dp
 }
 
 /** Start inset for screen content: smaller inside [TvAppFrame] because the rail already insets it. */
@@ -40,16 +41,23 @@ internal val LocalTvContentStart = compositionLocalOf { TvDimens.SafeHorizontal 
 /**
  * Always-dark TV theme keyed off one accent. Focused surfaces flip to near-white with dark
  * content (the Google TV convention), so focus is legible on any backdrop.
+ *
+ * Also installs a matching dark Material 3 scheme: `MainNavigation` paints each route with the
+ * M3 background and `:library:ui` pieces read M3 colours, which otherwise default to light.
+ * Paints nothing itself, so it can wrap overlays above a video surface.
  */
 @Composable
 fun MaTvTheme(accent: Color, content: @Composable () -> Unit) {
     val scheme = remember(accent) { tvColorScheme(accent) }
-    MaterialTheme(colorScheme = scheme) {
-        CompositionLocalProvider(
-            LocalContentColor provides scheme.onSurface,
-            M3LocalContentColor provides scheme.onSurface,
-            content = content,
-        )
+    val m3Scheme = remember(accent) { m3ColorScheme(scheme) }
+    M3MaterialTheme(colorScheme = m3Scheme) {
+        MaterialTheme(colorScheme = scheme) {
+            CompositionLocalProvider(
+                LocalContentColor provides scheme.onSurface,
+                M3LocalContentColor provides scheme.onSurface,
+                content = content,
+            )
+        }
     }
 }
 
@@ -97,3 +105,32 @@ private fun tvColorScheme(accent: Color): ColorScheme {
         scrim = Color.Black,
     )
 }
+
+private fun m3ColorScheme(tv: ColorScheme) = m3DarkColorScheme(
+    primary = tv.primary,
+    onPrimary = tv.onPrimary,
+    primaryContainer = tv.primaryContainer,
+    onPrimaryContainer = tv.onPrimaryContainer,
+    secondary = tv.secondary,
+    onSecondary = tv.onSecondary,
+    secondaryContainer = tv.secondaryContainer,
+    onSecondaryContainer = tv.onSecondaryContainer,
+    tertiary = tv.tertiary,
+    background = tv.background,
+    onBackground = tv.onBackground,
+    surface = tv.surface,
+    onSurface = tv.onSurface,
+    surfaceVariant = tv.surfaceVariant,
+    onSurfaceVariant = tv.onSurfaceVariant,
+    surfaceContainer = tv.surface,
+    surfaceContainerHigh = tv.surfaceVariant,
+    inverseSurface = tv.inverseSurface,
+    inverseOnSurface = tv.inverseOnSurface,
+    error = tv.error,
+    onError = tv.onError,
+    errorContainer = tv.errorContainer,
+    onErrorContainer = tv.onErrorContainer,
+    outline = tv.border,
+    outlineVariant = tv.borderVariant,
+    scrim = tv.scrim,
+)

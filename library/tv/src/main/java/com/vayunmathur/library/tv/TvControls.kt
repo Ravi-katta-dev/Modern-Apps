@@ -43,6 +43,7 @@ fun TvButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
+        scale = ButtonDefaults.scale(focusedScale = 1.04f),
         colors = ButtonDefaults.colors(
             containerColor = if (primary) scheme.primary else scheme.surfaceVariant,
             contentColor = if (primary) scheme.onPrimary else scheme.onSurface,

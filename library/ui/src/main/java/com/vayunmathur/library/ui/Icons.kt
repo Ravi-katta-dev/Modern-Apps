@@ -143,6 +143,7 @@ import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.ScreenShare
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
@@ -1779,3 +1780,7 @@ fun IconMovie(modifier: Modifier = Modifier, tint: Color = LocalContentColor.cur
 @Composable
 fun IconStore(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
     AppIcon(Icons.Filled.Store, "Store", modifier, tint)
+
+@Composable
+fun IconClosedCaption(modifier: Modifier = Modifier, tint: Color = LocalContentColor.current) =
+    AppIcon(Icons.Filled.ClosedCaption, "Captions", modifier, tint)

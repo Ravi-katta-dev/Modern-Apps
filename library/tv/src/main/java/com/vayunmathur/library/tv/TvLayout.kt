@@ -48,13 +48,13 @@ fun TvScreenHeader(
     Row(
         modifier
             .fillMaxWidth()
-            .padding(start = tvContentStart(), end = TvDimens.SafeHorizontal, top = TvDimens.SafeVertical, bottom = 16.dp),
+            .padding(start = tvContentStart(), end = TvDimens.SafeHorizontal, top = TvDimens.SafeVertical, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.headlineLarge,
+                style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
