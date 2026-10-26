@@ -502,7 +502,7 @@ impl<'a> Builder<'a> {
                     invocations: so.len(),
                 });
             }
-            _ => {}
+            other => self.emit_top_k(other, at, shape, ops)?,
         }
         Ok(())
     }

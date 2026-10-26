@@ -200,14 +200,24 @@ fn build_plan_fp16(weights: &dyn WeightSource, greedy: bool) -> Result<Plan, Str
     builder.finish(&outs)
 }
 
+/// What the standalone head hands back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeadOut {
+    /// The 16 logit splits.
+    Logits,
+    /// The device argmax id as `[lo, hi]`.
+    Greedy,
+    /// The 64 largest logits as `[value, lo, hi] x 64` (see `Builder::top_k`).
+    TopK,
+}
+
 /// The standalone head pass over the head file (`graph::GEMMA4_HEAD`).
 ///
 /// Same 16 int8 triples as `build_plan8`, but the file holds NOTHING else:
 /// chunk `s` owns tensors `s * 3 .. s * 3 + 2` (no `host_tensor` companions
-/// needed — `finish` sees every tensor read). `greedy` replaces the 16 split
-/// outputs with the on-device argmax id alone, so a greedy step reads back
-/// two values instead of 512 KB.
-pub fn build_plan_standalone(weights: &dyn WeightSource, greedy: bool) -> Result<Plan, String> {
+/// needed — `finish` sees every tensor read). `Greedy` and `TopK` reduce the
+/// splits on the device, so a step reads back 2 or 192 values instead of 512 KB.
+pub fn build_plan_standalone(weights: &dyn WeightSource, out: HeadOut) -> Result<Plan, String> {
     let mut builder = Builder::new(weights);
     let b = &mut builder;
     let x = b.input(Shape::new(D_MODEL, 1, 1));
@@ -215,12 +225,19 @@ pub fn build_plan_standalone(weights: &dyn WeightSource, greedy: bool) -> Result
     for s in 0..HEAD_CHUNKS {
         outs.push(point8(b, s * 3, x, CLASSES_PER_CHUNK));
     }
-    if greedy {
-        let row = b.concat(&outs);
-        let id = b.argmax(row);
-        return builder.finish(&[id]);
+    match out {
+        HeadOut::Logits => builder.finish(&outs),
+        HeadOut::Greedy => {
+            let row = b.concat(&outs);
+            let id = b.argmax(row);
+            builder.finish(&[id])
+        }
+        HeadOut::TopK => {
+            let row = b.concat(&outs);
+            let top = b.top_k(row);
+            builder.finish(&[top])
+        }
     }
-    builder.finish(&outs)
 }
 
 /// The shape of EMBED tensor `index`, derived from the layout constants.
@@ -371,11 +388,13 @@ mod tests {
     #[test]
     fn the_standalone_greedy_head_returns_only_the_id() {
         let source = Shapes::new(HEAD_FILE_TENSORS);
-        let plan = build_plan_standalone(&source, true).expect("the greedy head builds");
+        let plan = build_plan_standalone(&source, HeadOut::Greedy).expect("the greedy head builds");
         assert_eq!(plan.outputs.len(), 1);
         assert_eq!(plan.outputs[0].shape, Shape::new(2, 1, 1));
-        let plan = build_plan_standalone(&source, false).expect("the logits head builds");
+        let plan = build_plan_standalone(&source, HeadOut::Logits).expect("the logits head builds");
         assert_eq!(plan.outputs.len(), HEAD_CHUNKS);
+        let plan = build_plan_standalone(&source, HeadOut::TopK).expect("the top-k head builds");
+        assert_eq!(plan.outputs[0].shape, Shape::new(192, 1, 1));
     }
 
     #[test]

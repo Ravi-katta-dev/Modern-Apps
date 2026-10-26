@@ -30,6 +30,7 @@ impl Node {
             | Node::Softcap { out, .. } => *out,
             | Node::Argmax { out, .. }
             | Node::ArgmaxFold { out, .. } => *out,
+            | Node::TopK { out, .. } => *out,
             | Node::Quantize { out, .. } => *out,
             | Node::Activate { out, .. }
             | Node::GatedActivate { out, .. } => *out,
@@ -73,6 +74,7 @@ impl Node {
             | Node::SliceChannels { input, .. }
             | Node::GlobalAvgPool { input, .. } => vec![*input],
             Node::ArgmaxFold { input, row, .. } => vec![*input, *row],
+            Node::TopK { input, row, .. } => vec![*input, *row],
             Node::RmsNorm { input, res, .. } => {
                 let mut reads = vec![*input];
                 reads.extend(res.iter().copied());

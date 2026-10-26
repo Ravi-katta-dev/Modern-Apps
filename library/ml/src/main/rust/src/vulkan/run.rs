@@ -335,7 +335,9 @@ pub struct Net {
 }
 
 include!("run_part1.rs");
+include!("run_part6.rs");
 include!("run_part2.rs");
+include!("run_part7.rs");
 include!("run_part3.rs");
 include!("run_part4.rs");
 include!("run_part5.rs");

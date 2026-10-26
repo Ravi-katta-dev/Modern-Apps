@@ -160,8 +160,13 @@ impl Gemma4Handle {
         hidden: &[f32],
         per_layer: &[f32],
     ) -> Result<u32, String> {
-        // The transformer half is identical to the logits path: DecodeStep,
-        // same params, same cache discipline. Only the head differs.
+        let state = self.decode_state(hidden, per_layer)?;
+        self.head_greedy(&state)
+    }
+
+    /// The transformer half of a decode step (DecodeStep, same params and cache discipline as
+    /// the logits path): the normed hidden state the head reads.
+    fn decode_state(&mut self, hidden: &[f32], per_layer: &[f32]) -> Result<Vec<f32>, String> {
         if self.position >= self.context {
             return Err(format!("the cache is full at {} positions", self.context));
         }
@@ -182,11 +187,11 @@ impl Gemma4Handle {
         if out.len() != 1 {
             return Err(format!("a step returned {} tensors, not 1 hidden state", out.len()));
         }
-        let hidden = &out[0];
-        if hidden.len() != gemma4::D_MODEL as usize {
-            return Err(format!("hidden state of {} values, not {}", hidden.len(), gemma4::D_MODEL));
+        let state = out.into_iter().next().unwrap_or_default();
+        if state.len() != gemma4::D_MODEL as usize {
+            return Err(format!("hidden state of {} values, not {}", state.len(), gemma4::D_MODEL));
         }
-        self.head_greedy(hidden)
+        Ok(state)
     }
 
     /// Logits for `hidden`, GPU head when the EMBED file carries chunks.
@@ -199,7 +204,7 @@ impl Gemma4Handle {
         let Some(head) = self.head.as_mut() else {
             return self.tied_head_logits(hidden);
         };
-        let at = head.at(false)?;
+        let at = head.at(crate::nets::gemma4_head::HeadOut::Logits)?;
         let out = at.infer_raw_many(&[hidden])?;
         if out.len() != crate::nets::gemma4_head::HEAD_CHUNKS {
             return Err(format!(
@@ -222,14 +227,14 @@ impl Gemma4Handle {
 
     /// The greedy next token for `hidden`, reduced on the device.
     ///
-    /// `head.at(true)`: the splits concatenate and reduce on the device, so two values
+    /// `head.at(Greedy)`: the splits concatenate and reduce on the device, so two values
     /// ([lo, hi] of the id) come back instead of 262144 logits. Host argmax without a head file.
     fn head_greedy(&mut self, hidden: &[f32]) -> Result<u32, String> {
         let Some(head) = self.head.as_mut() else {
             let logits = self.head_logits(hidden)?;
             return Ok(argmax(&logits));
         };
-        let at = head.at(true)?;
+        let at = head.at(crate::nets::gemma4_head::HeadOut::Greedy)?;
         let out = at.infer_raw_many(&[hidden])?;
         if out.len() != 1 {
             return Err(format!("greedy head returned {} outputs, not 1", out.len()));

@@ -399,10 +399,10 @@ fn log(message: &str) {
 struct Gemma4Handle {
     net: Reshaped<gemma4::Pass>,
     /// The GPU head over the standalone head file, one upload serving both
-    /// plans: `at(true)` is the device-argmax plan (one id back), `at(false)`
+    /// plans: `at(Greedy)` is the device-argmax plan (one id back), `at(Logits)`
     /// the 16 logit splits. `None` without a head file - the host head covers
     /// that.
-    head: Option<Reshaped<bool>>,
+    head: Option<Reshaped<crate::nets::gemma4_head::HeadOut>>,
     /// The device combine over the EMBED file, windowed to the ~13 MB it reads:
     /// host-gathered rows in, combined per-layer block out. `None` falls back to
     /// the host combine.

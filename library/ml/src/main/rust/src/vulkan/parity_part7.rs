@@ -395,3 +395,47 @@ fn multi_query_cached_attention_equals_single_steps() {
     // A short window, so every query's lower bound differs and most of them clip.
     multi_query_fixture(7, 5, 256, 4);
 }
+
+/// `[value, lo, hi] x 64` from a host sort: value descending, ties by lower id.
+fn host_top_k(row: &[f32]) -> Vec<f32> {
+    let mut ids: Vec<u32> = (0..row.len() as u32).collect();
+    ids.sort_by(|&a, &b| row[b as usize].total_cmp(&row[a as usize]).then(a.cmp(&b)));
+    (0..64)
+        .flat_map(|r| match ids.get(r) {
+            Some(&i) => [row[i as usize], (i % 2048) as f32, (i / 2048) as f32],
+            None => [-65504.0, 2047.0, 2047.0],
+        })
+        .collect()
+}
+
+fn top_k_fixture(what: &str, row: &[f32]) {
+    let source = Invented::new(0);
+    let mut builder = Builder::new(&source);
+    let input = builder.input(Shape::new(row.len() as u32, 1, 1));
+    let out = builder.top_k(input);
+    let plan = builder.finish(&[out]).expect("the top-k plan builds");
+    crate::nets::tests::assert_no_aliasing(&plan);
+    let data = source.into_data();
+    let got = on_device(plan.clone(), data.clone(), &[row]);
+    assert_eq!(got[0], host_top_k(row), "{what}: the device top 64 differs from a host sort");
+    compare(what, plan, data, &[row]);
+}
+
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn device_top_k_equals_a_host_sort() {
+    // Gemma's vocabulary. Multiples of 1/64 in [-8, 8) are exact in fp16, and only 1024 of them
+    // over 262,144 entries means long runs of ties: the top 64 is decided by index alone.
+    let vocab = 262_144usize;
+    let ties: Vec<f32> = (0..vocab).map(|i| ((i * 7919 + i / 3) % 1024) as f32 / 64.0 - 8.0).collect();
+    top_k_fixture("a tied 262144 row", &ties);
+    // Eighty distinct peaks above the noise at scattered ids: the top 64 is decided by value.
+    let mut peaks = ties.clone();
+    for k in 0..80usize {
+        peaks[(k * 104_729 + 17) % vocab] = 8.0 + k as f32 / 16.0;
+    }
+    top_k_fixture("a 262144 row with peaks", &peaks);
+    // Shorter than 64: the missing ranks come back as (2047, 2047).
+    let short: Vec<f32> = (0..40).map(|i| ((i * 13) % 7) as f32 - 3.0).collect();
+    top_k_fixture("a 40-entry row", &short);
+}

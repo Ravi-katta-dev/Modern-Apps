@@ -440,6 +440,7 @@ include!("parity_part1.rs");
 include!("parity_part2.rs");
 include!("parity_part3.rs");
 include!("parity_part4.rs");
+include!("parity_part9.rs");
 include!("parity_part5.rs");
 include!("parity_part6.rs");
 include!("parity_part7.rs");

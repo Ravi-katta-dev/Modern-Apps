@@ -169,6 +169,7 @@ impl Shaders {
             quantize,
             argmax,
             argmax_fold,
+            topk,
         ] = match <[vk::Pipeline; SPIRV.len()]>::try_from(built) {
             Ok(all) => all,
             Err(built) => {
@@ -230,6 +231,7 @@ impl Shaders {
             quantize,
             argmax,
             argmax_fold,
+            topk,
         })
     }
 
@@ -283,6 +285,7 @@ impl Shaders {
             Kind::Quantize => self.quantize,
             Kind::Argmax => self.argmax,
             Kind::ArgmaxFold => self.argmax_fold,
+            Kind::TopK => self.topk,
         }
     }
 
@@ -337,6 +340,7 @@ impl Shaders {
             self.quantize,
             self.argmax,
             self.argmax_fold,
+            self.topk,
         ] {
             device.destroy_pipeline(pipeline, None);
         }

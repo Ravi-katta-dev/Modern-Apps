@@ -88,10 +88,11 @@ const CONV_POINT_INT4: &[u8] =
 const CONV_VEC_Q2K: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/conv_vec_q2k.comp.spv"));
 const ARGMAX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/argmax.comp.spv"));
 const ARGMAX_FOLD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/argmax_fold.comp.spv"));
+const TOPK: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/topk.comp.spv"));
 /// Every shader, in the order `Shaders::create` destructures them (the Q2_K pair,
 /// `QUANTIZE`, and the `compute_pipeline` / `shader_module` helpers live in
 /// `pipeline_extra.rs` for length).
-pub(crate) const SPIRV: [&[u8]; 47] = [
+pub(crate) const SPIRV: [&[u8]; 48] = [
     CONV,
     CONV_TRANSPOSE,
     MAXPOOL,
@@ -139,6 +140,7 @@ pub(crate) const SPIRV: [&[u8]; 47] = [
     QUANTIZE,
     ARGMAX,
     ARGMAX_FOLD,
+    TOPK,
 ];
 
 /// Descriptors in one set: the arena, the weights as fp16, the weights as words, the step params.
@@ -220,6 +222,7 @@ pub struct Shaders {
     pub(crate) quantize: vk::Pipeline,
     pub(crate) argmax: vk::Pipeline,
     pub(crate) argmax_fold: vk::Pipeline,
+    pub(crate) topk: vk::Pipeline,
 }
 
 /// One net's descriptor sets, over the device-wide [`Shaders`].

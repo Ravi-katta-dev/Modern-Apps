@@ -36,9 +36,9 @@ fn gemma4_gather_plan(embed: &Streamed) -> Option<Reshaped<()>> {
 }
 
 /// The head over the standalone head file (`graph::GEMMA4_HEAD`, the 48
-/// int8 triples, ~385 MB): one upload, two recordings (`true` greedy id,
-/// `false` the 16 logit splits). `None` when the file does not match.
-fn gemma4_head_file_plan(head: &Streamed) -> Option<Reshaped<bool>> {
+/// int8 triples, ~385 MB): one upload, one recording per `HeadOut` (greedy id,
+/// the 16 logit splits, the device top 64). `None` when the file does not match.
+fn gemma4_head_file_plan(head: &Streamed) -> Option<Reshaped<crate::nets::gemma4_head::HeadOut>> {
     let offsets = head.offsets();
     if offsets.len() != crate::nets::gemma4_head::HEAD_FILE_TENSORS {
         return None;
@@ -47,8 +47,8 @@ fn gemma4_head_file_plan(head: &Streamed) -> Option<Reshaped<bool>> {
         context::shared().ok()?,
         offsets,
         head,
-        true,
-        |offsets, greedy| crate::nets::gemma4_head::build_plan_standalone(offsets, greedy),
+        crate::nets::gemma4_head::HeadOut::Greedy,
+        |offsets, out| crate::nets::gemma4_head::build_plan_standalone(offsets, out),
     )
     .ok()
 }

@@ -206,10 +206,7 @@ pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_topKGemma
             log(&format!("gemma4 top-k was given token {token}, k {k}"));
             return Ok(std::ptr::null_mut());
         }
-        let picked = handle
-            .step(token, true)
-            .and_then(|logits| logits.ok_or_else(|| "a decode step returned no logits".to_string()))
-            .map(|logits| top_k_pairs(&logits, k));
+        let picked = handle.step_top_k(token, k);
         Ok(match picked {
             Ok(pairs) => match new_float_array(env, &pairs) {
                 Ok(array) => array,
@@ -248,5 +245,33 @@ mod top_k_tests {
         let logits = [0.5, 2.0, -1.0, 2.0, 1.5, 0.5];
         assert_eq!(super::top_k_pairs(&logits, 4), vec![2.0, 1.0, 2.0, 3.0, 1.5, 4.0, 0.5, 0.0]);
         assert_eq!(super::top_k_pairs(&logits, 9).len(), 12, "k past the vocabulary keeps all");
+    }
+}
+impl Gemma4Handle {
+    /// One decode step whose head returns `[softcapped logit, id] x k`, highest first, ties by
+    /// lower id. On the device (`HeadOut::TopK`, 192 values back) when the head file is loaded
+    /// and `k` fits its 64; otherwise the full logits, selected on the host.
+    fn step_top_k(&mut self, token: u32, k: usize) -> Result<Vec<f32>, String> {
+        use crate::nets::gemma4_head::HeadOut;
+        let device = k <= crate::nets::gemma4::TOP_K as usize && self.head.is_some();
+        if !device {
+            let logits = self.step(token, true)?.ok_or("a decode step returned no logits")?;
+            return Ok(top_k_pairs(&logits, k));
+        }
+        let (hidden, per_layer) = self.gather(token)?;
+        let state = self.decode_state(&hidden, &per_layer)?;
+        let Some(head) = self.head.as_mut() else { return Err("the head disappeared".into()) };
+        let out = head.at(HeadOut::TopK)?.infer_raw_many(&[&state])?;
+        let triples = out.first().ok_or("the top-k head returned nothing")?;
+        let mut pairs = Vec::with_capacity(k * 2);
+        for triple in triples.chunks_exact(3).take(k) {
+            let id = triple[2] as u32 * 2048 + triple[1] as u32;
+            if id >= gemma4::VOCAB {
+                break;
+            }
+            pairs.push(gemma4::LOGIT_CAP * (triple[0] / gemma4::LOGIT_CAP).tanh());
+            pairs.push(id as f32);
+        }
+        Ok(pairs)
     }
 }

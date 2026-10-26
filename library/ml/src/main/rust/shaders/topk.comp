@@ -1,0 +1,88 @@
+#version 450
+//! The 64 largest logits of a row, highest first, ties by lower index - in two stages like
+//! `argmax.comp` / `argmax_fold.comp`, selected by the same 64 rounds in both.
+//!
+//! Round `r` takes the best `(value, index)` strictly below round `r - 1`'s winner in the order
+//! "greater value, then lower index", so equal values are taken in index order and nothing is
+//! taken twice without marking anything. Each lane scans its elements for its own best
+//! qualifying key and a 64-entry shared reduction picks the round's winner.
+//!
+//! `p.kh == 0`, stage 1: workgroup `g` of `p.group` owns `[g * slice, min((g + 1) * slice,
+//! p.count))` of the row at `p.in0` and writes its top 64 ids to `p.out_at + (g * 64 + r) * 2`
+//! as `(lo = id % 2048, hi = id / 2048)`, both exact in fp16. Missing ranks (a slice under 64)
+//! are `(2047, 2047)`, an id past any row.
+//!
+//! `p.kh == 1`, stage 2: one workgroup reads the `p.in_c` candidate ids at `p.in0`, re-reads each
+//! one's logit from the row at `p.in1` (`p.in_w` long), and writes rank `r` as `(value, lo, hi)`
+//! at `p.out_at + r * 3`. The values are the row's own fp16 values, so nothing is rounded twice.
+#include "common.glsl"
+#define K 64u
+#define NONE 0xFFFFFFFFu
+shared float best_val[64];
+shared uint best_idx[64];
+
+bool better(float av, uint ai, float bv, uint bi) {
+    return bi == NONE || (ai != NONE && (av > bv || (av == bv && ai < bi)));
+}
+
+void main() {
+    uint lane = gl_LocalInvocationID.x;
+    bool fold = p.kh != 0u;
+    uint group = gl_WorkGroupID.x;
+    uint groups = max(p.group, 1u);
+    uint slice = (p.count + groups - 1u) / groups;
+    uint first = fold ? 0u : group * slice;
+    uint end = fold ? p.in_c : min(first + slice, p.count);
+    float prev_val = 0.0;
+    uint prev_idx = NONE;
+    bool done = false;
+    for (uint r = 0u; r < K; r++) {
+        float mine_val = 0.0;
+        uint mine_idx = NONE;
+        for (uint e = first + lane; !done && e < end; e += 64u) {
+            uint idx = e;
+            if (fold) {
+                idx = uint(float(arena[p.in0 + e * 2u])) + 2048u * uint(float(arena[p.in0 + e * 2u + 1u]));
+                if (idx >= p.in_w) {
+                    continue;
+                }
+            }
+            float v = float(arena[(fold ? p.in1 : p.in0) + idx]);
+            // Strictly after the previous winner in the order, so each key is taken once.
+            bool after = prev_idx == NONE || v < prev_val || (v == prev_val && idx > prev_idx);
+            if (after && better(v, idx, mine_val, mine_idx)) {
+                mine_val = v;
+                mine_idx = idx;
+            }
+        }
+        best_val[lane] = mine_val;
+        best_idx[lane] = mine_idx;
+        barrier();
+        for (uint stride = 32u; stride > 0u; stride >>= 1u) {
+            if (lane < stride && better(best_val[lane + stride], best_idx[lane + stride], best_val[lane], best_idx[lane])) {
+                best_val[lane] = best_val[lane + stride];
+                best_idx[lane] = best_idx[lane + stride];
+            }
+            barrier();
+        }
+        float win_val = best_val[0];
+        uint win_idx = best_idx[0];
+        barrier();
+        if (lane == 0u) {
+            uint lo = win_idx == NONE ? 2047u : win_idx % 2048u;
+            uint hi = win_idx == NONE ? 2047u : win_idx / 2048u;
+            if (fold) {
+                arena[p.out_at + r * 3u] = float16_t(win_idx == NONE ? -65504.0 : win_val);
+                arena[p.out_at + r * 3u + 1u] = float16_t(float(lo));
+                arena[p.out_at + r * 3u + 2u] = float16_t(float(hi));
+            } else {
+                arena[p.out_at + (group * K + r) * 2u] = float16_t(float(lo));
+                arena[p.out_at + (group * K + r) * 2u + 1u] = float16_t(float(hi));
+            }
+        }
+        // Uniform across the workgroup: every lane read the same winner.
+        done = win_idx == NONE;
+        prev_val = win_val;
+        prev_idx = win_idx;
+    }
+}

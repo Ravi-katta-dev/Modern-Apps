@@ -26,6 +26,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use modelrunner::nets::gemma4;
+use modelrunner::nets::gemma4_head::HeadOut;
 use modelrunner::vulkan::context;
 use modelrunner::vulkan::reshape::Reshaped;
 use modelrunner::vulkan::run::StepParams;
@@ -74,8 +75,8 @@ fn gemma4_plan(offsets: &modelrunner::weights::Offsets, pass: gemma4::Pass) -> R
     gemma4::build(offsets, pass)
 }
 
-fn head_plan(offsets: &modelrunner::weights::Offsets, greedy: bool) -> Result<modelrunner::nets::Plan, String> {
-    modelrunner::nets::gemma4_head::build_plan_standalone(offsets, greedy)
+fn head_plan(offsets: &modelrunner::weights::Offsets, out: HeadOut) -> Result<modelrunner::nets::Plan, String> {
+    modelrunner::nets::gemma4_head::build_plan_standalone(offsets, out)
 }
 
 struct Args {
@@ -84,6 +85,7 @@ struct Args {
     time: Option<usize>,
     prefill: Option<u32>,
     sample: bool,
+    topk: bool,
     split: Option<u32>,
     len: Option<u32>,
     gather: bool,
@@ -94,7 +96,7 @@ struct Args {
 /// rest are positional: text embed golden [trace] [tail] [head].
 fn parse_args() -> Args {
     let mut args =
-        Args { positional: Vec::new(), head: None, time: None, prefill: None, sample: false, split: None, len: None, gather: false, soft: false };
+        Args { positional: Vec::new(), head: None, time: None, prefill: None, sample: false, topk: false, split: None, len: None, gather: false, soft: false };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -102,6 +104,7 @@ fn parse_args() -> Args {
             "--time" => args.time = it.next().and_then(|n| n.parse().ok()),
             "--prefill" => args.prefill = it.next().and_then(|n| n.parse().ok()),
             "--sample" => args.sample = true,
+            "--topk" => args.topk = true,
             "--split" => args.split = it.next().and_then(|n| n.parse().ok()),
             "--len" => args.len = it.next().and_then(|n| n.parse().ok()),
             "--gather" => args.gather = true,
@@ -124,7 +127,7 @@ fn main() {
     ) else {
         println!(
             "usage: check_gemma4_parity <text.maml> <embed.maml> <golden.json> [trace] [tail] \
-             [--head head.maml] [--time N [--sample]] [--prefill N] [--split K [--len N]]"
+             [--head head.maml] [--time N [--sample] [--topk]] [--prefill N] [--split K [--len N]]"
         );
         return;
     };
@@ -158,7 +161,8 @@ fn main() {
         Err(why) => return println!("no Vulkan device: {why}"),
     };
     if let Some(repeats) = args.time {
-        time_decode(&context, &weights, &embed_weights, head_weights.as_ref(), &tokens, repeats, args.sample, args.gather);
+        let mode = if args.topk { HeadOut::TopK } else if args.sample { HeadOut::Logits } else { HeadOut::Greedy };
+        time_decode(&context, &weights, &embed_weights, head_weights.as_ref(), &tokens, repeats, mode, args.gather);
         return print_memory();
     }
     if args.soft {
@@ -347,13 +351,13 @@ struct StepTimes {
 #[allow(clippy::too_many_arguments)]
 fn decode_one(
     net: &mut Reshaped<gemma4::Pass>,
-    head: Option<&mut Reshaped<bool>>,
+    head: Option<&mut Reshaped<HeadOut>>,
     gather: Option<&mut Reshaped<()>>,
     embed: &modelrunner::weights::Reader<'_>,
     rotary: &modelrunner::weights::Reader<'_>,
     token: u32,
     position: u32,
-    sample: bool,
+    mode: HeadOut,
     times: &mut StepTimes,
 ) -> Result<Option<u32>, String> {
     use std::time::Instant;
@@ -397,8 +401,11 @@ fn decode_one(
     let Some(head) = head else { return Ok(None) };
     let hidden = out.into_iter().next().ok_or("the step returned nothing")?;
     let tick = Instant::now();
-    let out = head.at(!sample)?.infer_raw_many(&[&hidden])?;
-    let id = if sample {
+    let out = head.at(mode)?.infer_raw_many(&[&hidden])?;
+    let id = if mode == HeadOut::TopK {
+        let top = out.first().ok_or("the top-k head returned nothing")?;
+        top[2] as u32 * 2048 + top[1] as u32
+    } else if mode == HeadOut::Logits {
         let logits = softcapped(&out)?;
         let mut best = (f32::NEG_INFINITY, 0u32);
         for (i, &v) in logits.iter().enumerate() {
@@ -418,9 +425,9 @@ fn decode_one(
     Ok(Some(id))
 }
 
-fn build_head(context: &Arc<context::Context>, head: Option<&Streamed>, greedy: bool) -> Result<Option<Reshaped<bool>>, String> {
+fn build_head(context: &Arc<context::Context>, head: Option<&Streamed>, mode: HeadOut) -> Result<Option<Reshaped<HeadOut>>, String> {
     match head {
-        Some(file) => streamed_net(context, file, greedy, head_plan).map(Some),
+        Some(file) => streamed_net(context, file, mode, head_plan).map(Some),
         None => {
             println!("no --head: timings exclude the head");
             Ok(None)
@@ -440,7 +447,7 @@ fn time_decode(
     head: Option<&Streamed>,
     tokens: &[u32],
     repeats: usize,
-    sample: bool,
+    mode: HeadOut,
     device_gather: bool,
 ) {
     use std::time::Instant;
@@ -458,7 +465,7 @@ fn time_decode(
     } else {
         None
     };
-    let mut head_net = match build_head(context, head, !sample) {
+    let mut head_net = match build_head(context, head, mode) {
         Ok(net) => net,
         Err(why) => return println!("the head does not build: {why}"),
     };
@@ -475,7 +482,7 @@ fn time_decode(
         for (step, &token) in tokens.iter().enumerate() {
             let tick = Instant::now();
             let mut times = StepTimes::default();
-            match decode_one(&mut net, head_net.as_mut(), gather_net.as_mut(), &reader, &rotary, token, step as u32, sample, &mut times) {
+            match decode_one(&mut net, head_net.as_mut(), gather_net.as_mut(), &reader, &rotary, token, step as u32, mode, &mut times) {
                 Ok(id) => ids.extend(id),
                 Err(why) => return println!("step {step} failed: {why}"),
             }
@@ -499,7 +506,7 @@ fn time_decode(
         let mean = steady.iter().sum::<f64>() / n;
         println!(
             "steady-state ({}): {mean:.1} ms/token = {:.2} tok/s",
-            if head_net.is_none() { "no head" } else if sample { "sampled head" } else { "greedy head" },
+            if head_net.is_none() { "no head" } else { match mode { HeadOut::Logits => "sampled head", HeadOut::TopK => "top-k head", HeadOut::Greedy => "greedy head" } },
             1000.0 / mean.max(1e-9)
         );
         println!(
@@ -517,7 +524,7 @@ fn time_decode(
             Err(why) => println!("timestamps unreadable: {why}"),
         }
         if let Some(head) = head_net.as_mut() {
-            match head.at(!sample).and_then(|at| at.op_times()) {
+            match head.at(mode).and_then(|at| at.op_times()) {
                 Ok(report) => print_kinds("head", &report),
                 Err(why) => println!("head timestamps unreadable: {why}"),
             }
@@ -548,7 +555,7 @@ fn time_prefill(
         Ok(net) => net,
         Err(why) => return println!("the net does not build: {why}"),
     };
-    let mut head_net = match build_head(context, head, true) {
+    let mut head_net = match build_head(context, head, HeadOut::Greedy) {
         Ok(net) => net,
         Err(why) => return println!("the head does not build: {why}"),
     };
@@ -600,7 +607,7 @@ fn time_prefill(
         }
         let tick = Instant::now();
         let mut times = StepTimes::default();
-        let id = match decode_one(&mut net, head_net.as_mut(), None, &reader, &rotary, next, width, false, &mut times) {
+        let id = match decode_one(&mut net, head_net.as_mut(), None, &reader, &rotary, next, width, HeadOut::Greedy, &mut times) {
             Ok(id) => id,
             Err(why) => return println!("the first decode step failed: {why}"),
         };
@@ -681,7 +688,7 @@ fn feed(
 #[allow(clippy::too_many_arguments)]
 fn last_logits(
     net: &mut Reshaped<gemma4::Pass>,
-    head: &mut Reshaped<bool>,
+    head: &mut Reshaped<HeadOut>,
     embed: &modelrunner::weights::Reader<'_>,
     rotary: &modelrunner::weights::Reader<'_>,
     token: u32,
@@ -694,7 +701,7 @@ fn last_logits(
     at.set_params(StepParams { prefix: position, window_start: position.saturating_sub(gemma4::WINDOW - 1) })?;
     let out = at.infer_raw_many(&[&hidden, &per_layer, &local, &global])?;
     let state = out.into_iter().next().ok_or("the step returned nothing")?;
-    softcapped(&head.at(false)?.infer_raw_many(&[&state])?)
+    softcapped(&head.at(HeadOut::Logits)?.infer_raw_many(&[&state])?)
 }
 
 fn top10(logits: &[f32]) -> Vec<u32> {
@@ -722,7 +729,7 @@ fn split_check(
     }
     let head = head.ok_or("the split check needs --head")?;
     let mut net = streamed_net(context, weights, gemma4::Mode::DecodeStep.at(TIER), gemma4_plan)?;
-    let mut head_net = streamed_net(context, head, false, head_plan)?;
+    let mut head_net = streamed_net(context, head, HeadOut::Logits, head_plan)?;
     let reader = embed.reader();
     let rotary = weights.reader();
     let last = prompt[n - 1];
@@ -842,7 +849,7 @@ fn soft_check(
     }
     let head = head.ok_or("the soft check needs --head")?;
     let mut net = streamed_net(context, weights, gemma4::Mode::DecodeStep.at(TIER), gemma4_plan)?;
-    let mut head_net = streamed_net(context, head, false, head_plan)?;
+    let mut head_net = streamed_net(context, head, HeadOut::Logits, head_plan)?;
     let reader = embed.reader();
     let rotary = weights.reader();
     let mut rows = Vec::new();
@@ -995,8 +1002,8 @@ fn gpu_logits(
     hidden: &[f32],
 ) -> Result<Vec<f32>, String> {
     let head = head.ok_or("no head file: pass --head gemma4_head.maml")?;
-    let mut net = streamed_net(context, head, false, head_plan)?;
-    softcapped(&net.at(false)?.infer_raw_many(&[hidden])?)
+    let mut net = streamed_net(context, head, HeadOut::Logits, head_plan)?;
+    softcapped(&net.at(HeadOut::Logits)?.infer_raw_many(&[hidden])?)
 }
 
 /// The 16 head splits concatenated and softcapped, as the bridge does it.

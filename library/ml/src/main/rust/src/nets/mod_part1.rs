@@ -333,6 +333,7 @@ impl Kind {
             | Kind::Quantize
             | Kind::Argmax
             | Kind::ArgmaxFold
+            | Kind::TopK
             | Kind::GatedActivate => {}
             // A scalar (`mul_scalar`) or a low/high pair (`clamp`) at `act_weight`.
             Kind::MulScalar | Kind::Clamp => {
@@ -427,6 +428,9 @@ impl Kind {
             // The candidate pairs plus the whole logits row, re-read at the candidates.
             // `in_c` is the group count, `in_w` the row length.
             Kind::ArgmaxFold => two((push.in0, push.in_c * 2), (push.in1, push.in_w)),
+            // Stage 1 reads its row; stage 2 its candidate pairs and the row they index.
+            Kind::TopK if push.kh == 0 => one(push.in0, push.count),
+            Kind::TopK => two((push.in0, push.in_c * 2), (push.in1, push.in_w)),
             // One row in. Not `dense`: `in_h` here is the cache's capacity, not a spatial extent.
             Kind::CacheWrite => one(push.in0, push.count),
             // Convolutions, whose store may also add a folded residual and a folded

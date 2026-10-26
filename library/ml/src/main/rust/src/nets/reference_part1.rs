@@ -68,6 +68,7 @@ impl Reference {
                     Kind::Softcap => self.softcap(push),
                     Kind::Argmax => self.argmax(push),
                     Kind::ArgmaxFold => self.argmax_fold(push),
+                    Kind::TopK => self.top_k_stage(push),
                     Kind::Quantize => self.quantize(push),
                     Kind::Activate => self.activate(push),
                     Kind::GatedActivate => self.gated_activate(push),
