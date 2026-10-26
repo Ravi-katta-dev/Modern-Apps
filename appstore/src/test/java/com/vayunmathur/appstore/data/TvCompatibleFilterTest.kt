@@ -124,4 +124,28 @@ class TvCompatibleFilterTest {
             )
         )
     }
+
+    @Test
+    fun `authoritative index makes no signal a verdict`() {
+        assertEquals(
+            false,
+            FDroidRepository.deriveTvCompatible(emptyList(), emptyList(), emptyList(), authoritative = true),
+        )
+        assertTrue(
+            FDroidRepository.deriveTvCompatible(
+                listOf("Modern Apps", "TV"),
+                emptyList(),
+                emptyList(),
+                authoritative = true,
+            ) == true,
+        )
+        assertTrue(
+            FDroidRepository.deriveTvCompatible(
+                emptyList(),
+                emptyList(),
+                listOf("android.software.leanback"),
+                authoritative = true,
+            ) == true,
+        )
+    }
 }

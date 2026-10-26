@@ -215,6 +215,7 @@ object FDroidRepository {
         var nativeCode: List<String> = emptyList()
         var whatsNew: String? = null
         var requiredFeatures: List<String> = emptyList()
+        var featuresPublished: Boolean = false
         var requiredSplitTypes: List<String> = emptyList()
 
         fun build(): VersionCandidate? {
@@ -230,6 +231,7 @@ object FDroidRepository {
                 targetSdk = targetSdk,
                 nativeCode = nativeCode,
                 whatsNew = whatsNew,
+                featuresPublished = featuresPublished,
                 requiredFeatures = requiredFeatures,
                 requiredSplitTypes = requiredSplitTypes,
             )
@@ -285,7 +287,12 @@ object FDroidRepository {
 
         // index-v2 file names are repo-absolute ("/com.example_12.apk").
         val apkUrl = repoBase + "/" + latest.fileName.trimStart('/')
-        val tvCompatible = deriveTvCompatible(b.categories, b.tvScreenshots, latest.requiredFeatures)
+        val tvCompatible = deriveTvCompatible(
+            b.categories,
+            b.tvScreenshots,
+            latest.requiredFeatures,
+            authoritative = latest.featuresPublished && source in AUTHORITATIVE_TV_SOURCES,
+        )
         return UnifiedApp(
             packageName = packageName,
             source = source,
@@ -444,7 +451,10 @@ object FDroidRepository {
                 // `<uses-feature>` entries, as `[{ "name": "android.hardware.camera" }, …]`.
                 // Kept verbatim for TV-compat filtering — a leanback entry marks a TV build,
                 // phone-hardware entries mark one a TV should not be offered.
-                "features" -> v.requiredFeatures = readFeatureNamesV2(reader)
+                "features" -> {
+                    v.requiredFeatures = readFeatureNamesV2(reader)
+                    v.featuresPublished = true
+                }
                 // signer.sha256 is the list of signing-certificate
                 // fingerprints this APK is expected to carry.
                 "signer" -> v.signers = readSignerShaV2(reader)
@@ -510,7 +520,12 @@ object FDroidRepository {
     /**
      * Whether the catalogue can call this listing TV-compatible, from the signals
      * F-Droid publishes: leanback `<uses-feature>`, a TV category, or a TV screenshot
-     * set. Null when nothing says either way — unknown, not incompatible.
+     * set. Null when nothing says either way - unknown, not incompatible.
+     *
+     * [authoritative] is for repos whose index is generated from the APK itself and
+     * publishes the TV signal whenever it exists (this store's own repo and mirror):
+     * there, the absence of a signal is a verdict, so phone-only apps are not offered
+     * on a TV only to be refused by the install gate after the download.
      */
     internal fun deriveTvCompatible(
         categories: List<String>,
@@ -519,10 +534,12 @@ object FDroidRepository {
     ): Boolean? {
         val names = requiredFeatures.map { it.lowercase() }
         if (names.any { AppProvider.FEATURE_LEANBACK in it }) return true
+        /** True when the index carried a `features` field at all, even an empty one. */
+        val featuresPublished: Boolean = false,
         if (categories.any { it.equals(TV_CATEGORY, ignoreCase = true) }) return true
         if (tvScreenshots.isNotEmpty()) return true
         if (AppProvider.requiresPhoneHardware(requiredFeatures)) return false
-        return null
+        return if (authoritative) false else null
     }
 
     private const val TV_CATEGORY = "TV"
@@ -531,6 +548,7 @@ object FDroidRepository {
 
     /**
      * Pick the one APK to advertise for a package, newest release first.
+        authoritative: Boolean = false,
      *
      * A release split per architecture used to resolve to whichever variant happened to be
      * enumerated last, so an arm64 phone could be handed the x86_64 build. Everything before
@@ -540,6 +558,9 @@ object FDroidRepository {
      *
      * Variants this device cannot run are dropped outright, so a package whose newest release
      * has no build for this architecture falls back to an older one that does rather than
+    /** Repos whose index is built from the APK manifest by this project's own server. */
+    private val AUTHORITATIVE_TV_SOURCES = setOf(AppSource.MODERN_APPS, AppSource.PROPRIETARY)
+
      * disappearing.
      */
     internal fun selectVersion(
