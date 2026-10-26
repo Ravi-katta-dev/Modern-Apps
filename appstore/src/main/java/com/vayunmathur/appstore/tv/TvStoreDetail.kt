@@ -5,49 +5,51 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text as TvText
+import androidx.tv.material3.Text
 import com.vayunmathur.appstore.R
 import com.vayunmathur.appstore.data.UnifiedApp
 import com.vayunmathur.appstore.data.installer.InstallStage
+import com.vayunmathur.appstore.data.security.VerificationResult
 import com.vayunmathur.appstore.ui.formatSize
-import com.vayunmathur.library.image.compose.AsyncImage
-import com.vayunmathur.library.tv.TvBackdrop
+import com.vayunmathur.library.tv.TvBadge
 import com.vayunmathur.library.tv.TvButton
+import com.vayunmathur.library.tv.TvDialog
 import com.vayunmathur.library.tv.TvEmptyState
-import com.vayunmathur.library.tv.TvHeroText
 import com.vayunmathur.library.tv.TvInitialFocus
-import com.vayunmathur.library.tv.TvProgressStrip
-import com.vayunmathur.library.tv.TvShelf
 import com.vayunmathur.library.tv.tvContentStart
 import com.vayunmathur.library.ui.IconBack
 import com.vayunmathur.library.ui.IconDelete
+import com.vayunmathur.library.ui.IconDownload
 import com.vayunmathur.library.ui.IconPackage
 import com.vayunmathur.library.ui.R as UiR
 
 /**
- * One app's immersive TV page: backdrop, hero with install actions and the security
- * panel, screenshots, description, facts. Same install pipeline as everywhere else —
- * [TvStoreViewModel.install] runs the ordinary coordinator verbatim, including the
- * TV-compat gate.
- *
- * Order mirrors the phone's detail page — hero, screenshots, description, facts — with
- * the trust card promoted next to the actions: signature verification is the product,
- * and on TV it sits beside the Install button rather than below the fold.
+ * One app's TV page: two panes side by side, no backdrop. Left is identity plus
+ * actions — icon, name, developer, source badge, Install/Update/Open and the
+ * uninstall secondary, then the Size/Rated/Version stats. Right is the scrolling
+ * body — summary, description, What's new, chips, the security card, screenshots,
+ * links. Same order and same strings as the phone's detail page.
  */
 @Composable
 fun TvStoreDetail(
@@ -62,6 +64,8 @@ fun TvStoreDetail(
         onInstall = viewModel::install,
         onOpen = viewModel::openApp,
         onUninstall = viewModel::uninstallApp,
+        onOpenInBrowser = viewModel::openInBrowser,
+        onOpenInPlayStore = viewModel::openInPlayStore,
         onDismissFailure = viewModel::dismissInstallFailure,
         onBack = onBack,
         modifier = modifier,
@@ -75,11 +79,14 @@ internal fun TvStoreDetailScreen(
     onInstall: (UnifiedApp) -> Unit = {},
     onOpen: (String) -> Unit = {},
     onUninstall: (String) -> Unit = {},
+    onOpenInBrowser: (String) -> Unit = {},
+    onOpenInPlayStore: (String) -> Unit = {},
     onDismissFailure: (String) -> Unit = {},
     onBack: () -> Unit = {},
 ) {
     val app = state.app
     val primaryFocus = remember(app?.packageName) { FocusRequester() }
+    var showUninstallConfirm by remember(app?.packageName) { mutableStateOf(false) }
     if (app == null) {
         TvEmptyState(
             title = stringResource(R.string.home_empty_title),
@@ -89,188 +96,234 @@ internal fun TvStoreDetailScreen(
         )
         return
     }
-    val stage = state.stage
-    val busy = stage != null && stage !is InstallStage.Failed
-    val shots = app.tvScreenshots.ifEmpty { app.screenshots }
-    Box(modifier.fillMaxSize()) {
-        TvBackdrop(key = app.packageName) {
-            val art = app.featureGraphic ?: shots.firstOrNull()
-            if (art != null) {
-                AsyncImage(
-                    model = art,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                )
-            } else {
-                TvStoreHeroFallback(app = app)
-            }
-        }
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+    TvInitialFocus(primaryFocus, app.packageName)
+    Column(modifier.fillMaxSize()) {
+        TvButton(
+            text = stringResource(R.string.tv_detail_back),
+            onClick = onBack,
+            icon = { IconBack() },
+            modifier = Modifier.padding(start = tvContentStart(), top = 20.dp, bottom = 8.dp),
+        )
+        Row(
+            Modifier.fillMaxSize().padding(start = tvContentStart(), end = 48.dp, bottom = 32.dp),
+            horizontalArrangement = Arrangement.spacedBy(40.dp),
         ) {
-            item("back") {
-                TvButton(
-                    text = stringResource(R.string.tv_detail_back),
-                    onClick = onBack,
-                    icon = { IconBack() },
-                    modifier = Modifier.padding(
-                        start = tvContentStart(),
-                        top = 40.dp,
-                        bottom = 8.dp,
-                    ),
-                )
-            }
-            item("hero") {
-                TvStoreDetailHero(
-                    app = app,
-                    state = state,
-                    stage = stage,
-                    busy = busy,
-                    focusRequester = primaryFocus,
-                    onInstall = { onInstall(app) },
-                    onOpen = { onOpen(app.packageName) },
-                    onUninstall = { onUninstall(app.packageName) },
-                    onDismissFailure = { onDismissFailure(app.packageName) },
-                    modifier = Modifier.padding(bottom = 24.dp),
-                )
-            }
-            if (busy && stage is InstallStage.Downloading) {
-                item("progress") {
-                    TvProgressStrip(
-                        progress = stage.fraction.coerceIn(0f, 1f),
-                        modifier = Modifier.padding(
-                            start = tvContentStart(),
-                            end = 48.dp,
-                            bottom = 8.dp,
-                        ),
-                    )
-                }
-            }
-            if (stage is InstallStage.Failed) {
-                item("failure") {
-                    TvStoreDetailFailure(
-                        reason = stage.reason,
-                        onRetry = {
-                            onDismissFailure(app.packageName)
-                            onInstall(app)
-                        },
-                    )
-                }
-            }
-            if (shots.isNotEmpty()) {
-                item("screenshots") {
-                    TvStoreScreenshotShelf(urls = shots)
-                }
-            }
-            item("body") {
-                TvStoreDetailBody(app = app)
-            }
-            item("bottom") { Spacer(Modifier.height(48.dp)) }
-        }
-        TvInitialFocus(primaryFocus, app.packageName)
-    }
-}
-
-/** Hero block: name, developer, source, version/size meta, tier chip, actions + trust card. */
-@Composable
-private fun TvStoreDetailHero(
-    app: UnifiedApp,
-    state: TvDetailUiState,
-    stage: InstallStage?,
-    busy: Boolean,
-    focusRequester: FocusRequester,
-    onInstall: (UnifiedApp) -> Unit,
-    onOpen: (String) -> Unit,
-    onUninstall: (String) -> Unit,
-    onDismissFailure: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val meta = buildList {
-        app.versionName?.let { add(it) }
-        if (app.sizeBytes > 0) add(formatSize(app.sizeBytes))
-        app.categories.firstOrNull()?.let { add(it) }
-    }
-    Row(
-        modifier.padding(start = tvContentStart(), end = 48.dp),
-        horizontalArrangement = Arrangement.spacedBy(32.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            TvHeroText(
-                title = app.name,
-                eyebrow = app.tvSourceLabel(),
-                meta = meta.ifEmpty { listOf(app.author.orEmpty()) },
-                description = when {
-                    state.isLoadingDetails -> stringResource(R.string.sync_in_progress)
-                    app.summary.isNotBlank() -> app.summary
-                    else -> null
-                },
-                chips = {
-                    TvTierBadge(text = app.tvTierLabel())
-                    if (app.reproducible) TvTierBadge(text = stringResource(R.string.chip_reproducible))
-                    if (app.containsAds) TvTierBadge(text = stringResource(R.string.chip_contains_ads))
-                },
-                actions = {
-                    TvStorePrimaryAction(
-                        isInstalled = state.isInstalled,
-                        hasUpdate = state.hasUpdate,
-                        stage = stage,
-                        busy = busy,
-                        focusRequester = focusRequester,
-                        onInstall = { onInstall(app) },
-                        onOpen = { onOpen(app.packageName) },
-                    )
-                    TvStoreSecondaryActions(
-                        isInstalled = state.isInstalled,
-                        hasUpdate = state.hasUpdate,
-                        busy = busy,
-                        onOpen = { onOpen(app.packageName) },
-                        onUninstall = { onUninstall(app.packageName) },
-                    )
-                    if (stage is InstallStage.Failed) {
-                        TvButton(
-                            text = stringResource(R.string.action_dismiss),
-                            onClick = { onDismissFailure(app.packageName) },
-                        )
-                    }
-                },
+            TvStoreDetailIdentity(
+                state = state,
+                focusRequester = primaryFocus,
+                onInstall = { onInstall(app) },
+                onOpen = { onOpen(app.packageName) },
+                onUninstall = { showUninstallConfirm = true },
+                onDismissFailure = { onDismissFailure(app.packageName) },
+                modifier = Modifier.weight(0.65f).fillMaxHeight(),
             )
-            if (state.isInstalled && state.installedInfo?.versionName != null && !state.hasUpdate) {
-                TvText(
-                    text = stringResource(R.string.installed_2, state.installedInfo.versionName),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-            TvStoreVerificationLine(state = state, modifier = Modifier.padding(top = 8.dp))
+            TvStoreDetailBody(
+                state = state,
+                onOpenInBrowser = onOpenInBrowser,
+                onOpenInPlayStore = onOpenInPlayStore,
+                modifier = Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+            )
         }
-        TvStoreTrustPanel(app = app, modifier = Modifier.weight(0.85f))
+    }
+    if (showUninstallConfirm) {
+        TvDialog(
+            title = stringResource(R.string.uninstall_3, app.name),
+            body = stringResource(
+                R.string.this_will_uninstall_you_can_reinstall_la, app.packageName
+            ),
+            onDismissRequest = { showUninstallConfirm = false },
+        ) {
+            TvButton(
+                text = stringResource(UiR.string.cancel),
+                onClick = { showUninstallConfirm = false },
+            )
+            TvButton(
+                text = stringResource(R.string.uninstall),
+                onClick = {
+                    showUninstallConfirm = false
+                    onUninstall(app.packageName)
+                },
+                primary = true,
+            )
+        }
     }
 }
 
-/** Open/Uninstall next to the primary action; the primary already covers Open when idle. */
+/**
+ * Left pane: icon, name, developer, source badge, primary Install/Update/Open
+ * plus the Open/Uninstall secondary exactly like the phone, then the stats row.
+ */
 @Composable
-private fun TvStoreSecondaryActions(
-    isInstalled: Boolean,
-    hasUpdate: Boolean,
-    busy: Boolean,
+private fun TvStoreDetailIdentity(
+    state: TvDetailUiState,
+    focusRequester: FocusRequester,
+    onInstall: () -> Unit,
     onOpen: () -> Unit,
     onUninstall: () -> Unit,
+    onDismissFailure: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    if (busy || !isInstalled) return
-    if (hasUpdate) {
-        // Primary is Update; Open sits beside it like the phone's Update + Open pair.
-        TvButton(
-            text = stringResource(UiR.string.open),
-            onClick = onOpen,
+    val app = state.app ?: return
+    val stage = state.stage
+    val busy = stage != null && stage !is InstallStage.Failed
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Box(contentAlignment = Alignment.Center) {
+            TvStoreAppArt(app = app, installedIcon = state.installedIcon, size = 120.dp)
+        }
+        Text(
+            text = app.name,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
         )
-    } else {
-        TvButton(
-            text = stringResource(R.string.uninstall),
-            onClick = onUninstall,
-            icon = { IconDelete() },
-        )
+        app.author?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TvBadge(text = app.tvSourceLabel())
+            if (app.reproducible) TvBadge(text = stringResource(R.string.chip_reproducible))
+            if (app.rating != null) {
+                TvBadge(
+                    text = String.format(java.util.Locale.US, "%.1f ★", app.rating),
+                )
+            }
+        }
+        // Primary action: exactly the phone's AppInstallActions logic.
+        when {
+            busy -> TvButton(
+                text = stage.tvStageLabel(),
+                onClick = {},
+                enabled = false,
+                modifier = Modifier.focusRequester(focusRequester),
+            )
+            state.hasUpdate -> {
+                TvButton(
+                    text = stringResource(R.string.action_update),
+                    onClick = onInstall,
+                    primary = true,
+                    icon = { IconDownload() },
+                    modifier = Modifier.focusRequester(focusRequester),
+                )
+                TvButton(
+                    text = stringResource(UiR.string.open),
+                    onClick = onOpen,
+                )
+            }
+            state.isInstalled -> {
+                TvButton(
+                    text = stringResource(UiR.string.open),
+                    onClick = onOpen,
+                    primary = true,
+                    modifier = Modifier.focusRequester(focusRequester),
+                )
+                TvButton(
+                    text = stringResource(R.string.uninstall),
+                    onClick = onUninstall,
+                    icon = { IconDelete() },
+                )
+            }
+            else -> TvButton(
+                text = stringResource(R.string.action_install),
+                onClick = onInstall,
+                primary = true,
+                icon = { IconDownload() },
+                modifier = Modifier.focusRequester(focusRequester),
+            )
+        }
+        if (state.isInstalled && state.installedInfo?.versionName != null && !state.hasUpdate) {
+            Text(
+                text = stringResource(R.string.installed_2, state.installedInfo.versionName),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (stage is InstallStage.Failed) {
+            Text(
+                text = stringResource(R.string.stage_failed, stage.reason),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+            )
+            TvButton(
+                text = stringResource(R.string.action_dismiss),
+                onClick = onDismissFailure,
+            )
+        }
+        // Stats row: Size / Rated / Version, like the phone's facts row.
+        TvStoreDetailStats(app = app)
+        TvStoreVerificationLine(state = state)
     }
+}
+
+/** Size / Rated / Version in whatever subset the source published. Like the phone. */
+@Composable
+private fun TvStoreDetailStats(app: UnifiedApp, modifier: Modifier = Modifier) {
+    val cells = buildList<Pair<String, String>> {
+        if (app.sizeBytes > 0) add(stringResource(R.string.fact_size) to formatSize(app.sizeBytes))
+        app.contentRating?.let { add(stringResource(R.string.fact_rated) to it) }
+        app.versionName?.let { add(stringResource(R.string.fact_version) to it) }
+    }
+    if (cells.isEmpty()) return
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+        cells.forEach { (label, value) ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** What the last install proved, in the verifier's own words — or the neutral line. */
+@Composable
+private fun TvStoreVerificationLine(state: TvDetailUiState, modifier: Modifier = Modifier) {
+    val message = state.verification.toTvMessage()
+    if (message == null) {
+        Text(
+            text = stringResource(R.string.detail_tap_for_trust),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = modifier,
+        )
+        return
+    }
+    Text(
+        text = message,
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (state.verification is VerificationResult.Rejected ||
+            state.verification is VerificationResult.Unverified
+        ) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun VerificationResult?.toTvMessage(): String? = when (this) {
+    is VerificationResult.Rejected ->
+        stringResource(R.string.detail_install_blocked, reason)
+    is VerificationResult.Verified ->
+        stringResource(R.string.detail_checked_on_install, detail)
+    is VerificationResult.Unverified ->
+        stringResource(R.string.detail_installed_unverified, reason)
+    null -> null
 }

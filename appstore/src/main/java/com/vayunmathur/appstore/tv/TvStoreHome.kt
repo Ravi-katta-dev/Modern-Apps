@@ -1,68 +1,68 @@
 package com.vayunmathur.appstore.tv
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text as TvText
+import androidx.tv.material3.Text
 import com.vayunmathur.appstore.R
 import com.vayunmathur.appstore.data.UnifiedApp
-import com.vayunmathur.appstore.data.installer.InstallStage
-import com.vayunmathur.appstore.ui.formatSize
-import com.vayunmathur.library.image.compose.AsyncImage
-import com.vayunmathur.library.tv.TvBackdrop
 import com.vayunmathur.library.tv.TvButton
+import com.vayunmathur.library.tv.TvChip
 import com.vayunmathur.library.tv.TvEmptyState
-import com.vayunmathur.library.tv.TvHeroText
+import com.vayunmathur.library.tv.TvGrid
 import com.vayunmathur.library.tv.TvInitialFocus
 import com.vayunmathur.library.tv.TvLoading
-import com.vayunmathur.library.tv.TvShelf
-import com.vayunmathur.library.tv.tvContentStart
+import com.vayunmathur.library.tv.tvFullWidth
+import com.vayunmathur.library.tv.tvGridHeader
 import com.vayunmathur.library.ui.IconDownload
 import com.vayunmathur.library.ui.IconPackage
-import com.vayunmathur.library.ui.R as UiR
 
 /**
- * The store front on TV: a featured hero keyed by the focused app, then one shelf per
- * source/section. Rows come from the TV-filtered catalogue the ViewModel already builds;
- * the only TV derivation here is which app the hero shows.
+ * The store front on TV: the phone's home reflowed for a wide screen. One
+ * scrolling grid: the updates banner, the category chips, then one headed block
+ * per source — same sections, same order, same titles and subtitles as the phone.
  *
- * The hero shows the first app of the first non-empty shelf and follows focus: moving
- * across any tile swaps the backdrop, name and actions to the focused app. The hero's
- * primary button keeps initial focus so CENTER installs straight away.
+ * Two grid rows per section (six cards): the screen shows a dozen+ items without
+ * scrolling, and Browse lists the whole catalogue behind each header.
  */
 @Composable
 fun TvStoreHome(
     viewModel: TvStoreViewModel,
     onAppClick: (UnifiedApp) -> Unit,
+    onOpenUpdates: () -> Unit,
+    onOpenBrowse: (TvSection) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.home.collectAsState()
+    // The updates banner counts every source, but the Play half of the update check
+    // only ran when the Updates tab was opened — a fresh launch showed the F-Droid
+    // count until the user visited that tab (issue #701). Kick off one check from
+    // home. Mirrors the phone's HomePage.
+    LaunchedEffect(Unit) {
+        viewModel.checkForUpdates()
+    }
     TvStoreHomeScreen(
         state = state,
-        onInstall = viewModel::install,
-        onOpen = viewModel::openApp,
+        onSelectCategory = viewModel::selectCategory,
         onAppClick = onAppClick,
+        onOpenUpdates = onOpenUpdates,
+        onOpenBrowse = onOpenBrowse,
         modifier = modifier,
     )
 }
@@ -71,220 +71,137 @@ fun TvStoreHome(
 internal fun TvStoreHomeScreen(
     state: TvHomeUiState,
     modifier: Modifier = Modifier,
-    onInstall: (UnifiedApp) -> Unit = {},
-    onOpen: (String) -> Unit = {},
+    onSelectCategory: (String?) -> Unit = {},
     onAppClick: (UnifiedApp) -> Unit = {},
+    onOpenUpdates: () -> Unit = {},
+    onOpenBrowse: (TvSection) -> Unit = {},
 ) {
     val primaryFocus = remember { FocusRequester() }
-    var heroApp by remember { mutableStateOf<UnifiedApp?>(null) }
-    val sections = state.sections
-    val shownHero = heroApp?.takeIf { hero -> sections.any { s -> s.apps.any { it.packageName == hero.packageName } } }
-        ?: sections.firstOrNull()?.apps?.firstOrNull()
-    // Claim the hero as soon as sections arrive, so the first frame has a backdrop.
-    LaunchedEffect(shownHero?.packageName) {
-        if (heroApp == null && shownHero != null) heroApp = shownHero
-    }
-
+    // Unkeyed: runs once. Keying on the update count would yank focus back to the
+    // banner every time a check completes or an update installs and drops off.
+    TvInitialFocus(primaryFocus)
     when {
-        state.isLoading && sections.isEmpty() -> TvLoading(label = stringResource(R.string.sync_in_progress))
-        sections.isEmpty() -> TvEmptyState(
+        state.isLoading && state.sections.isEmpty() ->
+            TvLoading(label = stringResource(R.string.sync_in_progress))
+        state.sections.isEmpty() -> TvEmptyState(
             title = stringResource(R.string.home_empty_title),
             body = stringResource(R.string.home_empty_message),
             icon = { IconPackage() },
         )
-        else -> Box(modifier.fillMaxSize()) {
-            TvBackdrop(key = shownHero?.packageName) { _ ->
-                val art = shownHero?.tvScreenshots?.firstOrNull()
-                    ?: shownHero?.screenshots?.firstOrNull()
-                    ?: shownHero?.featureGraphic
-                if (art != null) {
-                    AsyncImage(
-                        model = art,
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop,
-                    )
-                } else if (shownHero != null) {
-                    TvStoreHeroFallback(app = shownHero)
-                }
-            }
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (shownHero != null) {
-                    item("hero") {
-                        TvStoreHero(
-                            app = shownHero,
-                            state = state,
-                            focusRequester = primaryFocus,
-                            onInstall = onInstall,
-                            onOpen = onOpen,
-                            onDetails = { onAppClick(shownHero) },
-                            modifier = Modifier.padding(top = 56.dp, bottom = 32.dp),
-                        )
-                    }
-                }
-                if (state.statusMessage.isNotBlank()) {
-                    item("status") {
-                        TvStoreStatusLine(
-                            message = state.statusMessage,
-                            isLoading = state.isLoading,
-                        )
-                    }
-                }
-                items(sections, key = { it.id }) { section ->
-                    TvStoreSectionShelf(
-                        section = section,
-                        state = state,
-                        onAppClick = onAppClick,
-                        onHeroFocus = { heroApp = it },
+        else -> TvGrid(columns = 3, modifier = modifier.fillMaxSize()) {
+            if (state.updateCount > 0) {
+                tvFullWidth(key = "updates") {
+                    TvUpdatesBanner(
+                        count = state.updateCount,
+                        onClick = onOpenUpdates,
+                        focusRequester = primaryFocus,
                     )
                 }
-                item("bottom") { Spacer(Modifier.height(48.dp)) }
             }
-            // Unkeyed: runs once. Keying on the hero would yank focus back to the hero
-            // button every time focus moves across tiles and the hero follows.
-            TvInitialFocus(primaryFocus)
+            if (state.categories.isNotEmpty()) {
+                tvFullWidth(key = "categories") {
+                    TvCategoryChips(
+                        categories = state.categories,
+                        selected = state.selectedCategory,
+                        onSelect = onSelectCategory,
+                    )
+                }
+            }
+            // Transient sync line, e.g. what the catalogues are currently fetching.
+            if (state.statusMessage.isNotBlank()) {
+                tvFullWidth(key = "status") {
+                    Text(
+                        text = state.statusMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            state.sections.forEachIndexed { index, section ->
+                tvGridHeader(
+                    key = "${section.id}-header",
+                    title = section.title,
+                    subtitle = section.subtitle,
+                    first = index == 0 && state.updateCount == 0 &&
+                        state.categories.isEmpty() && state.statusMessage.isBlank(),
+                    action = {
+                        TvButton(
+                            text = stringResource(R.string.action_browse),
+                            onClick = { onOpenBrowse(section) },
+                        )
+                    },
+                )
+                val cards = section.apps.take(HOME_CARDS_PER_SECTION)
+                items(cards, key = { "${section.id}-${it.packageName}" }) { app ->
+                    TvStoreAppCard(
+                        app = app,
+                        onClick = { onAppClick(app) },
+                        installedIcon = state.installedIcons[app.packageName],
+                        isInstalled = app.packageName in state.installedPackages,
+                        hasUpdate = app.packageName in state.updatePackages,
+                        stage = state.stages[app.packageName],
+                    )
+                }
+            }
         }
     }
 }
 
-/** Featured hero: backdrop art, name, source eyebrow, tier chip, primary action + Details. */
+/**
+ * The phone's "N updates available · review and install" banner as one full-width
+ * focusable row: the count, the phone's subtitle, and a chevron.
+ */
 @Composable
-private fun TvStoreHero(
-    app: UnifiedApp,
-    state: TvHomeUiState,
+private fun TvUpdatesBanner(
+    count: Int,
+    onClick: () -> Unit,
     focusRequester: FocusRequester,
-    onInstall: (UnifiedApp) -> Unit,
-    onOpen: (String) -> Unit,
-    onDetails: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val stage = state.stages[app.packageName]
-    val busy = stage != null && stage !is InstallStage.Failed
-    val installedVersion = state.installedVersions[app.packageName]
-    val isInstalled = installedVersion != null
-    val hasUpdate = isInstalled && app.versionCode > (installedVersion ?: 0L)
-    val meta = buildList {
-        app.versionName?.let { add(it) }
-        if (app.sizeBytes > 0) add(formatSize(app.sizeBytes))
-        app.categories.firstOrNull()?.let { add(it) }
-    }
-    Column(modifier.padding(start = tvContentStart())) {
-        TvHeroText(
-            title = app.name,
-            eyebrow = app.tvSourceLabel(),
-            meta = meta,
-            description = app.summary.ifBlank { app.description }.ifBlank { null },
-            chips = { TvTierBadge(text = app.tvTierLabel()) },
-            actions = {
-                TvStorePrimaryAction(
-                    isInstalled = isInstalled,
-                    hasUpdate = hasUpdate,
-                    stage = stage,
-                    busy = busy,
-                    focusRequester = focusRequester,
-                    onInstall = { onInstall(app) },
-                    onOpen = { onOpen(app.packageName) },
-                )
-                TvButton(
-                    text = stringResource(R.string.tv_detail_open),
-                    onClick = onDetails,
-                )
-            },
-        )
-    }
+    TvButton(
+        text = pluralStringResource(R.plurals.updates_count, count, count) +
+            " · " + stringResource(R.string.updates_banner_subtitle),
+        onClick = onClick,
+        primary = true,
+        icon = { IconDownload() },
+        modifier = modifier.fillMaxWidth().focusRequester(focusRequester),
+    )
 }
 
-/** One primary (accent) action per screen: Install / Update / Open / the live stage. */
+/** The phone's category chips as a wrapping row inside one full-width grid item. */
 @Composable
-internal fun TvStorePrimaryAction(
-    isInstalled: Boolean,
-    hasUpdate: Boolean,
-    stage: InstallStage?,
-    busy: Boolean,
-    modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null,
-    onInstall: () -> Unit = {},
-    onOpen: () -> Unit = {},
-) {
-    val withFocus = if (focusRequester != null) {
-        Modifier.focusRequester(focusRequester)
-    } else {
-        Modifier
-    }
-    when {
-        busy -> TvButton(
-            text = stage!!.tvStageLabel(),
-            onClick = {},
-            enabled = false,
-            modifier = modifier.then(withFocus),
-        )
-        hasUpdate || !isInstalled -> TvButton(
-            text = stringResource(
-                if (hasUpdate || isInstalled) R.string.action_update else R.string.action_install,
-            ),
-            onClick = onInstall,
-            primary = true,
-            icon = { IconDownload() },
-            modifier = modifier.then(withFocus),
-        )
-        else -> TvButton(
-            text = stringResource(UiR.string.open),
-            onClick = onOpen,
-            primary = true,
-            modifier = modifier.then(withFocus),
-        )
-    }
-}
-
-/** One titled shelf of app tiles; focusing a tile moves the hero to it. */
-@Composable
-private fun TvStoreSectionShelf(
-    section: TvSection,
-    state: TvHomeUiState,
-    onAppClick: (UnifiedApp) -> Unit,
-    onHeroFocus: (UnifiedApp) -> Unit,
+private fun TvCategoryChips(
+    categories: List<String>,
+    selected: String?,
+    onSelect: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    TvShelf(title = section.title, modifier = modifier) {
-        items(section.apps, key = { it.packageName }) { app ->
-            val installed = app.packageName in state.installedPackages
-            val installedVersion = state.installedVersions[app.packageName]
-            val hasUpdate = installedVersion != null && app.versionCode > installedVersion
-            TvStoreAppTile(
-                app = app,
-                onClick = { onAppClick(app) },
-                badge = tvTileBadge(installed, hasUpdate),
-                progress = state.stages[app.packageName]?.downloadFraction(),
-                onFocus = { onHeroFocus(app) },
-            )
+    // FlowRow would want the experimental layout API; a fixed 6-per-row chunk
+    // reads the same on a TV and keeps the imports stable. The All chip leads.
+    val cells = listOf<String?>(null) + categories.take(CATEGORY_CHIP_LIMIT)
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        cells.chunked(CATEGORY_CHIPS_PER_ROW).forEach { chunk ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                chunk.forEach { category ->
+                    if (category == null) {
+                        TvChip(
+                            label = stringResource(R.string.filter_all),
+                            selected = selected == null,
+                            onClick = { onSelect(null) },
+                        )
+                    } else {
+                        TvChip(
+                            label = category,
+                            selected = selected == category,
+                            onClick = { onSelect(if (selected == category) null else category) },
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
-/** Transient status line under the hero, e.g. what the sync is currently fetching. */
-@Composable
-private fun TvStoreStatusLine(message: String, isLoading: Boolean, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .padding(
-                start = tvContentStart(),
-                end = 48.dp,
-                top = 4.dp,
-                bottom = 12.dp,
-            ),
-        horizontalAlignment = Alignment.Start,
-    ) {
-        TvText(
-            text = if (message.isBlank() && isLoading) {
-                stringResource(R.string.sync_in_progress)
-            } else {
-                message
-            },
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
+private const val HOME_CARDS_PER_SECTION = 6
+private const val CATEGORY_CHIPS_PER_ROW = 6
+private const val CATEGORY_CHIP_LIMIT = 23

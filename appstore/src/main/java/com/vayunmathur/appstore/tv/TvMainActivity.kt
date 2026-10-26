@@ -1,9 +1,5 @@
 package com.vayunmathur.appstore.tv
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -11,13 +7,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
 import com.vayunmathur.appstore.R
 import com.vayunmathur.appstore.data.AppStoreDatabaseRepository
 import com.vayunmathur.appstore.data.UnifiedApp
@@ -26,12 +17,11 @@ import com.vayunmathur.library.tv.MaTvTheme
 import com.vayunmathur.library.tv.TvAccent
 import com.vayunmathur.library.tv.TvAppFrame
 import com.vayunmathur.library.tv.TvDestination
-import com.vayunmathur.library.tv.TvIcon
 import com.vayunmathur.library.ui.IconDownload
 import com.vayunmathur.library.ui.IconHome
 import com.vayunmathur.library.ui.IconPackage
+import com.vayunmathur.library.ui.IconProvider
 import com.vayunmathur.library.ui.IconSearch
-import com.vayunmathur.library.ui.IconStore
 import com.vayunmathur.library.ui.MaActivity
 import com.vayunmathur.library.util.MainNavigation
 import com.vayunmathur.library.util.NavBackStack
@@ -40,18 +30,22 @@ import com.vayunmathur.library.util.rememberNavBackStack
 import kotlinx.serialization.Serializable
 
 /**
- * TV-only destinations: the rail tabs plus one pushed detail.
+ * TV-only destinations: the rail tabs plus pushed browse and detail pages.
  *
  * A separate sealed interface from the phone `Route`, following youpipe's `TvRoute`, so
  * a TV destination can never leak into the phone back stack or vice versa. Home, search,
- * updates and library are rail destinations — selecting one swaps the content, and each
- * keeps its own screen so focus restores per destination.
+ * updates, library and sources are rail destinations — selecting one swaps the content,
+ * and each keeps its own screen so focus restores per destination.
  */
 @Serializable
 sealed interface TvStoreRoute : NavKey {
-    /** The rail: home, search, updates, library. D-pad only, no swipe. */
+    /** The rail: home, search, updates, library, sources. D-pad only, no swipe. */
     @Serializable
     data object Main : TvStoreRoute
+
+    /** One home section's full catalogue, pushed over the rail. */
+    @Serializable
+    data class Browse(val sectionId: String) : TvStoreRoute
 
     /** One app's page, pushed over the rail. */
     @Serializable
@@ -86,7 +80,9 @@ class TvMainActivity : MaActivity() {
     @Composable
     override fun Content() {
         val repository = remember { AppStoreDatabaseRepository.get(this) }
-        val factory = remember { TvStoreViewModelFactory(this, repository.database) }
+        val factory = remember {
+            TvStoreViewModelFactory(this, repository.database)
+        }
         val viewModel: TvStoreViewModel = viewModel(factory = factory)
         TvStoreNavigation(viewModel = viewModel)
     }
@@ -95,9 +91,10 @@ class TvMainActivity : MaActivity() {
 /**
  * The TV navigation host: [rememberNavBackStack] + [MainNavigation] over [TvStoreRoute].
  *
- * The detail destination reads the selection the rail already set via
- * [TvStoreViewModel.selectApp] — popping clears it, so BACK from detail always lands on
- * the destination that opened it with no stale selection behind it.
+ * The browse and detail destinations read the selection the rail already set via
+ * [TvStoreViewModel.openBrowse]/[TvStoreViewModel.selectApp] — popping clears them,
+ * so BACK from either always lands on the destination that opened it with no stale
+ * selection behind it.
  */
 @Composable
 private fun TvStoreNavigation(viewModel: TvStoreViewModel) {
@@ -105,6 +102,19 @@ private fun TvStoreNavigation(viewModel: TvStoreViewModel) {
     MainNavigation(backStack) {
         entry<TvStoreRoute.Main> {
             TvStoreRail(backStack = backStack, viewModel = viewModel)
+        }
+        entry<TvStoreRoute.Browse> {
+            TvStoreBrowse(
+                viewModel = viewModel,
+                onAppClick = { app ->
+                    viewModel.selectApp(app)
+                    backStack.add(TvStoreRoute.Detail(app.packageName))
+                },
+                onBack = {
+                    backStack.pop()
+                    viewModel.clearBrowse()
+                },
+            )
         }
         entry<TvStoreRoute.Detail> {
             TvStoreDetail(
@@ -123,10 +133,12 @@ private const val TV_DEST_HOME = 0
 private const val TV_DEST_SEARCH = 1
 private const val TV_DEST_UPDATES = 2
 private const val TV_DEST_LIBRARY = 3
+private const val TV_DEST_SOURCES = 4
 
 /**
- * The store shell: a [TvAppFrame] rail (Home, Search, Updates with count, Library) with
- * the store brand, and the selected destination's screen beside it.
+ * The store shell: a [TvAppFrame] rail (Home, Search, Updates with count, Library,
+ * Sources — the phone's bottom bar turned sideways) and the selected destination's
+ * screen beside it.
  */
 @Composable
 private fun TvStoreRail(
@@ -144,14 +156,20 @@ private fun TvStoreRail(
         stringResource(R.string.nav_updates)
     }
     val libraryLabel = stringResource(R.string.nav_library)
-    val destinations = remember(homeLabel, searchLabel, updatesLabel, libraryLabel) {
+    val sourcesLabel = stringResource(R.string.nav_sources)
+    val destinations = remember(
+        homeLabel, searchLabel, updatesLabel, libraryLabel, sourcesLabel
+    ) {
         listOf(
             TvDestination(homeLabel) { IconHome() },
             TvDestination(searchLabel) { IconSearch() },
             TvDestination(updatesLabel) { IconDownload() },
             TvDestination(libraryLabel) { IconPackage() },
+            TvDestination(sourcesLabel) { IconProvider() },
         )
     }
+    // Survives returning from a pushed route: without saveable the rail reset to
+    // Home behind every detail page, so BACK landed on the wrong destination.
     var selectedIndex by rememberSaveable { mutableIntStateOf(0) }
 
     fun openDetail(app: UnifiedApp) {
@@ -163,7 +181,6 @@ private fun TvStoreRail(
         destinations = destinations,
         selected = selectedIndex,
         onSelect = { selectedIndex = it },
-        brand = { TvStoreBrand() },
         backReturnsToRail = backStack.backStack.size <= 1,
     ) {
         when (selectedIndex) {
@@ -176,27 +193,16 @@ private fun TvStoreRail(
             )
             TV_DEST_UPDATES -> TvStoreUpdates(viewModel = viewModel, onAppClick = ::openDetail)
             TV_DEST_LIBRARY -> TvStoreLibrary(viewModel = viewModel, onAppClick = ::openDetail)
-            else -> TvStoreHome(viewModel = viewModel, onAppClick = ::openDetail)
+            TV_DEST_SOURCES -> TvStoreSources(viewModel = viewModel)
+            else -> TvStoreHome(
+                viewModel = viewModel,
+                onAppClick = ::openDetail,
+                onOpenUpdates = { selectedIndex = TV_DEST_UPDATES },
+                onOpenBrowse = { section ->
+                    viewModel.openBrowse(section)
+                    backStack.add(TvStoreRoute.Browse(section.id))
+                },
+            )
         }
-    }
-}
-
-/** Brand slot: store icon + "App Store" text, shown when the rail expands. */
-@Composable
-private fun TvStoreBrand(modifier: Modifier = Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier.size(40.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            TvIcon { IconStore() }
-        }
-        Text(
-            text = stringResource(R.string.app_name),
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            modifier = Modifier.padding(start = 12.dp),
-        )
     }
 }
