@@ -87,13 +87,14 @@ struct Args {
     split: Option<u32>,
     len: Option<u32>,
     gather: bool,
+    soft: bool,
 }
 
 /// `--head <path>`, `--time <repeats>`, `--prefill <tokens>`, `--sample`; the
 /// rest are positional: text embed golden [trace] [tail] [head].
 fn parse_args() -> Args {
     let mut args =
-        Args { positional: Vec::new(), head: None, time: None, prefill: None, sample: false, split: None, len: None, gather: false };
+        Args { positional: Vec::new(), head: None, time: None, prefill: None, sample: false, split: None, len: None, gather: false, soft: false };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -104,6 +105,7 @@ fn parse_args() -> Args {
             "--split" => args.split = it.next().and_then(|n| n.parse().ok()),
             "--len" => args.len = it.next().and_then(|n| n.parse().ok()),
             "--gather" => args.gather = true,
+            "--soft" => args.soft = true,
             _ => args.positional.push(arg),
         }
     }
@@ -157,6 +159,12 @@ fn main() {
     };
     if let Some(repeats) = args.time {
         time_decode(&context, &weights, &embed_weights, head_weights.as_ref(), &tokens, repeats, args.sample, args.gather);
+        return print_memory();
+    }
+    if args.soft {
+        if let Err(why) = soft_check(&context, &weights, &embed_weights, head_weights.as_ref(), &tokens) {
+            println!("the soft check failed to run: {why}");
+        }
         return print_memory();
     }
     if args.gather {
@@ -808,6 +816,78 @@ fn gather_check(context: &Arc<context::Context>, embed: &Streamed, tokens: &[u32
         "combine per token: host {:.2} ms, device {:.2} ms; worst max|diff|/max|host| {worst:.5}",
         host_ms / n,
         device_ms / n
+    );
+    Ok(())
+}
+
+/// Soft tokens after text: `prompt[..2]` batched at 0, then `prompt[2..n-1]` as soft rows
+/// (embedding row + pad-token per-layer inputs, as `pushSoftGemma4` builds them) batched at 2
+/// versus one pass each, then the last token. The two next-token rankings must agree.
+fn soft_check(
+    context: &Arc<context::Context>,
+    weights: &Streamed,
+    embed: &Streamed,
+    head: Option<&Streamed>,
+    prompt: &[u32],
+) -> Result<(), String> {
+    let n = prompt.len();
+    if n < 4 {
+        return Err("the soft check needs at least 4 tokens".into());
+    }
+    let head = head.ok_or("the soft check needs --head")?;
+    let mut net = streamed_net(context, weights, gemma4::Mode::DecodeStep.at(TIER), gemma4_plan)?;
+    let mut head_net = streamed_net(context, head, false, head_plan)?;
+    let reader = embed.reader();
+    let rotary = weights.reader();
+    let mut rows = Vec::new();
+    for &token in &prompt[2..n - 1] {
+        let hidden = reader.int4_row(
+            gemma4::embed::TOKENS,
+            gemma4::embed::TOKENS + 1,
+            &[gemma4::VOCAB, gemma4::D_MODEL],
+            token,
+        )?;
+        let per_layer = gemma4::gather_soft(&reader, &hidden, 0)?;
+        rows.push((hidden, per_layer));
+    }
+    let mut run = |batched: bool| -> Result<Vec<f32>, String> {
+        feed(&mut net, &reader, &rotary, &prompt[..2], 0, true)?;
+        if batched {
+            let width = rows.len() as u32;
+            let mut hidden = vec![0f32; (gemma4::D_MODEL * width) as usize];
+            let mut per_layer = vec![0f32; (gemma4::PER_LAYER * gemma4::LAYERS as u32 * width) as usize];
+            let mut local = vec![0f32; (gemma4::HEAD_DIM * width) as usize];
+            let mut global = vec![0f32; (gemma4::GLOBAL_HEAD_DIM * width) as usize];
+            for (column, (h, p)) in rows.iter().enumerate() {
+                let column = column as u32;
+                place(&mut hidden, h, column, width);
+                place(&mut per_layer, p, column, width);
+                place(&mut local, &rotary_row(&rotary, gemma4::ROTARY_LOCAL, gemma4::HEAD_DIM, 2 + column)?, column, width);
+                place(&mut global, &rotary_row(&rotary, gemma4::ROTARY_GLOBAL, gemma4::GLOBAL_HEAD_DIM, 2 + column)?, column, width);
+            }
+            let at = net.at(gemma4::Mode::Prefill { tokens: width }.at(TIER))?;
+            at.set_params(StepParams { prefix: 2, window_start: 0 })?;
+            at.infer_raw_many(&[&hidden, &per_layer, &local, &global])?;
+        } else {
+            for (offset, (h, p)) in rows.iter().enumerate() {
+                let position = 2 + offset as u32;
+                let local = rotary_row(&rotary, gemma4::ROTARY_LOCAL, gemma4::HEAD_DIM, position)?;
+                let global = rotary_row(&rotary, gemma4::ROTARY_GLOBAL, gemma4::GLOBAL_HEAD_DIM, position)?;
+                let at = net.at(gemma4::Mode::Prefill { tokens: 1 }.at(TIER))?;
+                at.set_params(StepParams { prefix: position, window_start: position.saturating_sub(gemma4::WINDOW - 1) })?;
+                at.infer_raw_many(&[h, p, &local, &global])?;
+            }
+        }
+        last_logits(&mut net, &mut head_net, &reader, &rotary, prompt[n - 1], (n - 1) as u32)
+    };
+    let batched = run(true)?;
+    let sequential = run(false)?;
+    let max_diff = batched.iter().zip(&sequential).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+    println!("soft rows batched    top10 {:?}", top10(&batched));
+    println!("soft rows sequential top10 {:?}", top10(&sequential));
+    println!(
+        "soft check: {}, max |logit diff| {max_diff:.4}",
+        if top10(&batched) == top10(&sequential) { "SAME top10" } else if top10(&batched)[0] == top10(&sequential)[0] { "same argmax, top10 reordered" } else { "ARGMAX DIFFERS" }
     );
     Ok(())
 }

@@ -214,7 +214,7 @@ pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_destroyGe
 ///
 /// This is the seam the vision tower attaches to. The decoder is text-only and gathers a row of
 /// the embedding table per token; an image has no token to gather, so its rows arrive here
-/// instead. See `Gemma4Handle::step_soft` for why the per-layer half still comes from the table.
+/// instead. See `Gemma4Handle::gather_soft` for why the per-layer half still comes from the table.
 ///
 /// # Safety
 ///
@@ -234,14 +234,8 @@ pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_pushSoftG
         // that no other call on it overlaps this one.
         let handle = unsafe { &mut *(handle as *mut Gemma4Handle) };
         let fed = read_float_array(env, &embeddings).and_then(|values| {
-            let width = gemma4::D_MODEL as usize;
-            if values.is_empty() || !values.len().is_multiple_of(width) {
-                return Err(format!("{} values, which is not a whole number of {width}", values.len()));
-            }
-            for row in values.chunks_exact(width) {
-                handle.step_soft(row, false)?;
-            }
-            Ok((values.len() / width) as jint)
+            handle.prefill_soft(&values)?;
+            Ok((values.len() / gemma4::D_MODEL as usize) as jint)
         });
         Ok(match fed {
             Ok(count) => count,
