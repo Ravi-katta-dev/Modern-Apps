@@ -348,6 +348,7 @@ pub(crate) enum Node {
         row: Id,
         out: Id,
     },
+    TopK { input: Id, row: Id, out: Id, fold: bool }, // See Kind::TopK and Builder::top_k.
     /// `clamp(round(x / scale), -128, 127) * scale`. See [`Kind::Quantize`].
     Quantize {
         input: Id,

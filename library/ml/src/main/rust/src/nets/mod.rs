@@ -325,6 +325,7 @@ pub enum Kind {
     /// `lo = id % 2048`, `hi = id / 2048`, keeping the FIRST index on ties.
     /// See `shaders/argmax_fold.comp`.
     ArgmaxFold,
+    TopK, // The 64 largest of a row with their ids; see shaders/topk.comp.
     /// An [`Act`] applied on its own, for a value no convolution produced. See
     /// `shaders/activate.comp`.
     ///
