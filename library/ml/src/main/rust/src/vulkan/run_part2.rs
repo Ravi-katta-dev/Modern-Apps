@@ -64,9 +64,10 @@ impl Net {
             self.barrier(buffer);
 
             // `MODELRUNNER_BARRIER=scheduled`: only the barriers `nets::schedule` proves
-            // necessary, instead of one after every op. Measured behind the knob; the default
-            // stays a barrier per op unless this is >=5% faster with all parity green.
-            let scheduled = crate::knobs::get("barrier").as_deref() == Some("scheduled");
+            // necessary, instead of one after every op. Debug builds only: it measured no faster
+            // and produces NaN in Supertonic's sampler, so a release build must not honour it.
+            let scheduled = cfg!(debug_assertions)
+                && crate::knobs::get("barrier").as_deref() == Some("scheduled");
             let schedule = scheduled.then(|| crate::nets::schedule::schedule(&self.plan));
             if let Some(schedule) = &schedule {
                 crate::timing!(
