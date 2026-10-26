@@ -272,6 +272,26 @@ mod tests {
             }
             assert_eq!((scores, softmaxes), (LAYERS, LAYERS), "one cached attention per layer");
             assert_eq!(windowed, 28, "and the sliding ones carry a window");
+
+            // At position 0 the chunk is all there is, so it attends itself with the T x T kernels.
+            let fresh = build(&Shapes::new(TENSORS), Mode::PrefillFresh { tokens }.at(TEST_CONTEXT))
+                .unwrap_or_else(|e| panic!("fresh {tokens} positions: {e}"));
+            let (mut causal, mut windowed) = (0, 0);
+            for op in &fresh.ops {
+                let Op::Dispatch { kind, push, .. } = op else { continue };
+                match kind {
+                    Kind::SoftmaxCausal => {
+                        causal += 1;
+                        windowed += usize::from(push.kh == WINDOW);
+                        assert_eq!((push.out_h, push.out_w), (tokens, tokens), "T x T scores");
+                    }
+                    Kind::AttnScoresCached | Kind::AttnApplyCached => {
+                        panic!("a fresh prefill must not read the cache")
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!((causal, windowed), (LAYERS, 28));
         }
         assert!(build(&Shapes::new(TENSORS), Mode::Prefill { tokens: 0 }.at(TEST_CONTEXT)).is_err());
         let past = MAX_CONTEXT + 1;

@@ -559,7 +559,7 @@ fn time_prefill(
     }
     let prompt: Vec<u32> = tokens.iter().copied().cycle().take(width as usize).collect();
     let next = tokens[width as usize % tokens.len()];
-    let mode = gemma4::Mode::Prefill { tokens: width }.at(TIER);
+    let mode = gemma4::Mode::PrefillFresh { tokens: width }.at(TIER);
     let stamps = modelrunner::knobs::is_set("timestamps");
     let mut prefill_report = None;
     for run in 0..2 {
@@ -665,7 +665,13 @@ fn feed(
             width,
         );
     }
-    let at = net.at(gemma4::Mode::Prefill { tokens: width }.at(TIER))?;
+    // As the bridge does: a chunk at position 0 attends itself, any later one the cache.
+    let mode = if start == 0 {
+        gemma4::Mode::PrefillFresh { tokens: width }
+    } else {
+        gemma4::Mode::Prefill { tokens: width }
+    };
+    let at = net.at(mode.at(TIER))?;
     at.set_params(params(start))?;
     at.infer_raw_many(&[&hidden, &per_layer, &local, &global])?;
     Ok(())

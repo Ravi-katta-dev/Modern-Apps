@@ -421,7 +421,12 @@ impl Gemma4Handle {
             place(&mut global, &self.global[from..from + gemma4::GLOBAL_HEAD_DIM as usize], column, width);
         }
         let submitted = std::time::Instant::now();
-        let at = self.net.at(gemma4::Mode::Prefill { tokens: width }.at(self.context))?;
+        let mode = if self.position == 0 {
+            gemma4::Mode::PrefillFresh { tokens: width }
+        } else {
+            gemma4::Mode::Prefill { tokens: width }
+        };
+        let at = self.net.at(mode.at(self.context))?;
         let recorded = submitted.elapsed();
         at.set_params(StepParams {
             prefix: self.position,

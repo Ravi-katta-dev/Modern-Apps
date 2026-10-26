@@ -79,6 +79,10 @@ pub enum Mode {
     /// position. `build` refuses anything above one rather than recording a plan that would
     /// attend as though it were single-position.
     Prefill { tokens: u32 },
+    /// [`Mode::Prefill`] for a chunk that starts at position 0. Nothing precedes it, so its
+    /// attention runs over the chunk's own keys with the tiled `T x T` kernels, which is faster
+    /// than the cache-wide multi-query path. Wrong at any other position.
+    PrefillFresh { tokens: u32 },
 }
 
 /// Plan inputs, in declaration order.
@@ -120,9 +124,11 @@ pub fn build(weights: &dyn WeightSource, pass: Pass) -> Result<Plan, String> {
     let stop_after = match mode {
         Mode::DecodeStep => LAYERS,
         // Prefill runs every layer; what it skips is the head, not the depth.
-        Mode::Prefill { tokens: 0 } => return Err("a prefill of no positions".into()),
-        Mode::Prefill { tokens } if tokens <= context => LAYERS,
-        Mode::Prefill { tokens } => {
+        Mode::Prefill { tokens: 0 } | Mode::PrefillFresh { tokens: 0 } => {
+            return Err("a prefill of no positions".into())
+        }
+        Mode::Prefill { tokens } | Mode::PrefillFresh { tokens } if tokens <= context => LAYERS,
+        Mode::Prefill { tokens } | Mode::PrefillFresh { tokens } => {
             return Err(format!("a prefill of {tokens} positions, past a {context} cache"))
         }
         Mode::Trace { layers } if layers <= LAYERS => layers,
@@ -163,7 +169,7 @@ pub fn build(weights: &dyn WeightSource, pass: Pass) -> Result<Plan, String> {
     // which is the difference between reading 1.3 GB of weights per token and reading it once
     // for all of them.
     let width = match mode {
-        Mode::Prefill { tokens } => tokens,
+        Mode::Prefill { tokens } | Mode::PrefillFresh { tokens } => tokens,
         _ => 1,
     };
     let mut x = b.input(Shape::new(D_MODEL, 1, width));
@@ -180,9 +186,13 @@ pub fn build(weights: &dyn WeightSource, pass: Pass) -> Result<Plan, String> {
     b.host_tensor(ONE_SLIDING, &[HEAD_DIM]);
     b.host_tensor(ONE_FULL, &[GLOBAL_HEAD_DIM]);
 
-    // TraceTail runs layer 0 through `layer_tail`
+    // TraceTail runs layer 0 through `layer_tail`, which returns the four branch
     // intermediates alongside the output. Every other mode runs `layer`.
     let mut tail: Option<[Id; 4]> = None;
+    // A fresh prefill attends its own chunk, so the owning layers' K and V are carried forward
+    // to the shared layers as tensors (the `cache_source` mapping, resolved to tensors).
+    let fresh = matches!(mode, Mode::PrefillFresh { .. });
+    let (mut sliding_kv, mut full_kv): (Option<(Id, Id)>, Option<(Id, Id)>) = (None, None);
     for index in 0..stop_after {
         let angles = if is_full_attention(index) { angles_global } else { angles_local };
         let (cache_k, cache_v) = *caches
@@ -197,7 +207,18 @@ pub fn build(weights: &dyn WeightSource, pass: Pass) -> Result<Plan, String> {
             x = layer(b, index, x, per_layer_inputs, angles, cache_k, cache_v)?;
             continue;
         }
-        x = prefill_layer(b, index, x, per_layer_inputs, angles, cache_k, cache_v, width)?;
+        let full = is_full_attention(index);
+        let carried = if full { full_kv } else { sliding_kv };
+        let attend = if fresh { Attend::Chunk(carried) } else { Attend::Cache };
+        let (next, kv) = prefill_layer(b, index, x, per_layer_inputs, angles, cache_k, cache_v, attend)?;
+        x = next;
+        if let Some(kv) = kv {
+            if full {
+                full_kv = Some(kv);
+            } else {
+                sliding_kv = Some(kv);
+            }
+        }
     }
 
     if let Mode::TraceTail = mode {
@@ -225,7 +246,7 @@ pub fn build(weights: &dyn WeightSource, pass: Pass) -> Result<Plan, String> {
         return builder.finish(&[x, per_layer_inputs]);
     }
 
-    if let Mode::Prefill { .. } = mode {
+    if let Mode::Prefill { .. } | Mode::PrefillFresh { .. } = mode {
         // Prefill runs every layer - the point is the caches those layers fill - and then stops.
         // The head and the final norm are named rather than evaluated, exactly as a trace names
         // the layers it stops short of.
@@ -322,8 +343,18 @@ fn name_layer(b: &mut Builder, index: usize) {
 /// being written the same way: every projection, norm, activation and residual here is an
 /// elementwise or per-position op that already took a `[C, 1, T]` shape.
 ///
+/// Where a prefill layer's queries find their keys.
+#[derive(Clone, Copy)]
+enum Attend {
+    /// The KV cache: every position before the chunk plus the chunk itself. Correct anywhere.
+    Cache,
+    /// The chunk's own K and V (a shared layer's carried in from its owner), masked causally.
+    /// Only for a chunk starting at position 0, where the two are the same keys.
+    Chunk(Option<(Id, Id)>),
+}
+
 /// Returns the layer's output and, for a layer that owns a cache, its `(K, V)` so the shared
-/// layers after it can attend over them.
+/// layers after it can attend over them in [`Attend::Chunk`].
 #[allow(clippy::too_many_arguments)]
 fn prefill_layer(
     b: &mut Builder,
@@ -333,8 +364,8 @@ fn prefill_layer(
     angles: Id,
     cache_k: Id,
     cache_v: Id,
-    width: u32,
-) -> Result<Id, String> {
+    attend: Attend,
+) -> Result<(Id, Option<(Id, Id)>), String> {
     let dim = head_dim(index);
     let inner = ffn(index);
     let at = layer_at(index);
@@ -382,6 +413,7 @@ fn prefill_layer(
     let q = b.rms_norm_grouped(q, q_norm_at, EPSILON, HEADS);
     let q = b.rotary(q, angles, HEADS);
 
+    let mut mine = None;
     if let (Some(k_norm_at), Some(k_proj), Some(v_proj)) = (k_norm_at, k_proj, v_proj) {
         let k = point(b, k_proj, normed_q, KV_HEADS * dim);
         let k = b.quantize(k, KO_SCALE[index]);
@@ -397,13 +429,25 @@ fn prefill_layer(
         // Positions `prefix .. prefix + T`, transposed into the position-major cache.
         b.cache_write(k, cache_k);
         b.cache_write(v, cache_v);
+        mine = Some((k, v));
     }
 
-    // Every query attends the cache - the positions before this chunk and the chunk itself,
-    // which the owning layer just wrote - so a prefill is correct at any position. The scale is
-    // already inside `q_norm`'s gamma.
     let slides = !is_full_attention(index);
-    let mixed = b.attn_cached_multi(q, cache_k, cache_v, HEADS, KV_HEADS, if slides { WINDOW } else { 0 });
+    let mixed = match attend {
+        // Every query attends the cache - the positions before this chunk and the chunk
+        // itself, which the owning layer just wrote. The scale is already inside `q_norm`.
+        Attend::Cache => {
+            b.attn_cached_multi(q, cache_k, cache_v, HEADS, KV_HEADS, if slides { WINDOW } else { 0 })
+        }
+        Attend::Chunk(carried) => {
+            let (k, v) = mine
+                .or(carried)
+                .ok_or_else(|| format!("layer {index} has no keys and none were carried forward"))?;
+            let scores = b.attn_scores_grouped_prescaled(q, k, HEADS, KV_HEADS);
+            let probs = b.softmax_causal_windowed(scores, if slides { WINDOW } else { 0 });
+            b.attn_apply_grouped(probs, v, HEADS, KV_HEADS)
+        }
+    };
     // The live int8 round-trip, as in [`super::layer`]: prefill fills the same
     // caches a decode reads, so its mixtures quantize identically.
     let mixed = b.quantize(mixed, MM_SCALE[index]);
@@ -430,9 +474,8 @@ fn prefill_layer(
     let branch = b_rms(b, projected, post_per_layer);
     let x = b.add(x, branch);
     let x = b.mul_scalar(x, skip_at);
-    let _ = width;
     // The whole residual is scaled by `skip` after add2, as in [`super::layer`].
-    Ok(x)
+    Ok((x, mine))
 }
 
 /// A `1 x 1` int4 convolution, which every large projection in this net is.
