@@ -46,10 +46,12 @@ void main() {
     if (index >= p.count) {
         return;
     }
-    // The output is `[d_model, 1, queries]`: channel-major, query innermost.
+    // The output is `[d_model, 1, queries]`. Adjacent lanes take adjacent channels of one query,
+    // so the probability row is a broadcast and the V reads are contiguous; at one query this is
+    // `channel = index`.
     uint queries = max(p.dil_h, 1u);
-    uint channel = index / queries;
-    uint q = index % queries;
+    uint channel = index % p.out_c;
+    uint q = index / p.out_c;
     uint stride = p.in_w;
     uint head_dim = p.out_c / p.group;
     uint head = channel / head_dim;
@@ -65,5 +67,5 @@ void main() {
     }
     // A folded int8 round-trip: the attention mixture's `Quantize` (live's
     // `Mm` round-trip at `MM_SCALE`) stores here instead of its own dispatch.
-    arena[p.out_at + index] = float16_t(quant_store(total));
+    arena[p.out_at + channel * queries + q] = float16_t(quant_store(total));
 }
