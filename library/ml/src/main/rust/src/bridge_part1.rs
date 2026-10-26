@@ -403,7 +403,7 @@ impl supertonic::Stages for SupertonicNets<'_> {
 
     fn vocoder(&mut self, latent: &[f32], frames: u32) -> Result<Vec<f32>, String> {
         let reshaping = std::time::Instant::now();
-        let net = self.vocoder.at(frames)?;
+        let net = self.vocoder.at(supertonic_vocoder::padded_frames(frames))?;
         self.timing.reshape += reshaping.elapsed().as_secs_f64() * 1000.0;
         let running = std::time::Instant::now();
         // Two marshalling steps, both the host's job — `nets::supertonic_vocoder::build`'s own doc
@@ -416,9 +416,9 @@ impl supertonic::Stages for SupertonicNets<'_> {
         //    to AudioTrack unchanged plays each channel plane as if it were consecutive samples, so
         //    every 512th value is a real neighbour and the rest is a periodic artefact — a loud tone
         //    at the frame rate rather than speech.
-        let unpacked = supertonic_vocoder::unpack_latent(latent, frames as usize)?;
+        let unpacked = supertonic_vocoder::unpack_latent_padded(latent, frames as usize)?;
         let channelled = one_output(net.infer_raw(&unpacked)?)?;
-        let out = supertonic_vocoder::interleave(&channelled);
+        let out = supertonic_vocoder::interleave_padded(&channelled, frames as usize)?;
         self.timing.vocoder += running.elapsed().as_secs_f64() * 1000.0;
         Ok(out)
     }

@@ -143,7 +143,7 @@ impl Layers {
     }
 }
 
-pub use super::supertonic_vocoder_extra::unpack_latent;
+pub use super::supertonic_vocoder_extra::{interleave_padded, padded_frames, unpack_latent, unpack_latent_padded};
 
 /// Read the plan's `[512, 1, T]` output as a waveform: `sample[t * 512 + s] = out[s][t]`.
 pub fn interleave(channelled: &[f32]) -> Vec<f32> {

@@ -253,12 +253,12 @@ impl supertonic::Stages for Timed {
 
     fn vocoder(&mut self, latent: &[f32], frames: u32) -> Result<Vec<f32>, String> {
         let reshaping = Instant::now();
-        let net = self.vocoder.at(frames)?;
+        let net = self.vocoder.at(supertonic_vocoder::padded_frames(frames))?;
         let each = ms(reshaping);
         self.reshape_ms += each;
         self.reshape_vocoder_ms += each;
         let unpacking = Instant::now();
-        let unpacked = supertonic_vocoder::unpack_latent(latent, frames as usize)?;
+        let unpacked = supertonic_vocoder::unpack_latent_padded(latent, frames as usize)?;
         self.unpack_ms += ms(unpacking);
         let running = Instant::now();
         let channelled = one_output(net.infer_raw(&unpacked)?)?;
@@ -267,7 +267,7 @@ impl supertonic::Stages for Timed {
             self.vocoder_times = times;
         }
         let interleaving = Instant::now();
-        let out = supertonic_vocoder::interleave(&channelled);
+        let out = supertonic_vocoder::interleave_padded(&channelled, frames as usize)?;
         self.interleave_ms += ms(interleaving);
         Ok(out)
     }
