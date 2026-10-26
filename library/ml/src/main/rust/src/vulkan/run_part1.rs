@@ -128,6 +128,8 @@ impl Net {
             query_count: 0,
             poisoned: false,
             input_scratch: vec![0u16; input_elems],
+            input_seen: Vec::new(),
+            input_cache: Vec::new(),
             output_scratch: vec![0u16; output_elems],
         };
 

@@ -610,18 +610,7 @@ barrier+copy {:.1} ms; slowest {:?}; dispatch by kind: {}",
                 self.plan.inputs.len()
             ));
         }
-        self.input_scratch.clear();
-        for (binding, values) in self.plan.inputs.iter().zip(inputs) {
-            let wanted = binding.shape.len() as usize;
-            if values.len() != wanted {
-                return Err(format!(
-                    "{} values for an input of {:?}, which holds {wanted}",
-                    values.len(),
-                    binding.shape
-                ));
-            }
-            self.input_scratch.extend(values.iter().map(|&v| preprocess::f32_to_f16(v)));
-        }
+        self.stage_inputs(inputs)?;
         self.submit()?;
         self.split_outputs()
     }

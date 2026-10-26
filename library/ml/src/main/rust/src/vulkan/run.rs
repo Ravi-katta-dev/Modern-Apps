@@ -329,9 +329,13 @@ pub struct Net {
     /// Scratch for the fp16 input and the fp16 output, so an inference allocates nothing.
     input_scratch: Vec<u16>,
     output_scratch: Vec<u16>,
+    /// [`Net::stage_inputs`]' last f32 bits and their fp16, for skipping unchanged inputs.
+    input_seen: Vec<u32>,
+    input_cache: Vec<u16>,
 }
 
 include!("run_part1.rs");
 include!("run_part2.rs");
 include!("run_part3.rs");
 include!("run_part4.rs");
+include!("run_part5.rs");
