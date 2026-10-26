@@ -91,20 +91,29 @@ impl<'a> Builder<'a> {
                 // The untiled shader's register-blocked path (`in1` = 1): 4 channels x 8 columns
                 // of a row per invocation. Ungrouped only: maia's grouped 1x1 got slower.
                 let int8_blocked = kind == Kind::ConvInt8 && *group == 1;
+                // The int4 GEMM's wide path (`in1` = 1, `wide()` in conv_point_int4.comp): 4 channels
+                // x 8 positions per lane over 32 x 64 tiles, for whole blocks and quad-aligned columns.
+                let input_at = at(*input)?;
+                let int4_wide = kind == Kind::ConvPointInt4
+                    && si.c % 32 == 0
+                    && *weight % 4 == 0
+                    && positions % 4 == 0
+                    && input_at % 4 == 0;
                 // Workgroups for the staged kinds, output elements for the untiled one.
                 let count = match kind {
                     Kind::ConvVecInt8 | Kind::ConvVecInt4 | Kind::ConvVecQ2K => rows,
                     Kind::ConvPointInt8 if split => {
                         so.c.div_ceil(CONV_POINT_INT8_TILE / 2) * positions.div_ceil(CONV_POINT_INT8_TILE)
                     }
+                    Kind::ConvPointInt4 if int4_wide => so.c.div_ceil(CONV_POINT_INT8_TILE) * positions.div_ceil(64),
                     Kind::ConvPointInt8 | Kind::ConvPointInt4 | Kind::ConvPointQ2K => int8_tiles,
                     _ => so.len(),
                 };
                 ops.push(Op::Dispatch {
                     kind,
                     push: Push {
-                        in0: at(*input)?,
-                        in1: if row_gemm { 2 } else { u32::from(split || int8_blocked) },
+                        in0: input_at,
+                        in1: if row_gemm { 2 } else { u32::from(split || int8_blocked || int4_wide) },
                         out: at(*out)?,
                         // A word offset, not an fp16 one: int8 is unpacked through the
                         // 32-bit view of the weights buffer.
