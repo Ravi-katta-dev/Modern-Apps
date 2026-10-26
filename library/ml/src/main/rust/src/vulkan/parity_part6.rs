@@ -565,3 +565,22 @@ fn int8_gemms_either_side_of_the_split_threshold_agree_with_the_reference() {
         compare(&what, plan, weights.data().to_vec(), &[&input]);
     }
 }
+
+/// A kernel covering its whole input (mbf's 7x7 GDC) lowers to `conv_point.comp` over the
+/// flattened input; a non-square 5x7 window and 20 output channels keep it ragged.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_full_window_conv_agrees_with_the_reference() {
+    let input = spread(24 * 5 * 7, 2.0);
+    let source = Invented::new(2);
+    let plan = build(&source, &[Shape::new(24, 5, 7)], |b, ids| {
+        b.spatial_tiling();
+        b.conv(ids[0], 0, 20, (5, 7), (1, 1), (1, 1), (0, 0, 0, 0), 1, Act::Relu)
+    });
+    assert!(plan.ops.iter().any(|op| matches!(
+        op,
+        crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvPoint, push, .. }
+            if push.in_c == 24 * 5 * 7
+    )));
+    compare("a full-window conv", plan, source.into_data(), &[&input]);
+}

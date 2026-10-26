@@ -175,7 +175,18 @@ impl<'a> Builder<'a> {
                     && pad == &(0, 0)
                     && si.h == so.h
                     && si.w == so.w;
-                if tiled {
+                // A kernel covering the whole unpadded input (mbf's 7x7 GDC) is one dot product
+                // per channel over the flattened input: a 1x1 over `c * h * w` channels.
+                let full_window = !*transpose
+                    && *group == 1
+                    && kernel == &(si.h, si.w)
+                    && dilation == &(1, 1)
+                    && pad == &(0, 0)
+                    && so.h == 1
+                    && so.w == 1;
+                if tiled || full_window {
+                    let (in_c, in_h, in_w) =
+                        if full_window { (si.len(), 1, 1) } else { (si.c, si.h, si.w) };
                     let positions = so.h * so.w;
                     let tiles =
                         so.c.div_ceil(CONV_POINT_TILE) * positions.div_ceil(CONV_POINT_TILE);
@@ -187,9 +198,9 @@ impl<'a> Builder<'a> {
                             weight: *weight,
                             bias: *bias,
                             act_weight: *act_weight,
-                            in_c: si.c,
-                            in_h: si.h,
-                            in_w: si.w,
+                            in_c,
+                            in_h,
+                            in_w,
                             out_c: so.c,
                             out_h: so.h,
                             out_w: so.w,
