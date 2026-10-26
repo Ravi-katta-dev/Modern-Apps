@@ -353,8 +353,10 @@ mod tests {
         };
         for op in &dual.ops[half..] {
             match op {
-                Op::Dispatch { push, .. } => {
-                    for read in [push.in0, push.in1] {
+                Op::Dispatch { kind, push, .. } => {
+                    // `in1` is a path selector, not an operand, on the int8 GEMM.
+                    let in1 = if *kind == Kind::ConvPointInt8 { 0 } else { push.in1 };
+                    for read in [push.in0, in1] {
                         // `in1` is only meaningful on binary ops; the fused sentinel
                         // and the zero default of non-binary pushes are not reads.
                         if read == NO_FUSE || (read == 0 && push.in0 != 0) {

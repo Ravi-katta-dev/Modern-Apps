@@ -66,7 +66,101 @@ layout(std430, binding = 0) readonly buffer ArenaQuad {
 /// Channels and positions per invocation.
 #define BLOCK 4u
 
+/// Channels per invocation on the split path (`p.in1 == 1`).
+#define SPLIT 2u
+
+/// The wide path with two channels per invocation instead of four, for GEMMs whose 32 x 32 tiles
+/// are too few to fill the GPU (Supertonic's sampler: 512 x 52 is 32 workgroups). Twice the
+/// workgroups, each 16 channels x 32 positions. Every output sums the same terms in the same order
+/// as the four-row path, so the result is bit-identical. Selected only when `in_c % 16 == 0` and
+/// the weights are 16-byte aligned (see `nets`).
+void split_rows() {
+    uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
+    if (tile >= p.count) {
+        return;
+    }
+    uint positions = p.out_h * p.out_w;
+    uint tiles_across = (positions + TILE - 1u) / TILE;
+    uint lid = gl_LocalInvocationID.x;
+    uint channel_base = (tile / tiles_across) * (TILE / BLOCK * SPLIT) + (lid >> 3u) * SPLIT;
+    uint position_base = (tile % tiles_across) * TILE + (lid & 7u) * BLOCK;
+    if (position_base >= positions) {
+        return;
+    }
+    uint rows16[SPLIT];
+    for (uint i = 0u; i < SPLIT; i++) {
+        uint row = min(channel_base + i, p.out_c - 1u);
+        rows16[i] = (p.weight + ((row * p.in_c) >> 2u)) >> 2u;
+    }
+    vec4 sum[SPLIT];
+    for (uint i = 0u; i < SPLIT; i++) {
+        sum[i] = vec4(0.0);
+    }
+    if ((positions & 3u) == 0u && (p.in0 & 3u) == 0u) {
+        uint quads = positions >> 2u;
+        uint quad = (p.in0 + position_base) >> 2u;
+        for (uint k = 0u; k < p.in_c; k += 16u) {
+            uvec4 w[SPLIT];
+            for (uint i = 0u; i < SPLIT; i++) {
+                w[i] = weights128[rows16[i] + (k >> 4u)];
+            }
+            for (uint t = 0u; t < 16u; t++) {
+                vec4 x = vec4(arena_quad[quad + (k + t) * quads]);
+                for (uint i = 0u; i < SPLIT; i++) {
+                    float tap = float(bitfieldExtract(int(w[i][t >> 2u]), int((t & 3u) << 3u), 8));
+                    sum[i] += tap * x;
+                }
+            }
+        }
+    } else {
+        uint first = p.in0 + position_base;
+        uint last_quad = (p.in0 + p.in_c * positions - 1u) >> 2u;
+        for (uint k = 0u; k < p.in_c; k += 16u) {
+            uvec4 w[SPLIT];
+            for (uint i = 0u; i < SPLIT; i++) {
+                w[i] = weights128[rows16[i] + (k >> 4u)];
+            }
+            for (uint t = 0u; t < 16u; t++) {
+                uint at = first + (k + t) * positions;
+                uint q = at >> 2u;
+                uint s = at & 3u;
+                f16vec4 a = arena_quad[q];
+                f16vec4 b = arena_quad[min(q + 1u, last_quad)];
+                f16vec4 h = s == 0u ? a
+                    : s == 1u ? f16vec4(a.yzw, b.x)
+                    : s == 2u ? f16vec4(a.zw, b.xy)
+                    : f16vec4(a.w, b.xyz);
+                vec4 x = vec4(h);
+                for (uint i = 0u; i < SPLIT; i++) {
+                    float tap = float(bitfieldExtract(int(w[i][t >> 2u]), int((t & 3u) << 3u), 8));
+                    sum[i] += tap * x;
+                }
+            }
+        }
+    }
+    for (uint i = 0u; i < SPLIT; i++) {
+        uint channel = channel_base + i;
+        if (channel >= p.out_c) {
+            continue;
+        }
+        float scale = float(weights[p.act_weight + channel]);
+        float offset = float(weights[p.bias + channel]);
+        for (uint j = 0u; j < BLOCK; j++) {
+            if (position_base + j >= positions) {
+                continue;
+            }
+            uint index = channel * positions + position_base + j;
+            float value = quant_store(fused_store(sum[i][j] * scale + offset, p.act, channel, index));
+            arena[p.out_at + index] = float16_t(value);
+        }
+    }
+}
+
 void main() {
+    if (p.in1 == 1u) {
+        split_rows();
+        return;
+    }
     uint tile = gl_WorkGroupID.y * gl_NumWorkGroups.x + gl_WorkGroupID.x;
     if (tile >= p.count) {
         return;

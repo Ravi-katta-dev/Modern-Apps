@@ -11,6 +11,9 @@ const CONV_POINT_TILE: u32 = 16;
 /// register blocking and covers a larger tile - see its header. **Must equal `TILE` there.**
 const CONV_POINT_INT8_TILE: u32 = 32;
 
+/// Int8 GEMMs with fewer 32 x 32 tiles than this take `conv_point_int8.comp`'s split path.
+const CONV_POINT_INT8_SPLIT_BELOW: u32 = 256;
+
 /// `TILE` in the tiled modes of `shaders/attn_scores.comp` and `shaders/attn_apply.comp`.
 ///
 /// **Must equal `TILE` in both.** Held by `the_attention_tiles_match_their_shaders`.

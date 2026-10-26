@@ -70,9 +70,19 @@ impl<'a> Builder<'a> {
                     (Quant::Q2K, true, false) => Kind::ConvPointQ2K,
                     (Quant::Q2K, false, false) => Kind::ConvQ2K,
                 };
+                // Too few 32 x 32 tiles to fill the GPU: two channels per invocation instead of
+                // four, bit-identical. See `split_rows` in conv_point_int8.comp. On a Pixel 8,
+                // splitting everything under 256 tiles took Supertonic's sampler 2199 -> 1521 ms.
+                let split = kind == Kind::ConvPointInt8
+                    && si.c % 16 == 0
+                    && *weight % 4 == 0
+                    && int8_tiles < CONV_POINT_INT8_SPLIT_BELOW;
                 // Workgroups for the staged kinds, output elements for the untiled one.
                 let count = match kind {
                     Kind::ConvVecInt8 | Kind::ConvVecInt4 | Kind::ConvVecQ2K => rows,
+                    Kind::ConvPointInt8 if split => {
+                        so.c.div_ceil(CONV_POINT_INT8_TILE / 2) * positions.div_ceil(CONV_POINT_INT8_TILE)
+                    }
                     Kind::ConvPointInt8 | Kind::ConvPointInt4 | Kind::ConvPointQ2K => int8_tiles,
                     _ => so.len(),
                 };
@@ -80,6 +90,7 @@ impl<'a> Builder<'a> {
                     kind,
                     push: Push {
                         in0: at(*input)?,
+                        in1: u32::from(split),
                         out: at(*out)?,
                         // A word offset, not an fp16 one: int8 is unpacked through the
                         // 32-bit view of the weights buffer.
