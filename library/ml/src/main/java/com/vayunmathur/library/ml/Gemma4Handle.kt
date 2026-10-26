@@ -345,9 +345,18 @@ class Gemma4Handle private constructor(internal val directory: File) : AutoClose
         val token = when {
             sampling == null -> MlNative.stepGemma4(handle, next)
             sampling.topK in 1..GEMMA4_TOP_K_CANDIDATES -> {
-                val candidates =
-                    MlNative.topKGemma4(handle, next, GEMMA4_TOP_K_CANDIDATES) ?: return null
-                sampleGemma4Candidates(candidates, sampling, step)
+                val before = MlNative.positionGemma4(handle)
+                val candidates = MlNative.topKGemma4(handle, next, GEMMA4_TOP_K_CANDIDATES)
+                when {
+                    candidates != null -> sampleGemma4Candidates(candidates, sampling, step)
+                    // Only when the failed call did not consume the token: feeding it again
+                    // after it reached the cache would put it there twice.
+                    MlNative.positionGemma4(handle) == before -> {
+                        val logits = MlNative.logitsGemma4(handle, next) ?: return null
+                        sampleGemma4Logits(logits, sampling, step)
+                    }
+                    else -> return null
+                }
             }
             else -> {
                 val logits = MlNative.logitsGemma4(handle, next) ?: return null
