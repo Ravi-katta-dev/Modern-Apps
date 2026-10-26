@@ -146,4 +146,27 @@ impl<S: Copy + PartialEq> Reshaped<S> {
         }
         Ok(&mut self.net)
     }
+
+    /// What [`Reshaped::at`] would call to build a plan it does not hold, so a caller can build
+    /// one off the thread that owns the net. See [`Reshaped::adopt`].
+    pub fn planner(&self) -> (fn(&Offsets, S) -> Result<Plan, String>, Offsets) {
+        (self.plan, self.offsets.clone())
+    }
+
+    /// Whether [`Reshaped::at`] would re-record nothing or reuse a plan already built for `shape`.
+    pub fn holds(&self, shape: S) -> bool {
+        shape == self.at || self.built.iter().any(|(key, _)| *key == shape)
+    }
+
+    /// Hand over a plan built elsewhere from [`Reshaped::planner`] at `shape`, so the next
+    /// [`Reshaped::at`] there only re-records. The plan must be exactly what the planner returns.
+    pub fn adopt(&mut self, shape: S, plan: Plan) {
+        if self.holds(shape) {
+            return;
+        }
+        if self.built.len() == BUILT_PLANS {
+            self.built.remove(0);
+        }
+        self.built.push((shape, plan));
+    }
 }

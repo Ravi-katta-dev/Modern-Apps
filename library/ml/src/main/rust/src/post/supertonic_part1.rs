@@ -60,7 +60,7 @@ pub fn synthesise(
     let log_seconds = stages.duration(&embed_lanes(&with_token), &voice.duration)?;
     let frames = duration_net::latent_frames(duration_net::seconds(log_seconds) / SPEED);
 
-    let conditioning_text = stages.text(&embed_lanes(&ids), &voice.text)?;
+    let conditioning_text = stages.text_then(&embed_lanes(&ids), &voice.text, (frames, chars))?;
 
     let query_angles = rotary_angles(&conditioning.theta, frames)?;
     let key_angles = rotary_angles(&conditioning.theta, chars)?;

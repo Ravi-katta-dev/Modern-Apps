@@ -352,6 +352,18 @@ pub trait Stages {
     /// The text encoder, returning `[256, chars]`.
     fn text(&mut self, lanes: &[f32], style: &[f32]) -> Result<Vec<f32>, String>;
 
+    /// [`Stages::text`], told the `(frames, chars)` the sampler will run at next, so a stage can
+    /// prepare the sampler's plan while the text encoder runs. Provided: plain [`Stages::text`].
+    fn text_then(
+        &mut self,
+        lanes: &[f32],
+        style: &[f32],
+        sampler_shape: (u32, u32),
+    ) -> Result<Vec<f32>, String> {
+        let _ = sampler_shape;
+        self.text(lanes, style)
+    }
+
     /// One guidance branch of the sampler, returning `[144, frames]`.
     #[allow(clippy::too_many_arguments)]
     fn sampler(

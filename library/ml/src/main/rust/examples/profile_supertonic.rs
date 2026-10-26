@@ -175,6 +175,27 @@ impl supertonic::Stages for Timed {
         }
         out
     }
+    fn text_then(
+        &mut self,
+        lanes: &[f32],
+        style: &[f32],
+        sampler_shape: (u32, u32),
+    ) -> Result<Vec<f32>, String> {
+        if self.sampler.holds(sampler_shape) {
+            return self.text(lanes, style);
+        }
+        // As bridge_part1.rs: the sampler plan builds on another thread while the text encoder runs.
+        let (plan, offsets) = self.sampler.planner();
+        let (text, built) = std::thread::scope(|scope| {
+            let building = scope.spawn(move || plan(&offsets, sampler_shape));
+            let text = self.text(lanes, style);
+            (text, building.join())
+        });
+        if let Ok(Ok(built)) = built {
+            self.sampler.adopt(sampler_shape, built);
+        }
+        text
+    }
 
     fn sampler(
         &mut self,
