@@ -45,15 +45,14 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!--
-      AirDrop over Google's Mosey (AWDL) HAL, mirroring privapp-permissions-com.google.android.mosey.xml:
-      publishing `mosey0` as a local network needs NETWORK_FACTORY, and binding sockets/mDNS to that
-      restricted network needs CONNECTIVITY_USE_RESTRICTED_NETWORKS. Granted only when MAOS installs
-      :share as a whitelisted priv-app; elsewhere they are inert and AirDrop falls back to Wi-Fi.
+      AirDrop over Google's Mosey (AWDL) HAL. Publishing `mosey0` needs CREATE_APP_SPECIFIC_NETWORK
+      (ConnectivityService accepts it in place of NETWORK_FACTORY, which is signature|role and out of
+      reach), and binding sockets/mDNS to that restricted network needs
+      CONNECTIVITY_USE_RESTRICTED_NETWORKS. Both are signature|privileged: granted only when MAOS
+      installs :share as an allowlisted priv-app; elsewhere they are inert and AirDrop uses Wi-Fi.
     -->
-    <uses-permission android:name="android.permission.NETWORK_FACTORY" />
     <uses-permission android:name="android.permission.CREATE_APP_SPECIFIC_NETWORK" />
     <uses-permission android:name="android.permission.CONNECTIVITY_USE_RESTRICTED_NETWORKS" />
-    <uses-permission android:name="android.permission.MANAGE_WIFI_INTERFACES" />
 
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />

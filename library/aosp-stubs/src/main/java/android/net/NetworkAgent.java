@@ -10,8 +10,9 @@ import android.os.Looper;
  */
 public abstract class NetworkAgent {
     public NetworkAgent(Context context, Looper looper, String logTag, NetworkCapabilities nc,
-            LinkProperties lp, NetworkScore score, NetworkAgentConfig config,
+        LinkProperties lp, NetworkScore score, NetworkAgentConfig config,
             NetworkProvider provider) {
+        // provider may be null: an agent need not belong to a registered provider.
         throw new RuntimeException("Stub!");
     }
 

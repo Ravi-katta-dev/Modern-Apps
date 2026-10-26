@@ -68,10 +68,7 @@ class MoseyNetworkAgent private constructor(
             val looper = thread.looper
             val caps = capabilities()
             val lp = linkProperties(iface)
-            val provider = NetworkProvider(context, looper, "MoseyNetworkProvider")
-            ConnectivityManager::class.java
-                .getMethod("registerNetworkProvider", NetworkProvider::class.java)
-                .invoke(cm, provider)
+            val provider = registerProvider(context, cm, looper)
             val config = NetworkAgentConfig.Builder().setLegacyTypeName("WIFI_AWARE_FACTORY").build()
             val score = NetworkScore.Builder().setKeepConnectedReason(KEEP_CONNECTED_LOCAL_NETWORK).build()
             val agent = object : NetworkAgent(context, looper, "MoseyNetworkAgent", caps, lp, score, config, provider) {
@@ -88,6 +85,22 @@ class MoseyNetworkAgent private constructor(
             )
             Log.status(TAG, "mosey0 up as ${agent.network} with ${lp.linkAddresses}")
             return MoseyNetworkAgent(context, thread, agent, callback)
+        }
+
+        /**
+         * Registers Mosey's `NetworkProvider`, or returns null. Registration needs NETWORK_FACTORY
+         * (signature|role), which a priv-app cannot hold; an agent with no provider is still
+         * accepted under CREATE_APP_SPECIFIC_NETWORK, so this is only a nicety.
+         */
+        private fun registerProvider(context: Context, cm: ConnectivityManager, looper: android.os.Looper): NetworkProvider? {
+            val provider = NetworkProvider(context, looper, "MoseyNetworkProvider")
+            return runCatching {
+                ConnectivityManager::class.java
+                    .getMethod("registerNetworkProvider", NetworkProvider::class.java)
+                    .invoke(cm, provider)
+                provider
+            }.onFailure { Log.dev(TAG, "no NetworkProvider (${it.cause ?: it}); registering agent without one") }
+                .getOrNull()
         }
 
         private suspend fun awaitInterface(): NetworkInterface? {
