@@ -74,19 +74,41 @@ private fun softmaxWeights(
     logits: FloatArray,
     pool: List<Int>,
     temperature: Float
-): DoubleArray {
+): DoubleArray = softmaxOver(pool.map { logits[it] }, temperature)
+
+/** Candidates [MlNative.topKGemma4] returns per step; covers [Sampling.Chat]'s top_k. */
+const val GEMMA4_TOP_K_CANDIDATES = 64
+
+/**
+ * [sampleGemma4Logits] over [MlNative.topKGemma4]'s `[logit, id, ...]` candidates, highest
+ * first. Draws exactly the token [sampleGemma4Logits] would from the full logits whenever
+ * `config.topK` is at most the candidate count: the pool, its weights and the draw are the same.
+ */
+fun sampleGemma4Candidates(candidates: FloatArray, config: Sampling, step: Int): Int {
+    if (candidates.size < 2) return EMPTY_LOGITS_TOKEN
+    val count = candidates.size / 2
+    val ids = List(count) { candidates[it * 2 + 1].toInt() }
+    if (config.temperature <= 0f || (config.topK <= 1 && config.topP >= 1f)) return ids[0]
+    val take = if (config.topK in 1 until count) config.topK else count
+    val pool = ids.subList(0, take)
+    val weights = softmaxOver(List(take) { candidates[it * 2] }, config.temperature)
+    val kept = topPKept(weights, config.topP)
+    return drawFromPool(pool, weights, kept, config.seed + step)
+}
+
+private fun softmaxOver(values: List<Float>, temperature: Float): DoubleArray {
     val invTemp = 1f / temperature
     var peak = Float.NEGATIVE_INFINITY
-    for (index in pool) {
-        val scaled = logits[index] * invTemp
+    for (value in values) {
+        val scaled = value * invTemp
         if (scaled > peak) peak = scaled
     }
     // `exp(top - peak)`: shifting by the peak keeps the largest term at 1 rather than
     // overflowing, and monotonicity means the ordering is unchanged.
-    val mass = DoubleArray(pool.size)
+    val mass = DoubleArray(values.size)
     var total = 0.0
-    for (at in pool.indices) {
-        val weight = exp((logits[pool[at]] * invTemp - peak).toDouble())
+    for (at in values.indices) {
+        val weight = exp((values[at] * invTemp - peak).toDouble())
         mass[at] = weight
         total += weight
     }

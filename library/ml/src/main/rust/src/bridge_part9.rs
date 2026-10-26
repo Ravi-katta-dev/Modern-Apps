@@ -175,3 +175,78 @@ pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_destroyGe
     // SAFETY: the caller guarantees this runs once, after every other call on the handle.
     drop(unsafe { Box::from_raw(handle as *mut Gemma4AudioHandle) });
 }
+
+/// Feed one token and return its `k` most likely next tokens as `[logit, id, logit, id, ...]`,
+/// highest first, ties by lower id - the order a stable descending sort of the full logits gives,
+/// so sampling from these candidates draws exactly what sampling the full array would whenever
+/// `top_k <= k`. 2k floats cross the boundary instead of 262,144. Null on failure.
+///
+/// # Safety
+///
+/// Called only by the JVM, with a live handle from `createGemma4`.
+#[no_mangle]
+pub unsafe extern "system" fn Java_com_vayunmathur_library_ml_MlNative_topKGemma4<'l>(
+    mut env: EnvUnowned<'l>,
+    _class: JClass<'l>,
+    handle: jlong,
+    token: jint,
+    k: jint,
+) -> jfloatArray {
+    env.with_env(|env| -> jni::errors::Result<jfloatArray> {
+        if handle == 0 {
+            return Ok(std::ptr::null_mut());
+        }
+        // SAFETY: the caller guarantees the handle came from `createGemma4` and is still live.
+        let handle = unsafe { &mut *(handle as *mut Gemma4Handle) };
+        let (Ok(token), Ok(k)) = (u32::try_from(token), usize::try_from(k)) else {
+            log(&format!("gemma4 top-k was given token {token}, k {k}"));
+            return Ok(std::ptr::null_mut());
+        };
+        if token >= gemma4::VOCAB || k == 0 {
+            log(&format!("gemma4 top-k was given token {token}, k {k}"));
+            return Ok(std::ptr::null_mut());
+        }
+        let picked = handle
+            .step(token, true)
+            .and_then(|logits| logits.ok_or_else(|| "a decode step returned no logits".to_string()))
+            .map(|logits| top_k_pairs(&logits, k));
+        Ok(match picked {
+            Ok(pairs) => match new_float_array(env, &pairs) {
+                Ok(array) => array,
+                Err(e) => {
+                    log(&format!("gemma4 cannot return its candidates: {e}"));
+                    std::ptr::null_mut()
+                }
+            },
+            Err(e) => {
+                log(&format!("gemma4 top-k step failed: {e}"));
+                std::ptr::null_mut()
+            }
+        })
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
+}
+
+/// The `k` largest of `logits` as `[logit, id, ...]`, descending, ties by lower id. Ids are below
+/// 2^24, so they are exact as `f32`.
+fn top_k_pairs(logits: &[f32], k: usize) -> Vec<f32> {
+    let order = |a: &u32, b: &u32| logits[*b as usize].total_cmp(&logits[*a as usize]).then(a.cmp(b));
+    let mut ids: Vec<u32> = (0..logits.len() as u32).collect();
+    let k = k.min(ids.len());
+    if k < ids.len() {
+        ids.select_nth_unstable_by(k - 1, order);
+        ids.truncate(k);
+    }
+    ids.sort_unstable_by(order);
+    ids.iter().flat_map(|&id| [logits[id as usize], id as f32]).collect()
+}
+
+#[cfg(test)]
+mod top_k_tests {
+    #[test]
+    fn candidates_come_highest_first_with_ties_by_lower_id() {
+        let logits = [0.5, 2.0, -1.0, 2.0, 1.5, 0.5];
+        assert_eq!(super::top_k_pairs(&logits, 4), vec![2.0, 1.0, 2.0, 3.0, 1.5, 4.0, 0.5, 0.0]);
+        assert_eq!(super::top_k_pairs(&logits, 9).len(), 12, "k past the vocabulary keeps all");
+    }
+}

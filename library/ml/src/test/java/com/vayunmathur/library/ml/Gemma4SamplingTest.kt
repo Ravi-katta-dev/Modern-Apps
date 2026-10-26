@@ -95,4 +95,32 @@ class Gemma4SamplingTest {
 
         assertTrue(token == 0 || token == 1, "draw outside the vocabulary: $token")
     }
+
+    /** `[logit, id, ...]` for the [k] largest, ties by lower id, as `topKGemma4` returns them. */
+    private fun candidates(logits: FloatArray, k: Int): FloatArray {
+        val order = logits.indices.sortedByDescending { logits[it] }.take(k)
+        return FloatArray(order.size * 2) { if (it % 2 == 0) logits[order[it / 2]] else order[it / 2].toFloat() }
+    }
+
+    @Test
+    fun `sampling the native candidates draws what sampling the full logits draws`() {
+        val random = kotlin.random.Random(11)
+        val logits = FloatArray(4096) { (random.nextFloat() * 8f).let { v -> if (it % 97 == 0) 7.5f else v } }
+        val configs = listOf(
+            Sampling.Chat,
+            Sampling(topK = 64, topP = 1.0f, temperature = 0.7f, seed = 3L),
+            Sampling(topK = 10, topP = 0.5f, temperature = 1.3f, seed = 8L),
+            Sampling.Greedy,
+        )
+        val native = candidates(logits, GEMMA4_TOP_K_CANDIDATES)
+        for (config in configs) {
+            for (step in 0 until 50) {
+                assertEquals(
+                    sampleGemma4Logits(logits, config, step),
+                    sampleGemma4Candidates(native, config, step),
+                    "$config step $step",
+                )
+            }
+        }
+    }
 }

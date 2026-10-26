@@ -677,6 +677,14 @@ internal object MlNative {
      */
     external fun logitsGemma4(handle: Long, token: Int): FloatArray?
 
+    /**
+     * Feed one token and return its [k] most likely next tokens as `[logit, id, logit, id, ...]`,
+     * highest first, ties by lower id - the order [sampleGemma4Logits] sorts the full logits into,
+     * so [sampleGemma4Candidates] draws the same token whenever `topK <= k`. 2k floats instead of
+     * [logitsGemma4]'s 1 MB. Null on failure.
+     */
+    external fun topKGemma4(handle: Long, token: Int, k: Int): FloatArray?
+
     /** Positions currently in the KV cache, or -1. */
     external fun positionGemma4(handle: Long): Int
 

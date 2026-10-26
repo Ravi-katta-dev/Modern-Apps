@@ -340,13 +340,19 @@ class Gemma4Handle private constructor(internal val directory: File) : AutoClose
         return decode(produced.toIntArray())
     }
 
-    /** One generation step: greedy native step, or a sampled draw from fresh logits. */
+    /** One generation step: greedy native step, or a sampled draw from native candidates. */
     private fun nextToken(next: Int, sampling: Sampling?, step: Int): Int? {
-        val token = if (sampling == null) {
-            MlNative.stepGemma4(handle, next)
-        } else {
-            val logits = MlNative.logitsGemma4(handle, next) ?: return null
-            sampleGemma4Logits(logits, sampling, step)
+        val token = when {
+            sampling == null -> MlNative.stepGemma4(handle, next)
+            sampling.topK in 1..GEMMA4_TOP_K_CANDIDATES -> {
+                val candidates =
+                    MlNative.topKGemma4(handle, next, GEMMA4_TOP_K_CANDIDATES) ?: return null
+                sampleGemma4Candidates(candidates, sampling, step)
+            }
+            else -> {
+                val logits = MlNative.logitsGemma4(handle, next) ?: return null
+                sampleGemma4Logits(logits, sampling, step)
+            }
         }
         return if (token < 0) null else token
     }
