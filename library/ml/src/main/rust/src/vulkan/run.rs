@@ -288,6 +288,20 @@ pub struct Net {
     /// time, and nothing else can reach this pool.
     command_pool: vk::CommandPool,
     command_buffer: vk::CommandBuffer,
+    /// Other plans' recordings, oldest first, each still valid against the current arena,
+    /// staging buffer and descriptor sets. A rebuild into one of these plans swaps buffers
+    /// instead of re-recording.
+    ///
+    /// Recording is not cheap on Mali: the first time a plan with shared-memory dispatches is
+    /// recorded into a command buffer the driver spends ~1.7 ms per such dispatch (NLLB's first
+    /// DecodeStep record took 166 ms, every later switch 10-40 ms).
+    recorded: Vec<(Plan, vk::CommandBuffer)>,
+    /// Command buffers holding no valid recording, kept because a buffer the driver has already
+    /// grown records faster than a fresh one.
+    spare: Vec<vk::CommandBuffer>,
+    /// Whether any plan installed so far pinned tensors, so the arena holds state a growth
+    /// must carry over.
+    pinned_seen: bool,
     fence: vk::Fence,
     /// Timestamp query pool for per-op timings, or null when disabled.
     ///

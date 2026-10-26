@@ -35,6 +35,49 @@ fn a_rebuilt_net_agrees_with_the_reference_at_each_shape() {
     }
 }
 
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn switching_back_to_a_plan_swaps_in_its_kept_recording() {
+    // Encode/decode alternation: the second visit to each plan must reuse its recording, and a
+    // growth must drop every kept one, since they name the arena it frees.
+    let gamma = spread(8, 1.1);
+    let beta = spread(8, 2.3);
+    let given = Given::new(&[(vec![8], gamma), (vec![8], beta)])
+        .expect("the fixture tensors are consistent");
+    let data = given.data().to_vec();
+    let at = |width: u32| {
+        build(&given, &[Shape::new(8, 1, width)], |b, ids| {
+            let normed = b.layer_norm(ids[0], 0, 1e-5);
+            b.add(normed, ids[0])
+        })
+    };
+    let check = |net: &mut Net, width: u32| {
+        let plan = at(width);
+        let input = spread(8 * width as usize, width as f32);
+        let host = run_multi(&plan, &data, &[&input]).expect("the interpreter runs the plan");
+        let got = net.infer_raw(&input).expect("the net submits and reads back");
+        matches(&format!("a net switched to {width}"), &host, &got);
+    };
+
+    let weights = Weights::from_data(data.clone());
+    let mut net = Net::new(device(), at(3), &weights, RESCALE_ONLY).expect("it records");
+    check(&mut net, 3);
+    for width in [9u32, 3, 9, 3, 9] {
+        net.rebuild(at(width)).expect("the net switches");
+        check(&mut net, width);
+    }
+    assert!(net.keeps_recording(&at(3)), "the narrow plan's recording was dropped");
+
+    net.rebuild(at(17)).expect("the net grows");
+    check(&mut net, 17);
+    assert!(!net.keeps_recording(&at(3)), "a recording survived the arena it names");
+    assert!(!net.keeps_recording(&at(9)), "a recording survived the arena it names");
+    for width in [3u32, 17, 3] {
+        net.rebuild(at(width)).expect("the net switches after growing");
+        check(&mut net, width);
+    }
+}
+
 /// The shipped Supertonic text encoder and vocoder, on the device against the interpreter.
 ///
 /// The fixtures above are single ops over a handful of channels, and `onnx_parity.py` compares the
