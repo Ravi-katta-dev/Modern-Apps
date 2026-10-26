@@ -110,16 +110,16 @@ impl Reference {
         for channel in 0..p.out_c {
             let bias = self.weight(p.bias, channel)?;
             let shift = self.fused_shift(p, channel)?;
+            let slope = self.slope(p, channel)?;
             for position in 0..positions {
                 let mut total = 0.0f32;
                 for input in 0..p.in_c {
                     total += self.weight(p.weight, channel * p.in_c + input)?
                         * self.load(p.in0, input * positions + position)?;
                 }
-                // `Builder::conv` refuses to route a PRelu here, so the slope is never read.
                 let index = channel * positions + position;
                 let folded =
-                    activate(total + bias, p.act, 0.0) + self.fused_res(p, index)? + shift;
+                    activate(total + bias, p.act, slope) + self.fused_res(p, index)? + shift;
                 self.store(p.out, index, self.fused_quant(p, folded)?)?;
             }
         }

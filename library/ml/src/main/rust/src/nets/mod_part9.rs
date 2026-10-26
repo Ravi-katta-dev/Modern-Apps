@@ -174,8 +174,7 @@ impl<'a> Builder<'a> {
                     && stride == &(1, 1)
                     && pad == &(0, 0)
                     && si.h == so.h
-                    && si.w == so.w
-                    && !matches!(act, Act::PRelu(_));
+                    && si.w == so.w;
                 if tiled {
                     let positions = so.h * so.w;
                     let tiles =
@@ -187,6 +186,7 @@ impl<'a> Builder<'a> {
                             out: at(*out)?,
                             weight: *weight,
                             bias: *bias,
+                            act_weight: *act_weight,
                             in_c: si.c,
                             in_h: si.h,
                             in_w: si.w,

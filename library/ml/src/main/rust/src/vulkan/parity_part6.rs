@@ -511,3 +511,20 @@ fn blocked_int8_convs_agree_with_the_reference() {
         compare(&format!("a blocked int8 {what}"), plan, source.data().to_vec(), &[&input]);
     }
 }
+
+/// A 1x1 with a fused PReLU on `conv_point.comp` (MobileFaceNet's projections): 20 channels
+/// and 15x15 positions are ragged against the tile, and the slope is read per channel.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn a_pointwise_conv_with_prelu_agrees_with_the_reference() {
+    let input = spread(24 * 15 * 15, 3.0);
+    let source = Invented::new(3);
+    let plan = build(&source, &[Shape::new(24, 15, 15)], |b, ids| {
+        b.conv(ids[0], 0, 20, (1, 1), (1, 1), (1, 1), (0, 0, 0, 0), 1, Act::PRelu(2))
+    });
+    assert!(plan.ops.iter().any(|op| matches!(
+        op,
+        crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvPoint, .. }
+    )));
+    compare("a pointwise conv with PReLU", plan, source.into_data(), &[&input]);
+}
