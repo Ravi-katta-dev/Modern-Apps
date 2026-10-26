@@ -99,6 +99,15 @@ impl<'a> Builder<'a> {
                     && *weight % 4 == 0
                     && positions % 4 == 0
                     && input_at % 4 == 0;
+                // A grouped single-position 1x1 (maia's bias expansion): `grouped_rows` in
+                // conv_int8.comp, `in1` = 2, wide loads of each group's taps.
+                let grouped_vec = kind == Kind::ConvInt8
+                    && *group > 1
+                    && positions == 1
+                    && kernel == &(1, 1)
+                    && (si.c / *group) % 16 == 0
+                    && *weight % 4 == 0
+                    && input_at % 4 == 0;
                 // Workgroups for the staged kinds, output elements for the untiled one.
                 let count = match kind {
                     Kind::ConvVecInt8 | Kind::ConvVecInt4 | Kind::ConvVecQ2K => rows,
@@ -113,7 +122,11 @@ impl<'a> Builder<'a> {
                     kind,
                     push: Push {
                         in0: input_at,
-                        in1: if row_gemm { 2 } else { u32::from(split || int8_blocked || int4_wide) },
+                        in1: if row_gemm || grouped_vec {
+                            2
+                        } else {
+                            u32::from(split || int8_blocked || int4_wide)
+                        },
                         out: at(*out)?,
                         // A word offset, not an fp16 one: int8 is unpacked through the
                         // 32-bit view of the weights buffer.

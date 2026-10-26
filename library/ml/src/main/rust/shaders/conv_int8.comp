@@ -105,9 +105,40 @@ void tiled_int8() {
     }
 }
 
+// A grouped single-position 1x1 (`p.in1 == 2`, maia's attention-bias expansion): one output per
+// invocation, its group's taps read 16 at a time through the `uvec4` and quad views but summed
+// one by one in `main`'s order, so the result is identical. `nets` checks the alignment.
+void grouped_rows() {
+    uint oc = global_index();
+    if (oc >= p.out_c) {
+        return;
+    }
+    uint per_group = p.in_c / p.group;
+    uint group = oc / (p.out_c / p.group);
+    uint row16 = (p.weight + ((oc * per_group) >> 2u)) >> 2u;
+    uint quad = (p.in0 + group * per_group) >> 2u;
+    float total = 0.0;
+    for (uint k = 0u; k < per_group; k += 16u) {
+        uvec4 w = weights128[row16 + (k >> 4u)];
+        for (uint q = 0u; q < 4u; q++) {
+            vec4 x = vec4(arena_quad[quad + (k >> 2u) + q]);
+            for (uint t = 0u; t < 4u; t++) {
+                total += float(bitfieldExtract(int(w[q]), int(t << 3u), 8)) * x[t];
+            }
+        }
+    }
+    float scale = float(weights[p.act_weight + oc]);
+    float biased = total * scale + float(weights[p.bias + oc]);
+    arena[p.out_at + oc] = float16_t(quant_store(fused_store(biased, p.act, oc, oc)));
+}
+
 void main() {
     if (p.in1 == 1u) {
         tiled_int8();
+        return;
+    }
+    if (p.in1 == 2u) {
+        grouped_rows();
         return;
     }
     uint index = global_index();

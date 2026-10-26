@@ -254,3 +254,41 @@ fn a_split_pointwise_conv_agrees_with_the_reference() {
     )));
     compare("a split pointwise conv", plan, source.into_data(), &[&input]);
 }
+
+/// `conv_int8.comp`'s grouped single-position path (`in1` = 2, maia's attention-bias
+/// expansion): 4 groups of 16 taps and 2 groups of 32, each group with 10 output channels.
+#[test]
+#[ignore = "needs a Vulkan device"]
+fn grouped_int8_vectors_agree_with_the_reference() {
+    for (in_channels, groups) in [(64u32, 4u32), (64, 2)] {
+        let out_channels = 10 * groups;
+        let taps = in_channels / groups;
+        let weights: Vec<i8> =
+            (0..(out_channels * taps) as i32).map(|i| ((i * 37) % 251 - 125) as i8).collect();
+        let scales: Vec<f32> =
+            (0..out_channels).map(|c| 0.003_906_25 * (1.0 + (c % 5) as f32)).collect();
+        let blob = write_mixed(
+            graph::SUPERTONIC_VE,
+            &[
+                Fixture::I8(vec![out_channels, taps, 1, 1], weights),
+                Fixture::F16(vec![out_channels], scales),
+                Fixture::F16(vec![out_channels], spread(out_channels as usize, 0.5)),
+            ],
+        );
+        let source = Weights::parse(&blob, graph::SUPERTONIC_VE).expect("the fixture blob parses");
+        let input = spread(in_channels as usize, 0.9);
+        let mut builder = Builder::new(&source);
+        let first = builder.input(Shape::new(in_channels, 1, 1));
+        let last = builder.conv_int8(
+            first, 0, out_channels, (1, 1), (1, 1), (1, 1), (0, 0, 0, 0), groups, Act::None,
+        );
+        let plan = builder.finish(&[last]).expect("the grouped plan builds");
+        assert!(plan.ops.iter().any(|op| matches!(
+            op,
+            crate::nets::Op::Dispatch { kind: crate::nets::Kind::ConvInt8, push, .. }
+                if push.in1 == 2
+        )), "{groups} groups missed the grouped path");
+        let what = format!("a grouped int8 vector, {groups} groups");
+        compare(&what, plan, source.data().to_vec(), &[&input]);
+    }
+}
